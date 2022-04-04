@@ -1,0 +1,50 @@
+name: Docker Build
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  java:
+    name: Java build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install required apt packages
+        run: |
+            sudo apt install opam
+            sudo apt clean
+
+      - name: Setup opam
+        run: ./build-infer.sh --only-setup-opam
+
+      - name: Build Infer for Java
+        run: ./build-infer.sh --yes java
+
+      - name: Run direct java tests
+        run: make direct_java_racerd_test direct_java_pulse_test direct_java_nullsafe_test
+
+      - name: Run Maven integration tests
+        run: make build_mvn_test
+
+  erlang:
+    name: Erlang build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install required apt packages
+        run: |
+            sudo apt install opam
+            sudo apt clean
+
+      - name: Setup opam
+        run: ./build-infer.sh --only-setup-opam
+
+      - name: Build Infer for Erlang
+        run: ./build-infer.sh --yes erlang
