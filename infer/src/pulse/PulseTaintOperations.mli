@@ -12,9 +12,17 @@ open PulseDomainInterface
 val call :
      PathContext.t
   -> Location.t
-  -> Procname.t option
-  -> (AbstractValue.t * ValueHistory.t) ProcnameDispatcher.Call.FuncArg.t list
   -> Ident.t * Typ.t
-  -> ExecutionDomain.t AccessResult.t list
-  -> ExecutionDomain.t AccessResult.t list
+  -> call_was_unknown:bool
+  -> (Exp.t, Procname.t) Either.t
+  -> (AbstractValue.t * ValueHistory.t) ProcnameDispatcher.Call.FuncArg.t list
+  -> AbductiveDomain.t
+  -> AbductiveDomain.t AccessResult.t
 (** add sources and sinks coming from a particular call site *)
+
+val check_not_tainted_wrt_sink :
+     Location.t
+  -> Taint.t * Trace.t
+  -> AbstractValue.t
+  -> AbductiveDomain.t
+  -> (AbductiveDomain.t, AccessResult.error) result
