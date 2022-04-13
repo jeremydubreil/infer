@@ -6,6 +6,9 @@
 -module(features_guard_bifs).
 
 -export([
+    test_is_list3_nomodule_Bad/0,
+    test_is_list2_nomodule_Ok/0,
+    test_is_list1_nomodule_Ok/0,
     test_is_map1_Ok/0,
     test_is_map2_Ok/0,
     test_is_map3_Ok/0,
@@ -33,7 +36,11 @@
     test_accepts_bool_nomodule1_Ok/0,
     test_accepts_bool_nomodule2_Ok/0,
     test_accepts_bool_nomodule3_Bad/0,
-    test_accepts_bool_nomodule4_Bad/0
+    test_accepts_bool_nomodule4_Bad/0,
+    test_accepts_integer1_Ok/0,
+    test_accepts_integer2_Bad/0,
+    test_accepts_integer_nomodule1_Ok/0,
+    test_accepts_integer_nomodule2_Bad/0
 ]).
 
 accepts_map(M) when erlang:is_map(M) -> ok.
@@ -119,3 +126,15 @@ test_accepts_bool_nomodule2_Ok() -> accepts_bool_nomodule(false).
 test_accepts_bool_nomodule3_Bad() -> accepts_bool_nomodule(not_a_bool).
 
 test_accepts_bool_nomodule4_Bad() -> accepts_bool_nomodule([not_an, atom]).
+
+accepts_integer(X) when erlang:is_integer(X) -> ok.
+
+test_accepts_integer1_Ok() -> accepts_integer(182).
+
+test_accepts_integer2_Bad() -> accepts_integer(not_an_int).
+
+accepts_integer_nomodule(X) when is_integer(X) -> ok.
+
+test_accepts_integer_nomodule1_Ok() -> accepts_integer_nomodule(182).
+
+test_accepts_integer_nomodule2_Bad() -> accepts_integer_nomodule(not_an_int).

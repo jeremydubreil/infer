@@ -30,8 +30,11 @@ let report_topl_errors proc_desc err_log summary =
 let report_unnecessary_copies proc_desc err_log non_disj_astate =
   PulseNonDisjunctiveDomain.get_copied non_disj_astate
   |> List.iter ~f:(fun (var, location) ->
+         let var_name = Format.asprintf "%a" Var.pp var in
          let diagnostic = Diagnostic.UnnecessaryCopy {variable= var; location} in
-         PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic )
+         PulseReport.report
+           ~is_suppressed:(String.is_substring var_name ~substring:"copy")
+           ~latent:false proc_desc err_log diagnostic )
 
 
 let heap_size () = (Gc.quick_stat ()).heap_words
@@ -325,11 +328,11 @@ module PulseTransferFunctions = struct
             let call_was_unknown =
               match call_was_unknown with `UnknownCall -> true | `KnownCall -> false
             in
-            let* astate =
-              PulseTaintOperations.call path call_loc ret ~call_was_unknown call_event func_args
-                astate
+            let+ astate =
+              PulseTaintOperations.call tenv path call_loc ret ~call_was_unknown call_event
+                func_args astate
             in
-            Ok (ContinueProgram astate)
+            ContinueProgram astate
         | ( ExceptionRaised _
           | ExitProgram _
           | AbortProgram _
@@ -787,8 +790,12 @@ let with_html_debug_node node ~desc ~f =
 
 
 let initial tenv proc_desc =
-  [ ( ContinueProgram (PulseObjectiveCSummary.mk_initial_with_positive_self tenv proc_desc)
-    , PathContext.initial ) ]
+  let initial_astate =
+    AbductiveDomain.mk_initial tenv proc_desc
+    |> PulseObjectiveCSummary.initial_with_positive_self proc_desc
+    |> PulseTaintOperations.taint_initial tenv proc_desc
+  in
+  [(ContinueProgram initial_astate, PathContext.initial)]
 
 
 let should_analyze proc_desc =

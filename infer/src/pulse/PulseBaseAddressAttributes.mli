@@ -16,8 +16,7 @@ val filter : (AbstractValue.t -> Attributes.t -> bool) -> t -> t
 
 val for_all : (AbstractValue.t -> Attributes.t -> bool) -> t -> bool
 
-val filter_with_discarded_addrs :
-  (AbstractValue.t -> Attributes.t -> bool) -> t -> t * AbstractValue.t list
+val filter_with_discarded_addrs : (AbstractValue.t -> bool) -> t -> t * AbstractValue.t list
 
 val find_opt : AbstractValue.t -> t -> Attributes.t option
 
@@ -26,6 +25,8 @@ val add_one : AbstractValue.t -> Attribute.t -> t -> t
 val add : AbstractValue.t -> Attributes.t -> t -> t
 
 val allocate : Attribute.allocator -> AbstractValue.t -> Location.t -> t -> t
+
+val always_reachable : AbstractValue.t -> t -> t
 
 val java_resource_release : AbstractValue.t -> t -> t
 
