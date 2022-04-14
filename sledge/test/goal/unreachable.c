@@ -5,12 +5,22 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-typedef double vector4 __attribute__((ext_vector_type(4)));
+int
+foo(int x)
+{
+  return x + __llair_choice();
+}
+int
+bar(int x)
+{
+  return x * __llair_choice();
+}
+
+extern int pit;
 
 int
 main()
 {
-  vector4 x = {1, 2, 3, 4};
-  vector4 y = 2 * x;
-  return 0;
+  int a = foo(5);
+  int b = bar(b);
 }
