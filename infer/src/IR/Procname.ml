@@ -497,9 +497,28 @@ module Erlang = struct
 
   let pp verbosity fmt pname = pp_general '/' verbosity fmt pname
 
-  let pp_filename fmt pname = pp_general '#' Verbose fmt pname
+  let pp_filename fmt {module_name; function_name; arity} =
+    (* Extend list of illegal characters if needed. *)
+    let target = "/:<>" in
+    let replacement = "_" in
+    let f = Staged.unstage (String.tr_multi ~target ~replacement) in
+    let module_name = f module_name in
+    let function_name = f function_name in
+    pp_general '#' Verbose fmt {module_name; function_name; arity}
+
 
   let set_arity arity name = {name with arity}
+
+  let call_unqualified fun_arity =
+    { module_name= ErlangTypeName.infer_erlang_namespace
+    ; function_name= "__call_unqualified"
+    ; arity= fun_arity + 1 }
+
+
+  let call_qualified fun_arity =
+    { module_name= ErlangTypeName.infer_erlang_namespace
+    ; function_name= "__call_qualified"
+    ; arity= fun_arity + 2 }
 end
 
 module Block = struct
@@ -1169,6 +1188,10 @@ let make_erlang ~module_name ~function_name ~arity = Erlang {module_name; functi
 let make_objc_dealloc name = ObjC_Cpp (ObjC_Cpp.make_dealloc name)
 
 let make_objc_copyWithZone ~is_mutable name = ObjC_Cpp (ObjC_Cpp.make_copyWithZone ~is_mutable name)
+
+let erlang_call_unqualified ~arity = Erlang (Erlang.call_unqualified arity)
+
+let erlang_call_qualified ~arity = Erlang (Erlang.call_qualified arity)
 
 module Hashable = struct
   type nonrec t = t [@@deriving compare, equal]
