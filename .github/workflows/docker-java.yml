@@ -7,55 +7,56 @@ on:
 jobs:
   build:
     name: Docker Image for Java
-    matrix:
-      os:
-        - macOS-latest
-        - ubuntu-latest
+    strategy:
+      matrix:
+        os:
+          - macOS-latest
+          - ubuntu-latest
     runs-on: ${{ matrix.os }}
 
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Install Required Apt Packages for Ubuntu
-      run: |
-          sudo apt install clang libmpfr-dev ninja-build opam
-          sudo apt clean
-      if: runner.os == 'Linux'
+      - name: Install Required Apt Packages for Ubuntu
+        run: |
+            sudo apt install clang libmpfr-dev ninja-build opam
+            sudo apt clean
+        if: runner.os == 'Linux'
 
-    - name: Install Required Brew Packages for MacOS
-      run: brew install automake opam ninja mercurial darcs
-      if: runner.os == 'macOS'
+      - name: Install Required Brew Packages for MacOS
+        run: brew install automake opam ninja mercurial darcs
+        if: runner.os == 'macOS'
 
-    - name: Install Opam Dependencies
-      run: |
+      - name: Install Opam Dependencies
+        run: |
           ./build-infer.sh --only-setup-opam
           opam clean
 
-    - name: Build Infer for Java
-      run: ./build-infer.sh --yes java
+      - name: Build Infer for Java
+        run: ./build-infer.sh --yes java
 
-    - name: Test Installation
-      run: make install BUILD_MODE=opt
-      if: runner.os == 'macOS'
+      - name: Test Installation
+        run: make install BUILD_MODE=opt
+        if: runner.os == 'macOS'
 
-    - name: Test Installation
-      run: |
-        sudo make install BUILD_MODE=opt
-        # restore permissions after root build
-        sudo chown $USER: -R .
-      if: runner.os == 'Linux'
+      - name: Test Installation
+        run: |
+          sudo make install BUILD_MODE=opt
+          # restore permissions after root build
+          sudo chown $USER: -R .
+        if: runner.os == 'Linux'
 
-    - name: Install Development Environment
-      run: make devsetup
+      - name: Install Development Environment
+        run: make devsetup
 
-    - name: Run Direct Java Tests
-      run: >
-        make
-          direct_java_racerd_test
-          direct_java_quandary_test
-          direct_java_pulse_test
-          direct_java_nullsafe_test
+      - name: Run Direct Java Tests
+        run: >
+          make
+            direct_java_racerd_test
+            direct_java_quandary_test
+            direct_java_pulse_test
+            direct_java_nullsafe_test
 
-    - name: Run Maven Integration Tests
-      run: make build_mvn_test
+      - name: Run Maven Integration Tests
+        run: make build_mvn_test
