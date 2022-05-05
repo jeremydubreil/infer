@@ -28,35 +28,14 @@ jobs:
         run: brew install automake opam ninja mercurial darcs
         if: runner.os == 'macOS'
 
-      - name: Install Opam Dependencies
-        run: |
-          ./build-infer.sh --only-setup-opam
-          opam clean
-
       - name: Build Infer for Java
         run: ./build-infer.sh --yes java
-
-      - name: Test Installation
-        run: make install BUILD_MODE=opt
-        if: runner.os == 'macOS'
-
-      - name: Test Installation
-        run: |
-          sudo make install BUILD_MODE=opt
-          # restore permissions after root build
-          sudo chown $USER: -R .
-        if: runner.os == 'Linux'
 
       - name: Install Development Environment
         run: make devsetup
 
       - name: Run Direct Java Tests
-        run: >
-          make
-            direct_java_racerd_test
-            direct_java_quandary_test
-            direct_java_pulse_test
-            direct_java_nullsafe_test
+        run: make direct_java_racerd_test direct_java_quandary_test direct_java_pulse_test direct_java_nullsafe_test
 
       - name: Run Maven Integration Tests
         run: make build_mvn_test
