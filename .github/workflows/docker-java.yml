@@ -7,35 +7,22 @@ on:
 jobs:
   build:
     name: Docker Image for Java
-    strategy:
-      matrix:
-        os:
-          - macOS-latest
-          - ubuntu-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Required Apt Packages for Ubuntu
+      - name: Install Required Apt Packages
         run: |
             sudo apt install clang libmpfr-dev ninja-build opam
             sudo apt clean
-        if: runner.os == 'Linux'
-
-      - name: Install Required Brew Packages for MacOS
-        run: brew install automake opam ninja mercurial darcs
-        if: runner.os == 'macOS'
 
       - name: Build Infer for Java
         run: ./build-infer.sh --yes java
 
-      - name: Install Development Environment
-        run: make devsetup
-
       - name: Run Direct Java Tests
-        run: make direct_java_racerd_test direct_java_quandary_test direct_java_pulse_test direct_java_nullsafe_test
+        run: make direct_java_racerd_test direct_java_pulse_test direct_java_nullsafe_test
 
       - name: Run Maven Integration Tests
         run: make build_mvn_test
