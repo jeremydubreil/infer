@@ -275,9 +275,23 @@ struct SwapSimple {
 
 struct SwapVector {
   std::vector<int> v;
-  void swap_ok_FP(SwapVector& x) {
+  void swap_ok(SwapVector& x) {
     const auto temp = v;
     v = x.v;
     x.v = temp;
   }
 };
+
+void capture_by_value_ok(SimpleS arg) {
+  auto f = [c = arg]() mutable { c.a = 19; };
+}
+
+// NOTE: Currently we do not support unnecessary capture-by-value in lambda.
+void capture_by_value_bad_FN(SimpleS arg) {
+  auto f = [c = arg]() { int n = c.a; };
+}
+
+void constructor_bad() {
+  std::vector<int> source;
+  auto cpy = source;
+}
