@@ -40,7 +40,7 @@ jobs:
 
       - name: Install required apt packages
         run: |
-            sudo apt install opam
+            sudo apt install opam sqlite3
             sudo apt clean
 
       - name: Setup opam
