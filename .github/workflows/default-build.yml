@@ -6,7 +6,7 @@ on:
 
 jobs:
   java:
-    name: Java Image
+    name: Java build
     runs-on: ubuntu-latest
 
     steps:
@@ -31,7 +31,7 @@ jobs:
         run: make build_mvn_test
 
   erlang:
-    name: Erlang Image
+    name: Erlang build
     runs-on: ubuntu-latest
 
     steps:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Install required apt packages
         run: |
-            sudo apt install opam sqlite3
+            sudo apt install opam
             sudo apt clean
 
       - name: Setup opam
