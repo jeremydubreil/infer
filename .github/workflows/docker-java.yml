@@ -5,16 +5,13 @@ on:
   - pull_request
 
 jobs:
-  build:
-    name: Docker Image for Java
+  java:
+    name: Java Image
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v3
-
-      - name: Check Docker Version
-        run: docker --version
 
       - name: Install Required Apt Packages
         run: |
@@ -29,3 +26,19 @@ jobs:
 
       - name: Run Maven Integration Tests
         run: make build_mvn_test
+
+  erlang:
+    name: Erlang Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install Required Apt Packages
+        run: |
+            sudo apt install opam
+            sudo apt clean
+
+      - name: Build Infer for Erlang
+        run: ./build-infer.sh --yes erlang
