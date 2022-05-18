@@ -226,7 +226,7 @@ let is_container_write tenv pn =
       false
 
 
-let is_container_read tenv pn =
+let rec is_container_read tenv pn =
   match (pn : Procname.t) with
   | CSharp _ ->
       is_csharp_container_read tenv pn []
@@ -237,6 +237,8 @@ let is_container_read tenv pn =
      treatment between std::map::operator[] and all other operator[]. *)
   | ObjC_Cpp _ | C _ ->
       (not (is_cpp_container_write pn)) && is_cpp_container_read pn
+  | WithAliasingParameters (base, _) ->
+      is_container_read tenv base
   | Erlang _ | Linters_dummy_method | Block _ | WithBlockParameters _ ->
       false
 
@@ -598,7 +600,7 @@ let is_initializer tenv proc_name =
 
 
 let get_current_class_and_superclasses_satisfying_attr_check check tenv pname =
-  match pname with
+  match Procname.base_of pname with
   | Procname.Java java_pname ->
       let current_class = Procname.Java.get_class_type_name java_pname in
       let satisfying_classes =

@@ -485,14 +485,14 @@ struct
       | Some (Thread.Suspended ip) ->
           Some (M.add ~key:tid ~data:(Thread.Runnable ip) threads)
       | _ ->
-          [%Trace.info " prune resume of non-suspended thread: %i" tid] ;
+          [%Dbg.info " prune resume of non-suspended thread: %i" tid] ;
           None
 
     let join tid threads =
       match M.find tid threads with
       | Some (Thread.Terminated (tc, _)) -> Some (tc, M.remove tid threads)
       | _ ->
-          [%Trace.info " prune join of non-terminated thread: %i" tid] ;
+          [%Dbg.info " prune join of non-terminated thread: %i" tid] ;
           None
   end
 
@@ -567,6 +567,41 @@ struct
         | `Both (d1, d2) -> Some (Int.max d1 d2) )
   end
 
+  module Hist = struct
+    (** a history is a current instruction pointer and some list of
+        predecessors. [preds] are empty iff this is an entrypoint. *)
+    type t = {curr: Llair.IP.t; preds: t iarray} [@@deriving sexp_of]
+
+    let init ip = {curr= ip; preds= IArray.empty}
+    let extend curr preds = {curr; preds= IArray.of_list preds}
+
+    let dump h fs =
+      (* todo: output nicely-formatted DAG; just printing a single
+         arbitrarily-chosen witness path from the root for now. *)
+      let path =
+        let rec path_impl h =
+          h.curr
+          ::
+          ( if IArray.is_empty h.preds then []
+          else path_impl (IArray.get h.preds 0) )
+        in
+        path_impl >> List.rev
+      in
+      let pp_ip fs ip =
+        let open Llair in
+        let loc =
+          let+ inst = IP.inst ip in
+          Inst.loc inst
+        in
+        Format.fprintf fs "%a%a%a" Function.pp (IP.block ip).parent.name
+          IP.pp ip
+          (Option.pp " (%a)" Loc.pp)
+          loc
+      in
+      Format.fprintf fs "@[<v 2>Witness Trace:@ %a@]" (List.pp "@ " pp_ip)
+        (path h)
+  end
+
   type switches = int [@@deriving compare, equal, sexp_of]
 
   (** Abstract memory, control, and history state, with a slot used for the
@@ -581,7 +616,8 @@ struct
     ; threads: Threads.t  (** scheduling state of the threads *)
     ; switches: switches  (** count of preceding context switches *)
     ; depths: Depths.t  (** count of retreating edge crossings *)
-    ; goal: Goal.t  (** goal for symbolic execution exploration *) }
+    ; goal: Goal.t  (** goal for symbolic execution exploration *)
+    ; history: Hist.t  (** DAG history of executions to this point *) }
   [@@deriving sexp_of]
 
   (** An abstract machine state consists of the instruction pointer of the
@@ -608,7 +644,7 @@ struct
           (** pre-computed summary of inactive thread scheduling states, for
               use by e.g. [Elt.compare] *) }
 
-  let pp_state ppf state = [%Trace.fprintf ppf "@[%a@]@\n" D.pp state]
+  let pp_state ppf state = [%Dbg.fprintf ppf "@[%a@]@\n" D.pp state]
 
   module Work : sig
     type t
@@ -690,7 +726,8 @@ struct
         across several executions that share the same execution history. *)
     module Joinable = struct
       module T = struct
-        type t = D.t * Depths.t [@@deriving compare, equal, sexp_of]
+        type t = {state: D.t; depths: Depths.t; history: Hist.t [@ignore]}
+        [@@deriving compare, equal, sexp_of]
       end
 
       module M = Map.Make (T)
@@ -711,12 +748,15 @@ struct
             M.add_multi ~key ~data m )
 
       let join m =
-        let states, depths, edges =
-          M.fold m (D.Set.empty, Depths.empty, [])
-            ~f:(fun ~key:(q, d) ~data:e (qs, ds, es) ->
-              (D.Set.add q qs, Depths.join d ds, List.append e es) )
+        let states, depths, hists, edges =
+          M.fold m (D.Set.empty, Depths.empty, [], [])
+            ~f:(fun ~key ~data:e (qs, ds, hs, es) ->
+              ( D.Set.add key.state qs
+              , Depths.join key.depths ds
+              , key.history :: hs
+              , List.append e es ) )
         in
-        (D.joinN states, depths, edges)
+        (D.joinN states, depths, hists, edges)
     end
 
     (** Sequential states indexed by concurrent states. When sequential
@@ -743,13 +783,13 @@ struct
     type t = Queue.t * Cursor.t
 
     let prune switches depth edge =
-      [%Trace.info " %i,%i: %a" switches depth Edge.pp edge]
+      [%Dbg.info " %i,%i: %a" switches depth Edge.pp edge]
 
-    let pp_queue ppf queue = [%Trace.fprintf ppf "@ | %a" Queue.pp queue]
+    let pp_queue ppf queue = [%Dbg.fprintf ppf "@ | %a" Queue.pp queue]
 
     let enqueue depth ({ctrl= {dst} as edge; state; threads; depths} as elt)
         (queue, cursor) =
-      [%Trace.info
+      [%Dbg.info
         " %i,%i: %a%a@\n@[%a@]" elt.switches depth Edge.pp edge pp_queue
           queue pp_state state] ;
       let threads, inactive = Threads.after_step dst threads in
@@ -772,8 +812,9 @@ struct
       let depths = Depths.empty in
       let queue = Queue.create () in
       let cursor = Cursor.empty in
+      let history = Hist.init ip in
       enqueue depth
-        {ctrl= edge; state; threads; switches; depths; goal}
+        {ctrl= edge; state; threads; switches; depths; goal; history}
         (queue, cursor)
 
     let add ~retreating ({ctrl= edge; depths} as elt) wl =
@@ -816,7 +857,9 @@ struct
       let* ({threads} as top), elts, queue = Queue.top queue in
       let succs =
         Iter.fold elts Succs.empty ~f:(fun incoming succs ->
-            let {ctrl= {edge}; state; switches; depths; goal} = incoming in
+            let {ctrl= {edge}; state; switches; depths; goal; history} =
+              incoming
+            in
             let incoming_tid = Thread.id edge.dst in
             Threads.fold threads succs ~f:(fun active succs ->
                 match active with
@@ -827,7 +870,7 @@ struct
                     in
                     Succs.add
                       ~key:(switches, ip, threads, goal)
-                      ~data:((state, depths), edge)
+                      ~data:(({state; depths; history} : Joinable.T.t), edge)
                       succs ) )
       in
       let found, hit_end =
@@ -858,14 +901,15 @@ struct
           Report.hit_switch_bound Config.switch_bound ;
           dequeue (queue, cursor)
       | Some ((switches, ip, threads, goal), next_states, cursor) ->
-          let state, depths, edges = Joinable.join next_states in
-          [%Trace.info
+          let state, depths, histories, edges = Joinable.join next_states in
+          let history = Hist.extend ip.ip histories in
+          [%Dbg.info
             " %i,%i: %a <-t%i- {@[%a@]}%a" switches top.ctrl.depth IP.pp ip
               ip.tid
               (List.pp " ∨@ " Edge.pp)
               edges pp_queue queue] ;
           Some
-            ( {ctrl= ip; state; threads; switches; depths; goal}
+            ( {ctrl= ip; state; threads; switches; depths; goal; history}
             , (queue, cursor) )
       | None -> dequeue (queue, cursor)
 
@@ -878,7 +922,7 @@ struct
   let summary_table = Llair.Function.Tbl.create ()
 
   let pp_st () =
-    [%Trace.printf
+    [%Dbg.printf
       "@[<v>%t@]" (fun fs ->
           Llair.Function.Tbl.iteri summary_table ~f:(fun ~key ~data ->
               Format.fprintf fs "@[<v>%a:@ @[%a@]@]@ " Llair.Function.pp key
@@ -897,15 +941,16 @@ struct
     let state = Option.fold ~f:(D.exec_kill tid) areturn state in
     exec_jump return {ams with state} wl
 
-  let exec_call globals call ({ctrl= {stk; tid}; state} as ams) wl =
+  let exec_call globals call ({ctrl= {stk; tid}; state; history} as ams) wl
+      =
     let Llair.{callee; actuals; areturn; return; recursive} = call in
     let Llair.{name; formals; freturn; locals; entry} = callee in
-    [%Trace.call fun {pf} ->
+    [%Dbg.call fun {pf} ->
       pf " t%i@[<2>@ %a from %a with state@]@;<1 2>%a" tid
         Llair.Func.pp_call call Llair.Function.pp return.dst.parent.name
         D.pp state]
     ;
-    let goal = Goal.after_call name ams.goal in
+    let goal = Goal.after_call name ams.goal (Hist.dump history) in
     let dnf_states =
       if Config.function_summaries then D.dnf state else D.Set.of_ state
     in
@@ -933,7 +978,7 @@ struct
               wl
         | Some post -> exec_jump return {ams with state= post; goal} wl )
     |>
-    [%Trace.retn fun {pf} _ -> pf ""]
+    [%Dbg.retn fun {pf} _ -> pf ""]
 
   let exec_call call ams wl =
     let Llair.{callee= {name} as callee; areturn; return; _} = call in
@@ -947,7 +992,7 @@ struct
     let block = Llair.IP.block ip in
     let func = block.parent in
     let Llair.{name; formals; freturn; locals} = func in
-    [%Trace.call fun {pf} -> pf " t%i@ from: %a" tid Llair.Function.pp name]
+    [%Dbg.call fun {pf} -> pf " t%i@ from: %a" tid Llair.Function.pp name]
     ;
     let summarize post_state =
       if not Config.function_summaries then post_state
@@ -984,12 +1029,12 @@ struct
           {ams with ctrl= {dst= Terminated (tc, tid); src= block}}
           wl )
     |>
-    [%Trace.retn fun {pf} _ -> pf ""]
+    [%Dbg.retn fun {pf} _ -> pf ""]
 
   let exec_throw exc ({ctrl= {ip; stk; tid}; state} as ams) wl =
     let func = (Llair.IP.block ip).parent in
     let Llair.{name; formals; freturn; fthrow; locals} = func in
-    [%Trace.call fun {pf} -> pf "@ from %a" Llair.Function.pp name]
+    [%Dbg.call fun {pf} -> pf "@ from %a" Llair.Function.pp name]
     ;
     let unwind formals scope from_call state =
       D.retn tid formals (Some fthrow) from_call
@@ -1008,13 +1053,13 @@ struct
           wl
     | None -> wl )
     |>
-    [%Trace.retn fun {pf} _ -> pf ""]
+    [%Dbg.retn fun {pf} _ -> pf ""]
 
   let exec_assume cond jump ({ctrl= {tid}; state} as ams) wl =
     match D.exec_assume tid state cond with
     | Some state -> exec_jump jump {ams with state} wl
     | None ->
-        [%Trace.info " infeasible %a@\n@[%a@]" Llair.Exp.pp cond D.pp state] ;
+        [%Dbg.info " infeasible %a@\n@[%a@]" Llair.Exp.pp cond D.pp state] ;
         wl
 
   let exec_thread_create areturn
@@ -1111,14 +1156,16 @@ struct
     | Return {exp} -> exec_return exp ams wl
     | Throw {exc} -> exec_throw exc ams wl
     | Abort {loc} ->
-        Report.alarm (Alarm.v Abort loc Llair.Term.pp term D.pp state) ;
+        Report.alarm
+          (Alarm.v Abort loc Llair.Term.pp term D.pp state)
+          ~dp_witness:(Hist.dump ams.history) ;
         wl
     | Unreachable -> wl
 
   let rec exec_ip pgm ({ctrl= {ip; stk; tid}; state} as ams) wl =
     match Llair.IP.inst ip with
     | Some inst -> (
-        [%Trace.info
+        [%Dbg.info
           " t%i %a@\n@[%a@]%a" tid Llair.IP.pp ip pp_state state
             Llair.Inst.pp inst] ;
         Report.step_inst ip ;
@@ -1131,10 +1178,10 @@ struct
               Work.add ~retreating:false {ams with ctrl= edge; state} wl
             else exec_ip pgm {ams with ctrl= {ams.ctrl with ip}; state} wl
         | Error alarm ->
-            Report.alarm alarm ;
+            Report.alarm alarm ~dp_witness:(Hist.dump ams.history) ;
             wl )
     | None ->
-        [%Trace.info
+        [%Dbg.info
           " t%i %a@\n@[%a@]%a" tid Llair.IP.pp ip pp_state state
             Llair.Term.pp (Llair.IP.block ip).term] ;
         exec_term pgm ams wl

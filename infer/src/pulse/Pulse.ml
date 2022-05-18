@@ -29,9 +29,9 @@ let report_topl_errors proc_desc err_log summary =
 
 let report_unnecessary_copies proc_desc err_log non_disj_astate =
   PulseNonDisjunctiveDomain.get_copied non_disj_astate
-  |> List.iter ~f:(fun (var, location) ->
+  |> List.iter ~f:(fun (var, typ, location) ->
          let var_name = Format.asprintf "%a" Var.pp var in
-         let diagnostic = Diagnostic.UnnecessaryCopy {variable= var; location} in
+         let diagnostic = Diagnostic.UnnecessaryCopy {variable= var; typ; location} in
          PulseReport.report
            ~is_suppressed:
              ( String.is_substring var_name ~substring:"copy"
@@ -131,27 +131,59 @@ module PulseTransferFunctions = struct
            (if it was) in the end by [reset_need_specialization] *)
         let astate = AbductiveDomain.unset_need_specialization astate in
         let call_kind = call_kind_of call_exp in
-        let maybe_res =
-          PulseCallOperations.call tenv path ~caller_proc_desc:proc_desc ~callee_data call_loc
-            callee_pname ~ret ~actuals ~formals_opt ~call_kind astate
+        let maybe_call_with_alias callee_pname call_exp ((res, contradiction) as call_res) =
+          if List.is_empty res then
+            match contradiction with
+            | Some (PulseInterproc.Aliasing _) -> (
+                L.d_printfln "Trying to alias-specialize %a" Exp.pp call_exp ;
+                match
+                  PulseAliasSpecialization.make_specialized_call_exp callee_pname func_args
+                    (call_kind_of call_exp) path call_loc astate
+                with
+                | Some (callee_pname, call_exp, astate) ->
+                    L.d_printfln "Succesfully alias-specialized %a@\n" Exp.pp call_exp ;
+                    let formals_opt = get_pvar_formals callee_pname in
+                    let callee_data = analyze_dependency callee_pname in
+                    let call_res =
+                      PulseCallOperations.call tenv path ~caller_proc_desc:proc_desc ~callee_data
+                        call_loc callee_pname ~ret ~actuals ~formals_opt
+                        ~call_kind:(call_kind_of call_exp) astate
+                    in
+                    (callee_pname, call_exp, call_res)
+                | None ->
+                    L.d_printfln "Failed to alias-specialize %a@\n" Exp.pp call_exp ;
+                    (callee_pname, call_exp, call_res) )
+            | _ ->
+                (callee_pname, call_exp, call_res)
+          else (callee_pname, call_exp, call_res)
         in
-        let res =
-          if (not needed_specialization) && need_specialization maybe_res then (
-            L.d_printfln "Trying to specialize %a" Exp.pp call_exp ;
+        let maybe_call_specialization callee_pname call_exp ((res, _) as call_res) =
+          if (not needed_specialization) && need_specialization res then (
+            L.d_printfln "Trying to block-specialize %a" Exp.pp call_exp ;
             match
               PulseBlockSpecialization.make_specialized_call_exp analysis_data func_args
-                callee_pname call_kind path call_loc astate
+                callee_pname (call_kind_of call_exp) path call_loc astate
             with
             | Some (callee_pname, call_exp, astate) ->
-                L.d_printfln "Succesfully specialized %a@\n" Exp.pp call_exp ;
+                L.d_printfln "Succesfully block-specialized %a@\n" Exp.pp call_exp ;
                 let formals_opt = get_pvar_formals callee_pname in
                 let callee_data = analyze_dependency callee_pname in
                 PulseCallOperations.call tenv path ~caller_proc_desc:proc_desc ~callee_data call_loc
                   callee_pname ~ret ~actuals ~formals_opt ~call_kind:(call_kind_of call_exp) astate
+                |> maybe_call_with_alias callee_pname call_exp
             | None ->
-                L.d_printfln "Failed to specialize %a@\n" Exp.pp call_exp ;
-                maybe_res )
-          else maybe_res
+                L.d_printfln "Failed to block-specialize %a@\n" Exp.pp call_exp ;
+                (callee_pname, call_exp, call_res) )
+          else (callee_pname, call_exp, call_res)
+        in
+        let res, _contradiction =
+          let callee_pname, call_exp, call_res =
+            PulseCallOperations.call tenv path ~caller_proc_desc:proc_desc ~callee_data call_loc
+              callee_pname ~ret ~actuals ~formals_opt ~call_kind astate
+            |> maybe_call_with_alias callee_pname call_exp
+          in
+          let _, _, call_res = maybe_call_specialization callee_pname call_exp call_res in
+          call_res
         in
         ( reset_need_specialization needed_specialization res
         , if Option.is_none callee_data then `UnknownCall else `KnownCall )
@@ -797,8 +829,8 @@ let with_html_debug_node node ~desc ~f =
 let initial tenv proc_desc =
   let initial_astate =
     AbductiveDomain.mk_initial tenv proc_desc
-    |> PulseObjectiveCSummary.initial_with_positive_self proc_desc
-    |> PulseTaintOperations.taint_initial tenv proc_desc
+    |> (fun init -> PulseObjectiveCSummary.initial_with_positive_self proc_desc init)
+    |> fun init -> PulseTaintOperations.taint_initial tenv proc_desc init
   in
   [(ContinueProgram initial_astate, PathContext.initial)]
 
