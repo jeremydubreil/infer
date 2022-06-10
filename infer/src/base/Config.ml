@@ -1496,10 +1496,11 @@ and erlang_ast_dir =
      previous run with $(b,--debug)."
 
 
-and erlang_skip_rebar3 =
-  CLOpt.mk_bool ~long:"erlang-skip-rebar3"
+and erlang_skip_compile =
+  CLOpt.mk_bool ~long:"erlang-skip-compile"
     ~in_help:InferCommand.[(Capture, manual_erlang)]
-    "Skip running rebar, to save time. It is useful together with $(b,--erlang-ast-dir)."
+    "Skip running compiler (erlc/rebar3), to save time. The build command is basically ignored in \
+     this case. To be used together with $(b,--erlang-ast-dir)."
 
 
 and erlang_with_otp_specs =
@@ -2292,6 +2293,18 @@ and pulse_report_ignore_unknown_java_methods_patterns =
      regardless the presence of unknown code"
 
 
+and pulse_report_flows_from_taint_source =
+  CLOpt.mk_string_opt ~long:"pulse-report-flows-from-taint-source"
+    ~in_help:InferCommand.[(Report, manual_generic)]
+    ~meta:"procname" "Report data flows which originate at taint source $(b,procname)"
+
+
+and pulse_report_flows_to_taint_sink =
+  CLOpt.mk_string_opt ~long:"pulse-report-flows-to-taint-sink"
+    ~in_help:InferCommand.[(Report, manual_generic)]
+    ~meta:"procname" "Report data flows which pass through taint sink $(b,procname)"
+
+
 and pulse_report_latent_issues =
   CLOpt.mk_bool ~long:"pulse-report-latent-issues" ~default:true
     "Report latent issues instead of waiting for them to become manifest, when the latent issue \
@@ -2683,6 +2696,16 @@ and source_files_call_graph =
     (Printf.sprintf
        "Output a dotty file in %s/file-call-graph.dot. The graph is the file-based syntactic call \
         graph of all captured procedures (with known translation units). "
+       (ResultsDirEntryName.get_path ~results_dir:"infer-out" Debug) )
+
+
+and source_files_call_graph_partition =
+  CLOpt.mk_int_opt ~long:"source-files-call-graph-partition"
+    ~in_help:InferCommand.[(Debug, manual_debug_source_files)]
+    (Printf.sprintf
+       "The number of partitions to divide the set of captured source files, using static call \
+        graph information. The generated file lists are found under %s/workerXX.idx. Not setting \
+        this option skips partitioning. This is used for distributed analysis."
        (ResultsDirEntryName.get_path ~results_dir:"infer-out" Debug) )
 
 
@@ -3397,7 +3420,7 @@ and eradicate_verbose = !eradicate_verbose
 
 and erlang_ast_dir = !erlang_ast_dir
 
-and erlang_skip_rebar3 = !erlang_skip_rebar3
+and erlang_skip_compile = !erlang_skip_compile
 
 and erlang_with_otp_specs = !erlang_with_otp_specs
 
@@ -3706,6 +3729,10 @@ and pulse_report_ignore_unknown_java_methods_patterns =
       Some (Str.regexp (String.concat ~sep:"\\|" patts))
 
 
+and pulse_report_flows_from_taint_source = !pulse_report_flows_from_taint_source
+
+and pulse_report_flows_to_taint_sink = !pulse_report_flows_to_taint_sink
+
 and pulse_report_latent_issues = !pulse_report_latent_issues
 
 and pulse_report_issues_for_tests = !pulse_report_issues_for_tests
@@ -3835,6 +3862,8 @@ and source_preview = !source_preview
 and source_files = !source_files
 
 and source_files_call_graph = !source_files_call_graph
+
+and source_files_call_graph_partition = !source_files_call_graph_partition
 
 and source_files_cfg = !source_files_cfg
 

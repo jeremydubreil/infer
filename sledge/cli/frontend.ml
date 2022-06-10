@@ -1000,6 +1000,7 @@ let norm_callee llfunc =
     match Llvm.constexpr_opcode llfunc with
     | BitCast -> Llvm.operand llfunc 0
     | _ -> todo "callee kind %a" pp_llvalue llfunc () )
+  | GlobalAlias -> Llvm.operand llfunc 0
   | _ -> todo "callee kind %a" pp_llvalue llfunc ()
 
 let num_actuals instr lltyp llfunc =
@@ -1749,6 +1750,7 @@ let translate ~internalize ~opt_level ~size_level ?dump_bitcode :
           let func =
             try xlate_function x llf typ
             with Unimplemented feature ->
+              [%Dbg.info "Unimplemented feature %s in %s" feature name] ;
               xlate_function_decl x llf typ Func.mk_undefined
               $> Report.unimplemented feature
           in

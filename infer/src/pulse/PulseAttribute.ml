@@ -24,6 +24,7 @@ module Attribute = struct
     | CppNew
     | CppNewArray
     | JavaResource of JavaClassName.t
+    | ObjCAlloc
   [@@deriving compare, equal]
 
   let pp_allocator fmt = function
@@ -41,6 +42,8 @@ module Attribute = struct
         F.fprintf fmt "new[]"
     | JavaResource class_name ->
         F.fprintf fmt "resource %a" JavaClassName.pp class_name
+    | ObjCAlloc ->
+        F.fprintf fmt "alloc"
 
 
   type taint_in = {v: AbstractValue.t} [@@deriving compare, equal]
@@ -66,7 +69,8 @@ module Attribute = struct
                                              retain [v1] to [vn], in fact they should be collected
                                              when they become unreachable *)
     | RefCounted
-    | SourceOriginOfCopy of AbstractValue.t
+    | SourceOriginOfCopy of {source: AbstractValue.t; is_const_ref: bool}
+    | StdMoved
     | StdVectorReserve
     | Tainted of {source: Taint.t; hist: ValueHistory.t; intra_procedural_only: bool}
     | TaintSanitized of Taint.t
@@ -113,6 +117,8 @@ module Attribute = struct
   let propagate_taint_from_rank = Variants.propagatetaintfrom.rank
 
   let ref_counted_rank = Variants.refcounted.rank
+
+  let std_moved_rank = Variants.stdmoved.rank
 
   let std_vector_reserve_rank = Variants.stdvectorreserve.rank
 
@@ -197,8 +203,11 @@ module Attribute = struct
         F.fprintf f "PropagateTaintFrom([%a])" (Pp.seq ~sep:";" pp_taint_in) taints_in
     | RefCounted ->
         F.fprintf f "RefCounted"
-    | SourceOriginOfCopy source ->
-        F.fprintf f "copied of source %a" AbstractValue.pp source
+    | SourceOriginOfCopy {source; is_const_ref} ->
+        F.fprintf f "copied of source %a" AbstractValue.pp source ;
+        if is_const_ref then F.pp_print_string f " (const&)"
+    | StdMoved ->
+        F.pp_print_string f "std::move()"
     | StdVectorReserve ->
         F.pp_print_string f "std::vector::reserve()"
     | Tainted {source; hist; intra_procedural_only} ->
@@ -230,6 +239,7 @@ module Attribute = struct
     | JavaResourceReleased
     | PropagateTaintFrom _
     | SourceOriginOfCopy _
+    | StdMoved
     | StdVectorReserve
     | Tainted _
     | TaintSanitized _
@@ -257,6 +267,7 @@ module Attribute = struct
     | PropagateTaintFrom _
     | RefCounted
     | SourceOriginOfCopy _
+    | StdMoved
     | StdVectorReserve
     | Tainted _
     | TaintSanitized _
@@ -287,6 +298,7 @@ module Attribute = struct
     | JavaResourceReleased
     | PropagateTaintFrom _
     | RefCounted
+    | StdMoved
     | StdVectorReserve
     | TaintSanitized _
     | Uninitialized
@@ -335,6 +347,7 @@ module Attribute = struct
       | EndOfCollection
       | JavaResourceReleased
       | RefCounted
+      | StdMoved
       | StdVectorReserve
       | TaintSanitized _
       | UnreachableAt _
@@ -346,7 +359,8 @@ module Attribute = struct
     match (allocator, invalidation) with
     | (CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _), Some ((CFree | CustomFree _), _)
     | CppNew, Some (CppDelete, _)
-    | CppNewArray, Some (CppDeleteArray, _) ->
+    | CppNewArray, Some (CppDeleteArray, _)
+    | ObjCAlloc, _ ->
         true
     | JavaResource _, _ ->
         is_released
@@ -374,6 +388,7 @@ module Attribute = struct
       | JavaResourceReleased
       | RefCounted
       | SourceOriginOfCopy _
+      | StdMoved
       | StdVectorReserve
       | Tainted _
       | TaintSanitized _
@@ -439,7 +454,7 @@ module Attributes = struct
 
   let get_source_origin_of_copy =
     get_by_rank Attribute.copy_origin_rank ~dest:(function [@warning "-8"]
-        | SourceOriginOfCopy source -> source )
+        | SourceOriginOfCopy {source; is_const_ref} -> (source, is_const_ref) )
 
 
   let get_address_of_stack_variable =
@@ -448,6 +463,8 @@ module Attributes = struct
 
 
   let is_end_of_collection = mem_by_rank Attribute.end_of_collection_rank
+
+  let is_std_moved = mem_by_rank Attribute.std_moved_rank
 
   let is_std_vector_reserved = mem_by_rank Attribute.std_vector_reserve_rank
 

@@ -17,7 +17,7 @@ type visibility =
 val string_of_visibility : visibility -> string
 
 (** severity of the report *)
-type severity = Like | Info | Advice | Warning | Error [@@deriving compare, equal, enumerate]
+type severity = Info | Advice | Warning | Error [@@deriving compare, equal, enumerate]
 
 val string_of_severity : severity -> string
 
@@ -158,6 +158,8 @@ val cross_site_scripting : t
 val dangling_pointer_dereference : t
 
 val dangling_pointer_dereference_maybe : t
+
+val data_flow_to_sink : t
 
 val dead_store : t
 
@@ -328,6 +330,8 @@ val resource_leak : t
 
 val retain_cycle : t
 
+val sensitive_data_flow : t
+
 val skip_function : t
 
 val shell_injection : t
@@ -361,6 +365,8 @@ val uninitialized_value : t
 val uninitialized_value_pulse : latent:bool -> t
 
 val unnecessary_copy_pulse : t
+
+val unnecessary_copy_assignment_pulse : t
 
 val unreachable_code_after : t
 

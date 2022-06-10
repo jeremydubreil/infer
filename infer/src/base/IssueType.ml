@@ -13,7 +13,7 @@ type visibility = User | Developer | Silent [@@deriving compare, equal]
 
 let string_of_visibility = function User -> "User" | Developer -> "Developer" | Silent -> "Silent"
 
-type severity = Like | Info | Advice | Warning | Error [@@deriving compare, equal, enumerate]
+type severity = Info | Advice | Warning | Error [@@deriving compare, equal, enumerate]
 
 let string_of_severity = function
   | Advice ->
@@ -22,8 +22,6 @@ let string_of_severity = function
       "ERROR"
   | Info ->
       "INFO"
-  | Like ->
-      "LIKE"
   | Warning ->
       "WARNING"
 
@@ -947,6 +945,16 @@ let taint_error =
     ~user_documentation:"A taint flow was detected from a source to a sink"
 
 
+let sensitive_data_flow =
+  register ~enabled:false ~hum:"Sensitive Data Flow" ~id:"SENSITIVE_DATA_FLOW" Advice Pulse
+    ~user_documentation:"A flow of sensitive data was detected from a source."
+
+
+let data_flow_to_sink =
+  register ~enabled:false ~hum:"Data Flow to Sink" ~id:"DATA_FLOW_TO_SINK" Advice Pulse
+    ~user_documentation:"A flow of data was detected to a sink."
+
+
 let regex_op_on_ui_thread =
   register Warning ~id:"REGEX_OP_ON_UI_THREAD" Starvation
     ~user_documentation:
@@ -1048,6 +1056,12 @@ let uninitialized_value_pulse =
 let unnecessary_copy_pulse =
   register ~enabled:false ~id:"PULSE_UNNECESSARY_COPY" Error Pulse ~hum:"Unnecessary Copy"
     ~user_documentation:[%blob "../../documentation/issues/PULSE_UNNECESSARY_COPY.md"]
+
+
+let unnecessary_copy_assignment_pulse =
+  register ~enabled:false ~id:"PULSE_UNNECESSARY_COPY_ASSIGNMENT" Error Pulse
+    ~hum:"Unnecessary Copy Assignment"
+    ~user_documentation:"See [PULSE_UNNECESSARY_COPY](#pulse_unnecessary_copy)."
 
 
 let unreachable_code_after = register_hidden ~id:"UNREACHABLE_CODE" Error BufferOverrunChecker

@@ -26,7 +26,23 @@ let report ~is_suppressed ~latent proc_desc err_log diagnostic =
     in
     let extras =
       let copy_type = get_copy_type diagnostic |> Option.map ~f:Typ.to_string in
-      Jsonbug_t.{cost_polynomial= None; cost_degree= None; nullsafe_extra= None; copy_type}
+      let taint_source, taint_sink =
+        let proc_name_of_taint Taint.{proc_name} = Format.asprintf "%a" Procname.pp proc_name in
+        match diagnostic with
+        | FlowFromTaintSource {source= source, _} ->
+            (Some (proc_name_of_taint source), None)
+        | FlowToTaintSink {sink= sink, _} ->
+            (None, Some (proc_name_of_taint sink))
+        | _ ->
+            (None, None)
+      in
+      Jsonbug_t.
+        { cost_polynomial= None
+        ; cost_degree= None
+        ; nullsafe_extra= None
+        ; copy_type
+        ; taint_source
+        ; taint_sink }
     in
     Reporting.log_issue proc_desc err_log ~loc:(get_location diagnostic)
       ~ltr:(extra_trace @ get_trace diagnostic)
@@ -76,6 +92,8 @@ let is_constant_deref_without_invalidation_diagnostic (diagnostic : Diagnostic.t
   | ReadUninitializedValue _
   | StackVariableAddressEscape _
   | TaintFlow _
+  | FlowFromTaintSource _
+  | FlowToTaintSink _
   | UnnecessaryCopy _ ->
       false
   | AccessToInvalidAddress {invalidation; access_trace} ->

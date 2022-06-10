@@ -322,7 +322,7 @@ val eradicate_verbose : bool
 
 val erlang_ast_dir : string option
 
-val erlang_skip_rebar3 : bool
+val erlang_skip_compile : bool
 
 val erlang_with_otp_specs : bool
 
@@ -567,6 +567,10 @@ val pulse_models_for_erlang : Yojson.Basic.t
 
 val pulse_report_ignore_unknown_java_methods_patterns : Str.regexp option
 
+val pulse_report_flows_from_taint_source : string option
+
+val pulse_report_flows_to_taint_sink : string option
+
 val pulse_model_transfer_ownership_namespace : (string * string) list
 
 val pulse_model_transfer_ownership : string list
@@ -688,6 +692,8 @@ val skip_translation_headers : string list
 val source_files : bool
 
 val source_files_call_graph : bool
+
+val source_files_call_graph_partition : int option
 
 val source_files_cfg : bool
 

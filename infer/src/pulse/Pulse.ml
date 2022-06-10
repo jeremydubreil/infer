@@ -29,9 +29,9 @@ let report_topl_errors proc_desc err_log summary =
 
 let report_unnecessary_copies proc_desc err_log non_disj_astate =
   PulseNonDisjunctiveDomain.get_copied non_disj_astate
-  |> List.iter ~f:(fun (var, typ, location) ->
+  |> List.iter ~f:(fun (var, typ, location, from) ->
          let var_name = Format.asprintf "%a" Var.pp var in
-         let diagnostic = Diagnostic.UnnecessaryCopy {variable= var; typ; location} in
+         let diagnostic = Diagnostic.UnnecessaryCopy {variable= var; typ; location; from} in
          PulseReport.report
            ~is_suppressed:
              ( String.is_substring var_name ~substring:"copy"
@@ -318,6 +318,14 @@ module PulseTransferFunctions = struct
             :: rev_func_args ) )
     in
     let func_args = List.rev rev_func_args in
+    let astate =
+      match (callee_pname, func_args) with
+      | Some callee_pname, [{PulseAliasSpecialization.FuncArg.arg_payload= arg, _}]
+        when Procname.is_std_move callee_pname ->
+          AddressAttributes.add_one arg StdMoved astate
+      | _, _ ->
+          astate
+    in
     let model =
       match callee_pname with
       | Some callee_pname ->
@@ -840,6 +848,7 @@ let should_analyze proc_desc =
   let proc_id = Procname.to_unique_id proc_name in
   let f regex = not (Str.string_match regex proc_id 0) in
   Option.value_map Config.pulse_skip_procedures ~f ~default:true
+  && (not (Procdesc.is_kotlin proc_desc))
   && not (Procdesc.is_too_big Pulse ~max_cfg_size:Config.pulse_max_cfg_size proc_desc)
 
 

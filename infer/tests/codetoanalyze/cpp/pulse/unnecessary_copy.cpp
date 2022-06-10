@@ -10,12 +10,15 @@
 
 struct Arr {
   int arr[2];
+  std::vector<int> vec;
 };
 
 Arr& get_a_ref() {
   static Arr a;
   return a;
 }
+
+auto global = get_a_ref();
 
 int copy_decl_bad() {
   auto a = get_a_ref(); // unnecessary copy, use a ref
@@ -31,7 +34,8 @@ int source_mod_ok() {
   return cpy.arr[0];
 }
 
-int source_mod_param_ok(Arr source) {
+// FP is due to incorrect frontend translation of Arr's copy constructor.
+int source_mod_param_ok_FP(Arr source) {
   auto cpy = source;
   source.arr[0] = 9; // source is modified, so copy is not unnecessary as we
                      // can't just add &
@@ -270,6 +274,7 @@ int iterator_ptr_modified_ok(const std::vector<int>& numbers) {
 
 struct SimpleS {
   int a;
+  std::vector<int> vec;
 };
 
 struct SwapSimple {
@@ -307,3 +312,42 @@ void constructor_bad() {
 // We can't detect this due to aliasing problem when we analyze the source code
 // of shared ptr copy ctor
 void shared_ptr_bad_FN(std::shared_ptr<Arr> source) { auto c = source; }
+
+void copy_assignment_bad(std::set<int> source) {
+  std::set<int> init_set; // default constructor is called
+  init_set = source; // copy assignment operator is called
+}
+
+void copy_assignment_ok(std::set<int> source) {
+  std::set<int> init_set; // default constructor is called
+  init_set = source; // copy assignment operator is called
+  source.insert(1); // source modified
+}
+
+void move_assignment_ok(std::set<int> source) {
+  std::set<int> init_set; // default constructor is called
+  init_set =
+      std::move(source); // move assignment operator is called, no copy created
+}
+
+void get_rvalue_ref(std::set<int>&& x) {}
+
+void copy_and_move_bad(std::set<int> source) {
+  std::set<int> c = source;
+  get_rvalue_ref(std::move(c)); // We can move source without copy.
+}
+
+void copy_and_move_const_ref_ok(const std::set<int>& source) {
+  std::set<int> c = source;
+  get_rvalue_ref(std::move(c));
+}
+
+struct TriviallyCopyable {
+  int a;
+  float f;
+  int* p;
+};
+
+void copy_trivially_copyable_ok(TriviallyCopyable source) {
+  TriviallyCopyable c = source;
+}

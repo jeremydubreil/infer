@@ -3,7 +3,7 @@
       { "short_description": "Simple Test",
       "taint_flows": [
         { "source_kinds": ["SimpleSource"],
-          "sink_kinds": ["SimpleSink"]
+          "sink_kinds": ["SimpleSink","SecondSimpleSink"]
         }
       ]
      },
@@ -20,15 +20,27 @@
           "method_names": ["source"],
           "kinds": ["SimpleSource"]
         },
+        { "procedure": "__infer_taint_source", "kinds": ["SimpleSource"] },
+        { "class_names": ["MailboxTaint"],
+          "method_names": ["source"],
+          "kinds": ["SimpleSource"] },
         {"procedure": "AttributedStringProviderInputCreate", "kinds": ["InputCreate"]},
         {"procedure": "StringProviderInputCreate", "kinds": ["InputCreate"]},
-        {"procedure": "ProviderInputCreate", "kinds": ["InputCreate"]}
+        {"procedure": "ProviderInputCreate", "kinds": ["InputCreate"]},
+        {"procedure": "taintSourceParameterBad", "kinds": ["SimpleSource"], "taint_target": ["ArgumentPositions", [0]]},
+        {"procedure": "objc_blocktaintSourceParameterBlockBad_1", "kinds": ["SimpleSource"], "taint_target": ["ArgumentPositions", [0]]}
     ],
     "pulse-taint-sinks": [
         { "procedure": "inferSensitiveSink" },
+        { "procedure": "__infer_taint_sink", "kinds": ["SimpleSink"] },
         { "class_names": ["InferTaint"],
           "method_names": ["sink:"],
           "kinds": ["SimpleSink"],
+          "taint_target": ["ArgumentPositions", [0]]
+        },
+        { "class_names": ["InferTaint"],
+          "method_names": ["twoKindSink:"],
+          "kinds": ["SimpleSink","SecondSimpleSink"],
           "taint_target": ["ArgumentPositions", [0]]
         },
         { "procedure": "HandleIntentForKey",
@@ -39,6 +51,10 @@
           "taint_target": ["ArgumentPositions", [2]] },
         { "procedure": "VaultOpenAppleMapForAddress",
           "kinds": ["Handler"],
+          "taint_target": ["ArgumentPositions", [0]] },
+        { "class_names": ["MailboxTaint"],
+          "method_names": ["sink:"],
+          "kinds": ["SimpleSink"],
           "taint_target": ["ArgumentPositions", [0]] }
     ]
 }

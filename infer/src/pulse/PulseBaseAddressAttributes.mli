@@ -46,6 +46,8 @@ val get_copied_var : AbstractValue.t -> t -> Var.t option
 
 val get_source_origin_of_copy : AbstractValue.t -> t -> AbstractValue.t option
 
+val is_copied_from_const_ref : AbstractValue.t -> t -> bool
+
 val get_invalid : AbstractValue.t -> t -> (Invalidation.t * Trace.t) option
 
 val get_must_be_valid :
@@ -71,6 +73,8 @@ val std_vector_reserve : AbstractValue.t -> t -> t
 
 val is_java_resource_released : AbstractValue.t -> t -> bool
 
+val is_std_moved : AbstractValue.t -> t -> bool
+
 val is_std_vector_reserved : AbstractValue.t -> t -> bool
 
 val mark_as_end_of_collection : AbstractValue.t -> t -> t
@@ -82,6 +86,8 @@ val add_unreachable_at : AbstractValue.t -> Location.t -> t -> t
 val pp : F.formatter -> t -> unit
 
 val remove_allocation_attr : AbstractValue.t -> t -> t
+
+val remove_taint_attrs : AbstractValue.t -> t -> t
 
 val remove_must_be_valid_attr : AbstractValue.t -> t -> t
 

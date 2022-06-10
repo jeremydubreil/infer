@@ -64,7 +64,18 @@ type t =
       ; source: Taint.t * ValueHistory.t
       ; sink: Taint.t * Trace.t
       ; location: Location.t }
-  | UnnecessaryCopy of {variable: Var.t; typ: Typ.t; location: Location.t}
+  | FlowFromTaintSource of
+      { tainted: Decompiler.expr
+      ; source: Taint.t * ValueHistory.t
+      ; destination: Procname.t
+      ; location: Location.t }
+  | FlowToTaintSink of
+      {source: Decompiler.expr * Trace.t; sink: Taint.t * Trace.t; location: Location.t}
+  | UnnecessaryCopy of
+      { variable: Var.t
+      ; typ: Typ.t
+      ; location: Location.t
+      ; from: PulseNonDisjunctiveDomain.CopyOrigin.t }
 [@@deriving equal]
 
 let get_location = function
@@ -87,6 +98,8 @@ let get_location = function
   | ErlangError (Try_clause {location})
   | StackVariableAddressEscape {location}
   | TaintFlow {location}
+  | FlowFromTaintSource {location}
+  | FlowToTaintSink {location}
   | UnnecessaryCopy {location} ->
       location
 
@@ -114,6 +127,8 @@ let aborts_execution = function
   | RetainCycle _
   | StackVariableAddressEscape _
   | TaintFlow _
+  | FlowFromTaintSource _
+  | FlowToTaintSink _
   | UnnecessaryCopy _ ->
       false
 
@@ -337,12 +352,28 @@ let get_message diagnostic =
       (* TODO: say what line the source happened in the current function *)
       F.asprintf "`%a` is tainted by %a and flows to %a" Decompiler.pp_expr tainted Taint.pp source
         Taint.pp sink
-  | UnnecessaryCopy {variable; typ; location} ->
+  | FlowFromTaintSource {tainted; source= source, _; destination} ->
+      F.asprintf "`%a` is tainted by %a and flows to %a" Decompiler.pp_expr tainted Taint.pp source
+        Procname.pp destination
+  | FlowToTaintSink {source= expr, _; sink= sink, _} ->
+      F.asprintf "`%a` flows to taint sink %a" Decompiler.pp_expr expr Taint.pp sink
+  | UnnecessaryCopy {variable; typ; location; from} ->
+      let suppression_msg =
+        "If this copy was intentional, consider adding the word `copy` into the variable name to \
+         suppress this warning"
+      in
+      let suggestion_msg =
+        match from with
+        | PulseNonDisjunctiveDomain.CopyOrigin.CopyCtor ->
+            "try using a reference `&`"
+        | PulseNonDisjunctiveDomain.CopyOrigin.CopyAssignment ->
+            "try getting a reference to it or move it if possible"
+      in
       F.asprintf
-        "copied variable `%a` with type `%a` is not modified after it is copied on %a. Consider \
-         using a reference `&` instead to avoid the copy. If this copy was intentional, consider \
-         adding the word `copy` into the variable name to suppress this warning."
-        Var.pp variable (Typ.pp_full Pp.text) typ Location.pp_line location
+        "%a variable `%a` with type `%a` is not modified after it is copied on %a. To avoid the \
+         copy, %s. %s."
+        PulseNonDisjunctiveDomain.CopyOrigin.pp from Var.pp variable (Typ.pp_full Pp.text) typ
+        Location.pp_line location suggestion_msg suppression_msg
 
 
 let add_errlog_header ~nesting ~title location errlog =
@@ -495,9 +526,18 @@ let get_trace = function
            ~pp_immediate:(fun fmt -> Taint.pp fmt sink)
            sink_trace
       @@ []
-  | UnnecessaryCopy {location; _} ->
+  | FlowFromTaintSource {source= _, source_history} ->
+      ValueHistory.add_to_errlog ~nesting:0 source_history @@ []
+  | FlowToTaintSink {source= _, history; sink= sink, sink_trace} ->
+      let add_to_errlog = Trace.add_to_errlog ~include_value_history:false ~nesting:0 in
+      add_to_errlog history ~pp_immediate:(fun fmt -> F.pp_print_string fmt "allocated here")
+      @@ add_to_errlog sink_trace ~pp_immediate:(fun fmt -> Taint.pp fmt sink)
+      @@ []
+  | UnnecessaryCopy {location; from} ->
       let nesting = 0 in
-      [Errlog.make_trace_element nesting location "copied here" []]
+      [ Errlog.make_trace_element nesting location
+          (F.asprintf "%a here" PulseNonDisjunctiveDomain.CopyOrigin.pp from)
+          [] ]
 
 
 let get_issue_type ~latent issue_type =
@@ -508,16 +548,19 @@ let get_issue_type ~latent issue_type =
         IssueType.pulse_memory_leak_c
     | CppNew | CppNewArray ->
         IssueType.pulse_memory_leak_cpp
-    | JavaResource _ ->
-        L.die InternalError "Memory leaks should not have a Java resource as allocator" )
+    | JavaResource _ | ObjCAlloc ->
+        L.die InternalError
+          "Memory leaks should not have a Java resource or Objective-C alloc as allocator" )
   | ResourceLeak _, false ->
       IssueType.pulse_resource_leak
   | RetainCycle _, false ->
       IssueType.retain_cycle
   | StackVariableAddressEscape _, false ->
       IssueType.stack_variable_address_escape
-  | UnnecessaryCopy _, false ->
+  | UnnecessaryCopy {from= PulseNonDisjunctiveDomain.CopyOrigin.CopyCtor}, false ->
       IssueType.unnecessary_copy_pulse
+  | UnnecessaryCopy {from= PulseNonDisjunctiveDomain.CopyOrigin.CopyAssignment}, false ->
+      IssueType.unnecessary_copy_assignment_pulse
   | ( ( MemoryLeak _
       | ResourceLeak _
       | RetainCycle _
@@ -547,3 +590,7 @@ let get_issue_type ~latent issue_type =
       IssueType.uninitialized_value_pulse ~latent
   | TaintFlow _, _ ->
       IssueType.taint_error
+  | FlowFromTaintSource _, _ ->
+      IssueType.sensitive_data_flow
+  | FlowToTaintSink _, _ ->
+      IssueType.data_flow_to_sink

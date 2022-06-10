@@ -11,7 +11,10 @@
 
 + (NSObject*)source;
 + (void)sink:(NSObject*)param;
++ (void)twoKindSink:(NSObject*)param;
 + (void)notASink:(NSObject*)param;
+
++ (void)call_block:(void (^)(InferTaint*))completion;
 @end
 
 @implementation InferTaint
@@ -21,6 +24,9 @@
 };
 
 + (void)sink:(NSObject*)param {
+}
+
++ (void)twoKindSink:(NSObject*)param {
 }
 
 + (void)notASink:(NSObject*)param {
@@ -33,6 +39,11 @@ void callSinkDirectBad() {
   [InferTaint sink:source];
 }
 
+void callTwoKindSinkDirectBad() {
+  NSObject* source = [InferTaint source];
+  [InferTaint twoKindSink:source];
+}
+
 void callSinkOnNonSourceOk() {
   NSObject* source = [NSObject new];
   [InferTaint sink:source];
@@ -41,4 +52,12 @@ void callSinkOnNonSourceOk() {
 void callNonSinkOnSourceOk() {
   NSObject* source = [InferTaint source];
   [InferTaint notASink:source];
+}
+
+void taintSourceParameterBad(InferTaint* source) { [InferTaint sink:source]; }
+
+void taintSourceParameterBlockBad() {
+  [InferTaint call_block:^(InferTaint* source) {
+    [InferTaint sink:source];
+  }];
 }

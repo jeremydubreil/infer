@@ -142,7 +142,7 @@ end
 module ObjC_Cpp : sig
   type kind =
     | CPPMethod of {mangled: string option; is_copy_assignment: bool}
-    | CPPConstructor of {mangled: string option; is_copy_ctor: bool}
+    | CPPConstructor of {mangled: string option; is_copy_ctor: bool; is_implicit: bool}
     | CPPDestructor of {mangled: string option}
     | ObjCClassMethod
     | ObjCInstanceMethod
@@ -255,9 +255,13 @@ val replace_parameters : Parameter.t list -> t -> t
 
 val parameter_of_name : t -> Typ.Name.t -> Parameter.t
 
-val is_copy_assignment : t -> bool [@@warning "-32"]
+val is_copy_assignment : t -> bool
 
 val is_copy_ctor : t -> bool
+
+val is_cpp_assignment_operator : t -> bool
+
+val is_implicit_ctor : t -> bool
 
 val is_destructor : t -> bool
 
@@ -276,6 +280,8 @@ val is_objc_method : t -> bool
 
 val is_objc_instance_method : t -> bool
 (** Includes specialized objective-c instance methods*)
+
+val is_std_move : t -> bool
 
 (** Hash tables with proc names as keys. *)
 module Hash : Caml.Hashtbl.S with type key = t
@@ -463,5 +469,9 @@ val erlang_call_unqualified : arity:int -> t
 val erlang_call_qualified : arity:int -> t
 (** Same as [erlang_call_unqualified] but is expected to have an erlang module name as the first
     parameter, and the function name as second. [arity] is (still) the erlang arity of the function. *)
+
+val is_erlang_call_unqualified : t -> bool
+
+val is_erlang_call_qualified : t -> bool
 
 module Normalizer : HashNormalizer.S with type t = t

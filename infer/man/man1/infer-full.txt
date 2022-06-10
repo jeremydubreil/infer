@@ -484,6 +484,7 @@ OPTIONS
              Cannot_star (enabled by default),
              DANGLING_POINTER_DEREFERENCE (disabled by default),
              DANGLING_POINTER_DEREFERENCE_MAYBE (disabled by default),
+             DATA_FLOW_TO_SINK (disabled by default),
              DEADLOCK (enabled by default),
              DEAD_STORE (enabled by default),
              DIRECT_ATOMIC_PROPERTY_ACCESS (enabled by default),
@@ -590,11 +591,13 @@ OPTIONS
              PULSE_UNINITIALIZED_VALUE (enabled by default),
              PULSE_UNINITIALIZED_VALUE_LATENT (disabled by default),
              PULSE_UNNECESSARY_COPY (disabled by default),
+             PULSE_UNNECESSARY_COPY_ASSIGNMENT (disabled by default),
              PURE_FUNCTION (enabled by default),
              QUANDARY_TAINT_ERROR (enabled by default),
              REGEX_OP_ON_UI_THREAD (enabled by default),
              RESOURCE_LEAK (enabled by default),
              RETAIN_CYCLE (disabled by default),
+             SENSITIVE_DATA_FLOW (disabled by default),
              SHELL_INJECTION (enabled by default),
              SHELL_INJECTION_RISK (enabled by default),
              SKIP_FUNCTION (disabled by default),
@@ -664,10 +667,11 @@ OPTIONS
        --erlang-list-unfold-depth int
            Unfold Erlang lists up to depth int           See also infer-analyze(1).
 
-       --erlang-skip-rebar3
-           Activates: Skip running rebar, to save time. It is useful together
-           with --erlang-ast-dir. (Conversely: --no-erlang-skip-rebar3)       
-    See also infer-capture(1).
+       --erlang-skip-compile
+           Activates: Skip running compiler (erlc/rebar3), to save time. The
+           build command is basically ignored in this case. To be used
+           together with --erlang-ast-dir. (Conversely:
+           --no-erlang-skip-compile)           See also infer-capture(1).
 
        --erlang-with-otp-specs
            Activates: [EXPERIMENTAL] Use type specs from OTP (available in
@@ -1151,6 +1155,14 @@ OPTIONS
            Activates: Enable pulse and disable all other checkers
            (Conversely: --no-pulse-only)           See also infer-analyze(1).
 
+       --pulse-report-flows-from-taint-source procname
+           Report data flows which originate at taint source procname       
+    See also infer-report(1).
+
+       --pulse-report-flows-to-taint-sink procname
+           Report data flows which pass through taint sink procname       
+    See also infer-report(1).
+
        --pulse-report-ignore-unknown-java-methods-patterns +string
            On Java, issues that are found on program paths that contain calls
            to unknown methods (those without implementation) are not reported
@@ -1423,6 +1435,13 @@ OPTIONS
            file-based syntactic call graph of all captured procedures (with
            known translation units). (Conversely:
            --no-source-files-call-graph)           See also infer-debug(1).
+
+       --source-files-call-graph-partition int
+           The number of partitions to divide the set of captured source
+           files, using static call graph information. The generated file
+           lists are found under infer-out/captured/workerXX.idx. Not setting
+           this option skips partitioning. This is used for distributed
+           analysis.           See also infer-debug(1).
 
        --source-files-cfg
            Activates: Output a dotty file in infer-out/captured for each
@@ -2292,6 +2311,12 @@ INTERNAL OPTIONS
            Maximum number of array elements and structure fields to keep
            track of for a given array address.
 
+       --pulse-report-flows-from-taint-source-reset
+           Cancel the effect of --pulse-report-flows-from-taint-source.
+
+       --pulse-report-flows-to-taint-sink-reset
+           Cancel the effect of --pulse-report-flows-to-taint-sink.
+
        --pulse-report-ignore-unknown-java-methods-patterns-reset
            Set --pulse-report-ignore-unknown-java-methods-patterns to the
            empty list.
@@ -2407,6 +2432,9 @@ INTERNAL OPTIONS
 
        --skip-translation-headers-reset
            Set --skip-translation-headers to the empty list.
+
+       --source-files-call-graph-partition-reset
+           Cancel the effect of --source-files-call-graph-partition.
 
        --source-files-filter-reset
            Cancel the effect of --source-files-filter.

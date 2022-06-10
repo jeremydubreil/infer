@@ -10,44 +10,58 @@ module L = Logging
 open PulseDomainInterface
 open PulseBasicInterface
 
-let is_modeled_as_returning_copy proc_name =
-  Option.exists Config.pulse_model_returns_copy_pattern ~f:(fun r ->
+let get_modeled_as_returning_copy_opt proc_name =
+  Option.value_map ~default:None Config.pulse_model_returns_copy_pattern ~f:(fun r ->
       let s = Procname.to_string proc_name in
-      Str.string_match r s 0 )
+      if Str.string_match r s 0 then Some PulseNonDisjunctiveDomain.CopyOrigin.CopyCtor else None )
 
 
 let add_copies path location call_exp actuals astates astate_non_disj =
+  let is_ptr_to_trivially_copyable typ =
+    Typ.is_pointer typ && Typ.is_trivially_copyable (Typ.strip_ptr typ).quals
+  in
   let aux (copy_check_fn, args_map_fn) init astates =
     List.fold_map astates ~init ~f:(fun astate_non_disj (exec_state : ExecutionDomain.t) ->
         match (exec_state, (call_exp : Exp.t), args_map_fn actuals) with
         | ( ContinueProgram disjunct
           , (Const (Cfun procname) | Closure {name= procname})
           , (Exp.Lvar copy_pvar, copy_type) :: rest_args )
-          when copy_check_fn procname ->
-            let copied_var = Var.of_pvar copy_pvar in
-            if Var.appears_in_source_code copied_var then
-              let heap = (disjunct.post :> BaseDomain.t).heap in
-              let copied = NonDisjDomain.Copied {heap; typ= Typ.strip_ptr copy_type; location} in
-              let disjunct, source_addr_opt =
-                match rest_args with
-                | (source_arg, _) :: _ -> (
-                  match PulseOperations.eval path NoAccess location source_arg disjunct with
-                  | Ok (disjunct, (source_addr, _)) ->
-                      (disjunct, Some source_addr)
-                  | Recoverable _ | FatalError _ ->
-                      (disjunct, None) )
-                | _ ->
-                    (disjunct, None)
-              in
-              let copy_addr, _ = Option.value_exn (Stack.find_opt copied_var disjunct) in
-              let disjunct' =
-                Option.value_map source_addr_opt ~default:disjunct ~f:(fun source_addr ->
-                    AddressAttributes.add_one source_addr (CopiedVar copied_var) disjunct
-                    |> AddressAttributes.add_one copy_addr (SourceOriginOfCopy source_addr) )
-              in
-              ( NonDisjDomain.add copied_var ~source_addr_opt copied astate_non_disj
-              , ExecutionDomain.continue disjunct' )
-            else (astate_non_disj, exec_state)
+          when not (is_ptr_to_trivially_copyable copy_type) ->
+            let default = (astate_non_disj, exec_state) in
+            copy_check_fn procname
+            |> Option.value_map ~default ~f:(fun from ->
+                   let copied_var = Var.of_pvar copy_pvar in
+                   if Var.appears_in_source_code copied_var && not (Var.is_global copied_var) then
+                     let heap = (disjunct.post :> BaseDomain.t).heap in
+                     let copied =
+                       NonDisjDomain.Copied {heap; typ= Typ.strip_ptr copy_type; location; from}
+                     in
+                     let disjunct, source_addr_typ_opt =
+                       match rest_args with
+                       | (source_arg, source_typ) :: _ -> (
+                         match PulseOperations.eval path NoAccess location source_arg disjunct with
+                         | Ok (disjunct, (source_addr, _)) ->
+                             (disjunct, Some (source_addr, source_typ))
+                         | Recoverable _ | FatalError _ ->
+                             (disjunct, None) )
+                       | _ ->
+                           (disjunct, None)
+                     in
+                     let copy_addr, _ = Option.value_exn (Stack.find_opt copied_var disjunct) in
+                     let disjunct' =
+                       Option.value_map source_addr_typ_opt ~default:disjunct
+                         ~f:(fun (source_addr, source_typ) ->
+                           AddressAttributes.add_one source_addr (CopiedVar copied_var) disjunct
+                           |> AddressAttributes.add_one copy_addr
+                                (SourceOriginOfCopy
+                                   { source= source_addr
+                                   ; is_const_ref= Typ.is_const_reference source_typ } ) )
+                     in
+                     ( NonDisjDomain.add copied_var
+                         ~source_addr_opt:(Option.map source_addr_typ_opt ~f:fst)
+                         copied astate_non_disj
+                     , ExecutionDomain.continue disjunct' )
+                   else default )
         | ExceptionRaised _, _, _
         | ISLLatentMemoryError _, _, _
         | AbortProgram _, _, _
@@ -57,9 +71,15 @@ let add_copies path location call_exp actuals astates astate_non_disj =
         | LatentInvalidAccess _, _, _ ->
             (astate_non_disj, exec_state) )
   in
-  let astate_n, astates = aux (Procname.is_copy_ctor, Fn.id) astate_non_disj astates in
+  let copy_from_fn pname =
+    let open PulseNonDisjunctiveDomain in
+    if Procname.is_copy_ctor pname then Some CopyOrigin.CopyCtor
+    else if Procname.is_copy_assignment pname then Some CopyOrigin.CopyAssignment
+    else None
+  in
+  let astate_n, astates = aux (copy_from_fn, Fn.id) astate_non_disj astates in
   (* For functions that return a copy, the last argument is the assigned copy *)
-  aux (is_modeled_as_returning_copy, List.rev) astate_n astates
+  aux (get_modeled_as_returning_copy_opt, List.rev) astate_n astates
 
 
 let get_matching_dest_addr_opt (edges_curr, attr_curr) edges_orig : AbstractValue.t list option =
@@ -114,7 +134,9 @@ let is_modified_since_copy addr ~current_heap ~current_attrs ~copy_heap
               |> Option.value_map ~default:true ~f:(fun matching_addr_list ->
                      aux ~addr_to_explore:(matching_addr_list @ addr_to_explore) ~visited ) )
   in
-  aux ~addr_to_explore:[addr] ~visited:AbstractValue.Set.empty
+  BaseAddressAttributes.is_copied_from_const_ref addr current_attrs
+  && BaseAddressAttributes.is_std_moved addr current_attrs
+  || aux ~addr_to_explore:[addr] ~visited:AbstractValue.Set.empty
 
 
 let mark_modified_address_at ~address ~source_addr_opt ?(is_source = false) ~copied_var astate

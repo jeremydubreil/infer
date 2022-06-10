@@ -110,8 +110,9 @@ let check_xcpretty () =
 
 let capture ~changed_files mode =
   if not (List.is_empty Config.merge_infer_out) then (
+    let expanded_args = Utils.inline_argument_files Config.merge_infer_out in
     let infer_deps_file = ResultsDir.get_path CaptureDependencies in
-    List.map Config.merge_infer_out ~f:(fun dir -> Printf.sprintf "-\t-\t%s" dir)
+    List.map expanded_args ~f:(fun dir -> Printf.sprintf "-\t-\t%s" dir)
     |> Out_channel.write_lines infer_deps_file ;
     () )
   else
@@ -159,10 +160,10 @@ let capture ~changed_files mode =
         NdkBuild.capture ~build_cmd
     | Rebar3 {args} ->
         L.progress "Capturing in rebar3 mode...@." ;
-        Rebar3.capture ~command:"rebar3" ~args
+        Erlang.capture ~command:"rebar3" ~args
     | Erlc {args} ->
         L.progress "Capturing in erlc mode...@." ;
-        Rebar3.capture ~command:"erlc" ~args
+        Erlang.capture ~command:"erlc" ~args
     | XcodeBuild {prog; args} ->
         L.progress "Capturing in xcodebuild mode...@." ;
         XcodeBuild.capture ~prog ~args

@@ -284,18 +284,15 @@ let taint_sanitizers tenv return ~has_added_return_param proc_name actuals astat
 
 
 let check_policies ~sink ~source ~sanitizer_opt =
-  let sinks_policies =
-    List.map sink.Taint.kinds ~f:(fun sink_kind ->
-        (sink_kind, Hashtbl.find_exn sink_policies sink_kind) )
-  in
-  List.fold_result sinks_policies ~init:() ~f:(fun () (sink_kind, policies) ->
-      List.fold_result policies ~init:() ~f:(fun () ({source_kinds; sanitizer_kinds} as policy) ->
+  List.fold sink.Taint.kinds ~init:[] ~f:(fun acc sink_kind ->
+      let policies = Hashtbl.find_exn sink_policies sink_kind in
+      List.fold policies ~init:acc ~f:(fun acc ({source_kinds; sanitizer_kinds} as policy) ->
           match
             List.find source.Taint.kinds ~f:(fun source_kind ->
                 List.mem ~equal:Taint.Kind.equal source_kinds source_kind )
           with
           | None ->
-              Ok ()
+              acc
           | Some suspicious_source ->
               L.d_printfln ~color:Red "TAINTED: %a -> %a" Taint.Kind.pp suspicious_source
                 Taint.Kind.pp sink_kind ;
@@ -306,44 +303,56 @@ let check_policies ~sink ~source ~sanitizer_opt =
               then (
                 L.d_printfln ~color:Green "...but sanitized by %a" Taint.pp
                   (Option.value_exn sanitizer_opt) ;
-                Ok () )
-              else
-                (* TODO: we may want to collect *all* the policies that are violated instead of just
-                   the first one *)
-                Error (suspicious_source, sink_kind, policy) ) )
+                acc )
+              else (suspicious_source, sink_kind, policy) :: acc ) )
 
 
 let check_not_tainted_wrt_sink path location (sink, sink_trace) v astate =
   let check_immediate policy_violations_reported v astate =
+    let source_expr = Decompiler.find v astate in
+    let mk_reportable_error diagnostic = [ReportableError {astate; diagnostic}] in
+    let _ =
+      L.d_printfln "Checking for allocations flowing from %a to sink %a" AbstractValue.pp v Taint.pp
+        sink
+    in
+    let* () =
+      match AbductiveDomain.AddressAttributes.get_allocation v astate with
+      | None ->
+          Ok ()
+      | Some (allocator, history) ->
+          L.d_printfln "Found allocation %a" Attribute.pp (Attribute.Allocated (allocator, history)) ;
+          Recoverable
+            ( ()
+            , mk_reportable_error
+                (FlowToTaintSink {source= (source_expr, history); location; sink= (sink, sink_trace)}
+                ) )
+    in
     L.d_printfln "Checking that %a is not tainted" AbstractValue.pp v ;
     match AbductiveDomain.AddressAttributes.get_taint_source_and_sanitizer v astate with
     | None ->
-        Ok (policy_violations_reported, astate)
-    | Some ((source, source_hist, _), sanitizer_opt) -> (
+        Ok policy_violations_reported
+    | Some ((source, source_hist, _), sanitizer_opt) ->
         L.d_printfln ~color:Red "Found source %a, checking policy..." Taint.pp source ;
-        match check_policies ~sink ~source ~sanitizer_opt with
-        | Ok () ->
-            Ok (policy_violations_reported, astate)
-        | Error (source_kind, sink_kind, policy) ->
-            (* HACK: compare by pointer as policies are fixed throughout execution and each policy
-               record is different from all other policies; we could optimise this check by keeping
-               a set of policies around instead of a list, eg assign an integer id to each policy
-               (using a simple incrementing counter when reading the configuration) and comparing
-               only that id. *)
-            if List.mem ~equal:phys_equal policy_violations_reported policy then
-              Ok (policy_violations_reported, astate)
-            else
-              let tainted = Decompiler.find v astate in
-              Recoverable
-                ( (policy :: policy_violations_reported, astate)
-                , [ ReportableError
-                      { astate
-                      ; diagnostic=
-                          TaintFlow
-                            { tainted
-                            ; location
-                            ; source= ({source with kinds= [source_kind]}, source_hist)
-                            ; sink= ({sink with kinds= [sink_kind]}, sink_trace) } } ] ) )
+        let potential_policy_violations = check_policies ~sink ~source ~sanitizer_opt in
+        let report_policy_violation reported_so_far (source_kind, sink_kind, violated_policy) =
+          (* HACK: compare by pointer as policies are fixed throughout execution and each policy
+             record is different from all other policies; we could optimise this check by keeping
+             a set of policies around instead of a list, eg assign an integer id to each policy
+             (using a simple incrementing counter when reading the configuration) and comparing
+             only that id. *)
+          if List.mem ~equal:phys_equal reported_so_far violated_policy then Ok reported_so_far
+          else
+            Recoverable
+              ( violated_policy :: reported_so_far
+              , mk_reportable_error
+                  (TaintFlow
+                     { tainted= source_expr
+                     ; location
+                     ; source= ({source with kinds= [source_kind]}, source_hist)
+                     ; sink= ({sink with kinds= [sink_kind]}, sink_trace) } ) )
+        in
+        PulseResult.list_fold potential_policy_violations ~init:policy_violations_reported
+          ~f:report_policy_violation
   in
   let rec check_dependencies policy_violations_reported visited v astate =
     let* astate =
@@ -378,9 +387,7 @@ let check_not_tainted_wrt_sink path location (sink, sink_trace) v astate =
     else
       let visited = AbstractValue.Set.add v visited in
       let astate = AbductiveDomain.AddressAttributes.add_taint_sink path sink sink_trace v astate in
-      let* policy_violations_reported, astate =
-        check_immediate policy_violations_reported v astate
-      in
+      let* policy_violations_reported = check_immediate policy_violations_reported v astate in
       check_dependencies policy_violations_reported visited v astate
   in
   check [] AbstractValue.Set.empty v astate
@@ -407,6 +414,9 @@ let propagate_taint_for_unknown_calls tenv path location (return, return_typ)
     ~has_added_return_param call proc_name_opt actuals astate =
   L.d_printfln "propagating all taint for unknown call" ;
   let return = Var.of_id return in
+  let is_cpp_assignment_operator =
+    Option.value_map proc_name_opt ~default:false ~f:Procname.is_cpp_assignment_operator
+  in
   let propagate_to_return, propagate_to_receiver, propagate_to_last_actual =
     let is_static =
       Option.exists proc_name_opt ~f:(fun proc_name ->
@@ -438,6 +448,9 @@ let propagate_taint_for_unknown_calls tenv path location (return, return_typ)
            receiver *)
         L.d_printfln "chainable call, propagating taint to both return and receiver" ;
         (true, true, false)
+    | _, {Typ.desc= Tptr _ | Tstruct _}, _ when is_cpp_assignment_operator ->
+        L.d_printfln "cpp operator=, propagating to receiver" ;
+        (false, true, false)
     | _, {Typ.desc= Tptr _ | Tstruct _}, _ ->
         L.d_printfln "object return type, propagating taint to return" ;
         (true, false, false)
@@ -481,6 +494,15 @@ let propagate_taint_for_unknown_calls tenv path location (return, return_typ)
                 AbductiveDomain.AddressAttributes.add_one v (TaintSanitized sanitizer) astate ) )
   in
   let astate =
+    match actuals with
+    | {ProcnameDispatcher.Call.FuncArg.arg_payload= this, _hist} :: _
+      when is_cpp_assignment_operator ->
+        L.d_printfln "remove taint info of %a for cpp operator=" AbstractValue.pp this ;
+        AddressAttributes.remove_taint_attrs this astate
+    | _ ->
+        astate
+  in
+  let astate =
     match Stack.find_opt return astate with
     | Some (return_value, _) when propagate_to_return ->
         propagate_to return_value actuals astate
@@ -520,7 +542,9 @@ let pulse_models_to_treat_as_unknown_for_taint =
 let should_treat_as_unknown_for_taint tenv proc_name =
   (* HACK: we already have a function for matching procedure names so just re-use it even though we
      don't need its full power *)
-  procedure_matches tenv pulse_models_to_treat_as_unknown_for_taint proc_name [] |> Option.is_some
+  Procname.is_implicit_ctor proc_name
+  || procedure_matches tenv pulse_models_to_treat_as_unknown_for_taint proc_name []
+     |> Option.is_some
 
 
 let call tenv path location return ~call_was_unknown (call : _ Either.t) actuals astate =

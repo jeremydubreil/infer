@@ -22,6 +22,7 @@ type allocator =
   | CppNew
   | CppNewArray
   | JavaResource of JavaClassName.t
+  | ObjCAlloc
 [@@deriving equal]
 
 val pp_allocator : F.formatter -> allocator -> unit
@@ -45,9 +46,10 @@ type t =
   | JavaResourceReleased
   | PropagateTaintFrom of taint_in list
   | RefCounted
-  | SourceOriginOfCopy of PulseAbstractValue.t
+  | SourceOriginOfCopy of {source: PulseAbstractValue.t; is_const_ref: bool}
       (** records the source value for a given copy to lookup the appropriate heap in non-disj
           domain *)
+  | StdMoved
   | StdVectorReserve
   | Tainted of {source: Taint.t; hist: ValueHistory.t; intra_procedural_only: bool}
   | TaintSanitized of Taint.t
@@ -81,7 +83,7 @@ module Attributes : sig
 
   val get_copied_var : t -> Var.t option
 
-  val get_source_origin_of_copy : t -> PulseAbstractValue.t option
+  val get_source_origin_of_copy : t -> (PulseAbstractValue.t * bool) option
 
   val get_allocation : t -> (allocator * Trace.t) option
 
@@ -115,6 +117,8 @@ module Attributes : sig
   val is_always_reachable : t -> bool
 
   val is_modified : t -> bool
+
+  val is_std_moved : t -> bool
 
   val is_std_vector_reserved : t -> bool
 

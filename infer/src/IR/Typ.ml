@@ -142,15 +142,18 @@ let fkind_to_string = function
 (** kind of pointer *)
 type ptr_kind =
   | Pk_pointer  (** C/C++, Java, Objc standard/__strong pointer *)
-  | Pk_reference  (** C++ reference *)
+  | Pk_lvalue_reference  (** C++ lvalue reference *)
+  | Pk_rvalue_reference  (** C++ rvalue reference *)
   | Pk_objc_weak  (** Obj-C __weak pointer *)
   | Pk_objc_unsafe_unretained  (** Obj-C __unsafe_unretained pointer *)
   | Pk_objc_autoreleasing  (** Obj-C __autoreleasing pointer *)
 [@@deriving compare, equal, yojson_of]
 
 let ptr_kind_string = function
-  | Pk_reference ->
+  | Pk_lvalue_reference ->
       "&"
+  | Pk_rvalue_reference ->
+      "&&"
   | Pk_pointer ->
       "*"
   | Pk_objc_weak ->
@@ -162,7 +165,8 @@ let ptr_kind_string = function
 
 
 module T = struct
-  type type_quals = {is_const: bool; is_restrict: bool; is_volatile: bool}
+  type type_quals =
+    {is_const: bool; is_restrict: bool; is_trivially_copyable: bool; is_volatile: bool}
   [@@deriving compare, equal, yojson_of]
 
   (** types for sil (structured) expressions *)
@@ -233,18 +237,23 @@ end
 
 include T
 
-let mk_type_quals ?default ?is_const ?is_restrict ?is_volatile () =
-  let default_ = {is_const= false; is_restrict= false; is_volatile= false} in
-  let mk_aux ?(default = default_) ?(is_const = default.is_const)
-      ?(is_restrict = default.is_restrict) ?(is_volatile = default.is_volatile) () =
-    {is_const; is_restrict; is_volatile}
+let mk_type_quals ?default ?is_const ?is_restrict ?is_trivially_copyable ?is_volatile () =
+  let default_ =
+    {is_const= false; is_restrict= false; is_trivially_copyable= false; is_volatile= false}
   in
-  mk_aux ?default ?is_const ?is_restrict ?is_volatile ()
+  let mk_aux ?(default = default_) ?(is_const = default.is_const)
+      ?(is_restrict = default.is_restrict) ?(is_trivially_copyable = default.is_trivially_copyable)
+      ?(is_volatile = default.is_volatile) () =
+    {is_const; is_restrict; is_trivially_copyable; is_volatile}
+  in
+  mk_aux ?default ?is_const ?is_restrict ?is_trivially_copyable ?is_volatile ()
 
 
 let is_const {is_const} = is_const
 
 let is_restrict {is_restrict} = is_restrict
+
+let is_trivially_copyable {is_trivially_copyable} = is_trivially_copyable
 
 let is_volatile {is_volatile} = is_volatile
 
@@ -663,7 +672,17 @@ let is_cpp_class = is_class_of_kind Name.Cpp.is_class
 
 let is_pointer typ = match typ.desc with Tptr _ -> true | _ -> false
 
-let is_reference typ = match typ.desc with Tptr (_, Pk_reference) -> true | _ -> false
+let is_reference typ =
+  match typ.desc with Tptr (_, (Pk_lvalue_reference | Pk_rvalue_reference)) -> true | _ -> false
+
+
+let is_rvalue_reference typ =
+  match typ.desc with Tptr (_, Pk_rvalue_reference) -> true | _ -> false
+
+
+let is_const_reference typ =
+  match typ.desc with Tptr ({quals}, Pk_lvalue_reference) -> is_const quals | _ -> false
+
 
 let is_struct typ = match typ.desc with Tstruct _ -> true | _ -> false
 
