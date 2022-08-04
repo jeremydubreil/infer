@@ -25,7 +25,7 @@ val pp_with_pp_var : (F.formatter -> Var.t -> unit) -> F.formatter -> t -> unit
   [@@warning "-32"]
 (** only used for unit tests *)
 
-type function_symbol = Unknown of Var.t | Procname of Procname.t [@@deriving compare]
+type function_symbol = Unknown of Var.t | Procname of Procname.t [@@deriving compare, equal]
 
 type operand =
   | AbstractValueOperand of Var.t
@@ -39,6 +39,8 @@ val pp_operand : F.formatter -> operand -> unit
 (** some operations will return a set of new facts discovered that are relevant to communicate to
     the memory domain *)
 type new_eq = EqZero of Var.t | Equal of Var.t * Var.t
+
+val pp_new_eq : F.formatter -> new_eq -> unit [@@warning "-32"]
 
 type new_eqs = new_eq list
 

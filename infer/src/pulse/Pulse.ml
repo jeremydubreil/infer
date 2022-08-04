@@ -29,14 +29,21 @@ let report_topl_errors proc_desc err_log summary =
 
 let report_unnecessary_copies proc_desc err_log non_disj_astate =
   PulseNonDisjunctiveDomain.get_copied non_disj_astate
-  |> List.iter ~f:(fun (var, typ, location, from) ->
-         let var_name = Format.asprintf "%a" Var.pp var in
-         let diagnostic = Diagnostic.UnnecessaryCopy {variable= var; typ; location; from} in
+  |> List.iter ~f:(fun (copied_into, typ, location, from) ->
+         let copy_name = Format.asprintf "%a" Attribute.CopiedInto.pp copied_into in
+         let diagnostic = Diagnostic.UnnecessaryCopy {copied_into; typ; location; from} in
          PulseReport.report
            ~is_suppressed:
-             ( String.is_substring var_name ~substring:"copy"
-             || String.is_substring var_name ~substring:"Copy" )
+             ( String.is_substring copy_name ~substring:"copy"
+             || String.is_substring copy_name ~substring:"Copy" )
            ~latent:false proc_desc err_log diagnostic )
+
+
+let report_const_refable_parameters proc_desc err_log non_disj_astate =
+  PulseNonDisjunctiveDomain.get_const_refable_parameters non_disj_astate
+  |> List.iter ~f:(fun (param, typ, location) ->
+         let diagnostic = Diagnostic.ConstRefableParameter {param; typ; location} in
+         PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic )
 
 
 let heap_size () = (Gc.quick_stat ()).heap_words
@@ -305,32 +312,9 @@ module PulseTransferFunctions = struct
         astate
 
 
-  let dispatch_call ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) path ret
-      call_exp actuals call_loc flags astate =
-    let<*> astate, callee_pname = PulseOperations.eval_proc_name path call_loc call_exp astate in
-    (* special case for objc dispatch models *)
-    let callee_pname, call_exp, actuals =
-      match callee_pname with
-      | Some callee_pname when ObjCDispatchModels.is_model callee_pname -> (
-        match ObjCDispatchModels.get_dispatch_closure_opt actuals with
-        | Some (block_name, closure_exp, args) ->
-            (Some block_name, closure_exp, args)
-        | None ->
-            (Some callee_pname, call_exp, actuals) )
-      | _ ->
-          (callee_pname, call_exp, actuals)
-    in
-    (* evaluate all actuals *)
-    let<*> astate, rev_func_args =
-      PulseResult.list_fold actuals ~init:(astate, [])
-        ~f:(fun (astate, rev_func_args) (actual_exp, actual_typ) ->
-          let+ astate, actual_evaled = PulseOperations.eval path Read call_loc actual_exp astate in
-          ( astate
-          , ProcnameDispatcher.Call.FuncArg.
-              {exp= actual_exp; arg_payload= actual_evaled; typ= actual_typ}
-            :: rev_func_args ) )
-    in
-    let func_args = List.rev rev_func_args in
+  let rec dispatch_call_eval_args
+      ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) path ret call_exp
+      actuals func_args call_loc flags astate callee_pname =
     let astate =
       match (callee_pname, func_args) with
       | Some callee_pname, [{PulseAliasSpecialization.FuncArg.arg_payload= arg, _}]
@@ -360,7 +344,15 @@ module PulseTransferFunctions = struct
             in
             PulseCallOperations.conservatively_initialize_args arg_values astate
           in
-          (model {analysis_data; path; callee_procname; location= call_loc; ret} astate, `KnownCall)
+          ( model
+              { analysis_data
+              ; dispatch_call_eval_args
+              ; path
+              ; callee_procname
+              ; location= call_loc
+              ; ret }
+              astate
+          , `KnownCall )
       | None ->
           PerfEvent.(log (fun logger -> log_begin_event logger ~name:"pulse interproc call" ())) ;
           let r =
@@ -427,6 +419,35 @@ module PulseTransferFunctions = struct
            |> SatUnsat.sat )
           |> PulseResult.of_some )
     else exec_states_res
+
+
+  let dispatch_call analysis_data path ret call_exp actuals call_loc flags astate =
+    let<*> astate, callee_pname = PulseOperations.eval_proc_name path call_loc call_exp astate in
+    (* special case for objc dispatch models *)
+    let callee_pname, call_exp, actuals =
+      match callee_pname with
+      | Some callee_pname when ObjCDispatchModels.is_model callee_pname -> (
+        match ObjCDispatchModels.get_dispatch_closure_opt actuals with
+        | Some (block_name, closure_exp, args) ->
+            (Some block_name, closure_exp, args)
+        | None ->
+            (Some callee_pname, call_exp, actuals) )
+      | _ ->
+          (callee_pname, call_exp, actuals)
+    in
+    (* evaluate all actuals *)
+    let<*> astate, rev_func_args =
+      PulseResult.list_fold actuals ~init:(astate, [])
+        ~f:(fun (astate, rev_func_args) (actual_exp, actual_typ) ->
+          let+ astate, actual_evaled = PulseOperations.eval path Read call_loc actual_exp astate in
+          ( astate
+          , ProcnameDispatcher.Call.FuncArg.
+              {exp= actual_exp; arg_payload= actual_evaled; typ= actual_typ}
+            :: rev_func_args ) )
+    in
+    let func_args = List.rev rev_func_args in
+    dispatch_call_eval_args analysis_data path ret call_exp actuals func_args call_loc flags astate
+      callee_pname
 
 
   (* [get_dealloc_from_dynamic_types vars_types loc] returns a dealloc procname and vars and
@@ -502,8 +523,7 @@ module PulseTransferFunctions = struct
                   Option.value ~default:[default_astate] astates )
         in
         (astates, !ret_vars) )
-      ref_counts
-      ([ContinueProgram astate], [])
+      ref_counts ([ContinueProgram astate], [])
 
 
   (* In the case of variables that point to Objective-C classes for which we have a dynamic type, we
@@ -607,7 +627,7 @@ module PulseTransferFunctions = struct
       let vars_to_remove = if List.is_empty ret_vars then vars else List.rev_append vars ret_vars in
       ( remove_vars vars_to_remove location astates
       , path
-      , PulseNonDisjunctiveOperations.mark_modified_copies vars astates astate_n )
+      , PulseNonDisjunctiveOperations.mark_modified_copies_and_parameters vars astates astate_n )
 
 
   let and_is_int_if_integer_type typ v astate =
@@ -619,7 +639,8 @@ module PulseTransferFunctions = struct
     | (Const (Cfun proc_name) | Closure {name= proc_name}), (Exp.Lvar pvar, _) :: _
       when Procname.is_destructor proc_name ->
         let var = Var.of_pvar pvar in
-        PulseNonDisjunctiveOperations.mark_modified_copies_with [var] ~astate astate_n
+        PulseNonDisjunctiveOperations.mark_modified_copies_and_parameters_with [var] ~astate
+          astate_n
         |> NonDisjDomain.checked_via_dtor var
     | _ ->
         astate_n
@@ -847,11 +868,11 @@ let with_html_debug_node node ~desc ~f =
     ~f
 
 
-let initial tenv proc_desc =
+let initial tenv proc_name proc_attrs =
   let initial_astate =
-    AbductiveDomain.mk_initial tenv proc_desc
-    |> (fun init -> PulseObjectiveCSummary.initial_with_positive_self proc_desc init)
-    |> fun init -> PulseTaintOperations.taint_initial tenv proc_desc init
+    AbductiveDomain.mk_initial tenv proc_name proc_attrs
+    |> PulseObjectiveCSummary.initial_with_positive_self proc_name proc_attrs
+    |> PulseTaintOperations.taint_initial tenv proc_name proc_attrs
   in
   [(ContinueProgram initial_astate, PathContext.initial)]
 
@@ -896,9 +917,16 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
   if should_analyze proc_desc then (
     AbstractValue.State.reset () ;
     PulseTopl.Debug.dropped_disjuncts_count := 0 ;
+    let proc_name = Procdesc.get_proc_name proc_desc in
+    let proc_attrs = Procdesc.get_attributes proc_desc in
+    let initial_disjuncts = initial tenv proc_name proc_attrs in
+    let initial_non_disj =
+      PulseNonDisjunctiveOperations.add_const_refable_parameters proc_desc initial_disjuncts
+        NonDisjDomain.bottom
+    in
     let initial =
       with_html_debug_node (Procdesc.get_start_node proc_desc) ~desc:"initial state creation"
-        ~f:(fun () -> (initial tenv proc_desc, NonDisjDomain.bottom))
+        ~f:(fun () -> (initial_disjuncts, initial_non_disj))
     in
     match DisjunctiveAnalyzer.compute_post analysis_data ~initial proc_desc with
     | Some (posts, non_disj_astate) ->
@@ -910,13 +938,16 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
                  Forget path contexts on the way, we don't propagate them across functions *)
               exit_function analysis_data exit_location posts non_disj_astate
             in
-            let objc_nil_summary = PulseObjectiveCSummary.mk_nil_messaging_summary tenv proc_desc in
+            let objc_nil_summary =
+              PulseObjectiveCSummary.mk_nil_messaging_summary tenv proc_name proc_attrs
+            in
             let summary =
               PulseSummary.of_posts tenv proc_desc err_log exit_location
                 (Option.to_list objc_nil_summary @ posts)
             in
             report_topl_errors proc_desc err_log summary ;
             report_unnecessary_copies proc_desc err_log non_disj_astate ;
+            report_const_refable_parameters proc_desc err_log non_disj_astate ;
             if Config.trace_topl then
               L.debug Analysis Quiet "ToplTrace: dropped %d disjuncts in %a@\n"
                 !PulseTopl.Debug.dropped_disjuncts_count

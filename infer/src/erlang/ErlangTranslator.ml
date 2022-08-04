@@ -24,7 +24,12 @@ let lists_subtract = Procname.make_erlang ~module_name:"lists" ~function_name:"s
 
 let lists_reverse = Procname.make_erlang ~module_name:"lists" ~function_name:"reverse" ~arity:1
 
-let erlang_send2 = Procname.make_erlang ~module_name:"erlang" ~function_name:"send" ~arity:2
+let erlang_ns = ErlangTypeName.erlang_namespace
+
+let erlang_send2 = Procname.make_erlang ~module_name:erlang_ns ~function_name:"send" ~arity:2
+
+(* TODO: add Pulse model T93361792 *)
+let string_concat = Procname.make_erlang ~module_name:"string" ~function_name:"concat" ~arity:2
 
 let mangled_arg (n : int) : Mangled.t = Mangled.from_string (Printf.sprintf "$arg%d" n)
 
@@ -173,6 +178,10 @@ let unbox_integer env expr : Exp.t * Block.t =
 let rec translate_pattern env (value : Ident.t) {Ast.location; simple_expression} : Block.t =
   let env = update_location location env in
   match simple_expression with
+  | BinaryOperator (expr1, ListAdd, expr2) ->
+      translate_pattern_string_concat env value expr1 expr2
+  | BinaryOperator _ ->
+      translate_pattern_number_expression env value location simple_expression
   | Cons {head; tail} ->
       translate_pattern_cons env value head tail
   | Literal (Atom atom) ->
@@ -194,7 +203,7 @@ let rec translate_pattern env (value : Ident.t) {Ast.location; simple_expression
   | Tuple exprs ->
       translate_pattern_tuple env value exprs
   | UnaryOperator _ ->
-      translate_pattern_unary_expression env value location simple_expression
+      translate_pattern_number_expression env value location simple_expression
   | Variable {vname; scope} ->
       translate_pattern_variable env value vname scope
   | e ->
@@ -269,19 +278,34 @@ and translate_pattern_literal_integer (env : (_, _) Env.t) value i : Block.t =
   translate_pattern_integer env value (Exp.Const (Cint (IntLit.of_string i)))
 
 
-and translate_pattern_literal_string (env : (_, _) Env.t) value s : Block.t =
-  let expected_id = mk_fresh_id () in
-  let expected_block : Block.t = translate_expression_literal_string env expected_id s in
+and translate_pattern_string (env : (_, _) Env.t) value expected_id expected_block : Block.t =
   let equals_id = mk_fresh_id () in
-  (* TODO: add Pulse model for this function T93361792 *)
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_str_equal) in
   let call_block =
-    let args = [(Exp.Var value, any_typ); (Exp.Var expected_id, any_typ)] in
-    let instr = Sil.Call ((equals_id, any_typ), fun_exp, args, env.location, CallFlags.default) in
+    (* TODO: add Pulse model for this function T93361792 *)
+    let instr =
+      builtin_call_2 env equals_id BuiltinDecl.__erlang_str_equal (Exp.Var value)
+        (Exp.Var expected_id)
+    in
     Block.make_instruction env [instr]
   in
   let checker_block = Block.make_branch env (Var equals_id) in
   Block.all env [expected_block; call_block; checker_block]
+
+
+and translate_pattern_literal_string (env : (_, _) Env.t) value s : Block.t =
+  let expected_id = mk_fresh_id () in
+  let expected_block : Block.t = translate_expression_literal_string env expected_id s in
+  translate_pattern_string env value expected_id expected_block
+
+
+and translate_pattern_string_concat (env : (_, _) Env.t) value expr1 expr2 : Block.t =
+  let id1, block1 = translate_expression_to_fresh_id env expr1 in
+  let id2, block2 = translate_expression_to_fresh_id env expr2 in
+  let args : Exp.t list = [Var id1; Var id2] in
+  let expected_id = mk_fresh_id () in
+  let call_instr = builtin_call env expected_id string_concat args in
+  let expected_block = Block.all env [block1; block2; Block.make_instruction env [call_instr]] in
+  translate_pattern_string env value expected_id expected_block
 
 
 and translate_pattern_nil env value : Block.t = check_type env value Nil
@@ -413,9 +437,10 @@ and translate_pattern_tuple env value exprs : Block.t =
   {start= type_checker.start; exit_success= submatcher.exit_success; exit_failure}
 
 
-and translate_pattern_unary_expression (env : (_, _) Env.t) value location simple_expression :
+and translate_pattern_number_expression (env : (_, _) Env.t) value location simple_expression :
     Block.t =
   (* Unary op pattern must evaluate to number, so just delegate to expression translation *)
+  (* TODO: handle floats? *)
   let id, expr_block = translate_expression_to_fresh_id env {Ast.location; simple_expression} in
   let expected_integer, unbox_pattern = unbox_integer env (Var id) in
   let branch_block = translate_pattern_integer env value expected_integer in
@@ -596,7 +621,6 @@ and translate_expression_binary_operator (env : (_, _) Env.t) ret_var e1 (op : A
   in
   let make_simple_eager_arith = make_simple_eager unbox_integer box_integer in
   let make_simple_eager_bool = make_simple_eager unbox_bool box_bool in
-  let make_simple_eager_comparison = make_simple_eager unbox_integer box_bool in
   let make_short_circuit_logic ~short_circuit_when_lhs_is =
     let unbox1, unbox_block1 = unbox_bool env (Exp.Var id1) in
     let start = Node.make_nop env in
@@ -628,9 +652,9 @@ and translate_expression_binary_operator (env : (_, _) Env.t) ret_var e1 (op : A
   | AndAlso ->
       make_short_circuit_logic ~short_circuit_when_lhs_is:false
   | AtLeast ->
-      make_simple_eager_comparison Ge
+      make_builtin_call BuiltinDecl.__erlang_greater_or_equal
   | AtMost ->
-      make_simple_eager_comparison Le
+      make_builtin_call BuiltinDecl.__erlang_lesser_or_equal
   | BAnd ->
       make_simple_eager_arith BAnd
   | BOr ->
@@ -641,18 +665,20 @@ and translate_expression_binary_operator (env : (_, _) Env.t) ret_var e1 (op : A
       make_simple_eager_arith Shiftrt
   | BXor ->
       make_simple_eager_arith BXor
-  (* TODO: proper modeling of equal vs exactly equal T95767672 *)
-  | Equal | ExactlyEqual ->
+  | Equal ->
       make_builtin_call BuiltinDecl.__erlang_equal
-  (* TODO: proper modeling of not equal vs exactly not equal T95767672 *)
-  | ExactlyNotEqual | NotEqual ->
-      make_simple_eager_comparison Ne
+  | ExactlyEqual ->
+      make_builtin_call BuiltinDecl.__erlang_exactly_equal
+  | ExactlyNotEqual ->
+      make_builtin_call BuiltinDecl.__erlang_exactly_not_equal
+  | NotEqual ->
+      make_builtin_call BuiltinDecl.__erlang_not_equal
   | Greater ->
-      make_simple_eager_comparison Gt
+      make_builtin_call BuiltinDecl.__erlang_greater
   | IDiv ->
       make_simple_eager_arith DivI
   | Less ->
-      make_simple_eager_comparison Lt
+      make_builtin_call BuiltinDecl.__erlang_lesser
   | ListAdd ->
       make_builtin_call lists_append2
   | ListSub ->
@@ -761,10 +787,8 @@ and translate_expression_case (env : (_, _) Env.t) expression cases : Block.t =
 and translate_expression_cons (env : (_, _) Env.t) ret_var head tail : Block.t =
   let head_var, head_block = translate_expression_to_fresh_id env head in
   let tail_var, tail_block = translate_expression_to_fresh_id env tail in
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_cons) in
-  let args : (Exp.t * Typ.t) list = [(Var head_var, any_typ); (Var tail_var, any_typ)] in
   let call_instruction =
-    Sil.Call ((ret_var, any_typ), fun_exp, args, env.location, CallFlags.default)
+    builtin_call_2 env ret_var BuiltinDecl.__erlang_make_cons (Var head_var) (Var tail_var)
   in
   Block.all env [head_block; tail_block; Block.make_instruction env [call_instruction]]
 
@@ -838,10 +862,8 @@ and translate_expression_listcomprehension (env : (_, _) Env.t) ret_var expressi
     (* Compute result of the expression *)
     let expr_id, expr_block = translate_expression_to_fresh_id env expression in
     (* Prepend to list *)
-    let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_cons) in
-    let args : (Exp.t * Typ.t) list = [(Var expr_id, any_typ); (Var list_var, any_typ)] in
     let call_instr =
-      Sil.Call ((list_var, any_typ), fun_exp, args, env.location, CallFlags.default)
+      builtin_call_2 env list_var BuiltinDecl.__erlang_make_cons (Var expr_id) (Var list_var)
     in
     Block.all env [expr_block; Block.make_instruction env [call_instr]]
   in
@@ -930,12 +952,7 @@ and translate_expression_literal_integer (env : (_, _) Env.t) ret_var int =
 
 and translate_expression_literal_string (env : (_, _) Env.t) ret_var s =
   (* TODO: add Pulse model for this function T93361792 *)
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_str_const) in
-  let args =
-    let value = Exp.Const (Cstr s) in
-    [(value, any_typ)]
-  in
-  let instr = Sil.Call ((ret_var, any_typ), fun_exp, args, env.location, CallFlags.default) in
+  let instr = builtin_call_1 env ret_var BuiltinDecl.__erlang_make_str_const (Exp.Const (Cstr s)) in
   Block.make_instruction env [instr]
 
 
@@ -947,13 +964,8 @@ and translate_expression_map_create (env : (_, _) Env.t) ret_var updates : Block
     let translate_one_expr (one_expr, one_id) = translate_expression_to_id env one_id one_expr in
     List.map ~f:translate_one_expr exprs_with_ids
   in
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_map) in
-  let exprs_ids_and_types =
-    List.map ~f:(function _, id -> (Exp.Var id, any_typ)) exprs_with_ids
-  in
-  let call_instruction =
-    Sil.Call ((ret_var, any_typ), fun_exp, exprs_ids_and_types, env.location, CallFlags.default)
-  in
+  let exprs_ids = List.map ~f:(function _, id -> Exp.Var id) exprs_with_ids in
+  let call_instruction = builtin_call env ret_var BuiltinDecl.__erlang_make_map exprs_ids in
   let call_block = Block.make_instruction env [call_instruction] in
   Block.all env (expr_blocks @ [call_block])
 
@@ -1021,15 +1033,12 @@ and translate_expression_match (env : (_, _) Env.t) ret_var pattern body : Block
 
 
 and translate_expression_nil (env : (_, _) Env.t) ret_var : Block.t =
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_nil) in
-  let instruction = Sil.Call ((ret_var, any_typ), fun_exp, [], env.location, CallFlags.default) in
-  Block.make_instruction env [instruction]
+  Block.make_instruction env [builtin_call env ret_var BuiltinDecl.__erlang_make_nil []]
 
 
 and translate_expression_receive (env : (_, _) Env.t) cases timeout : Block.t =
   let id = mk_fresh_id () in
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_receive) in
-  let call_instr = Sil.Call ((id, any_typ), fun_exp, [], env.location, CallFlags.default) in
+  let call_instr = builtin_call env id BuiltinDecl.__erlang_receive [] in
   let call_receive_block = Block.make_instruction env [call_instr] in
   let cases_block = Block.any env (List.map ~f:(translate_case_clause env [id]) cases) in
   (* We don't have a crash node if all cases fail because we would report an error for every
@@ -1153,14 +1162,10 @@ and translate_expression_record_update (env : (_, _) Env.t) ret_var record name 
   let field_names = record_info.field_names in
   let field_ids = List.map ~f:(function _ -> mk_fresh_id ()) field_names in
   let field_blocks = List.map ~f:translate_one_field (List.zip_exn field_names field_ids) in
-  let field_ids_and_types = List.map ~f:(fun id -> (Exp.Var id, any_typ)) field_ids in
   let name_atom = mk_fresh_id () in
   let mk_name_block = translate_expression_literal_atom env name_atom name in
-  let args_and_types = (Exp.Var name_atom, any_typ) :: field_ids_and_types in
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_tuple) in
-  let call_instruction =
-    Sil.Call ((ret_var, any_typ), fun_exp, args_and_types, env.location, CallFlags.default)
-  in
+  let args = Exp.Var name_atom :: List.map ~f:(function id -> Exp.Var id) field_ids in
+  let call_instruction = builtin_call env ret_var BuiltinDecl.__erlang_make_tuple args in
   let call_block = Block.make_instruction env [call_instruction] in
   Block.all env (record_block @ field_blocks @ [mk_name_block; call_block])
 
@@ -1194,13 +1199,8 @@ and translate_expression_tuple (env : (_, _) Env.t) ret_var exprs : Block.t =
     let f (one_expr, one_id) = translate_expression_to_id env one_id one_expr in
     List.map ~f exprs_with_ids
   in
-  let fun_exp = Exp.Const (Cfun BuiltinDecl.__erlang_make_tuple) in
-  let exprs_ids_and_types =
-    List.map ~f:(function _, id -> (Exp.Var id, any_typ)) exprs_with_ids
-  in
-  let call_instruction =
-    Sil.Call ((ret_var, any_typ), fun_exp, exprs_ids_and_types, env.location, CallFlags.default)
-  in
+  let exprs_ids = List.map ~f:(function _, id -> Exp.Var id) exprs_with_ids in
+  let call_instruction = builtin_call env ret_var BuiltinDecl.__erlang_make_tuple exprs_ids in
   let call_block = Block.make_instruction env [call_instruction] in
   Block.all env (expr_blocks @ [call_block])
 

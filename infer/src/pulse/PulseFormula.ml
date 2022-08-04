@@ -429,7 +429,7 @@ module Term = struct
     | IsInt of t
   [@@deriving compare, equal, yojson_of]
 
-  let equal_syntax = [%compare.equal: t]
+  let equal_syntax = equal
 
   let needs_paren = function
     | Const c when Q.geq c Q.zero && Z.equal (Q.den c) Z.one ->
@@ -1430,9 +1430,6 @@ let pp_new_eq fmt = function
       F.fprintf fmt "%a=%a" Var.pp v1 Var.pp v2
 
 
-(* keep [pp_new_eq] alive for debugging; remove once it becomes used *)
-let _ = pp_new_eq
-
 type new_eqs = new_eq list
 
 module Formula = struct
@@ -1761,6 +1758,7 @@ module Formula = struct
              normalization steps: when the stronger invariant holds we can normalize in one step (in
              [normalize_linear_eqs]). *)
           let v_new = (v_new :> Var.t) in
+          L.d_printfln "new eq: %a = %a" Var.pp v_old Var.pp v_new ;
           let new_eqs = Equal (v_old, v_new) :: new_eqs in
           let phi, l_new =
             match Var.Map.find_opt v_new phi.linear_eqs with
@@ -2079,7 +2077,7 @@ module DynamicTypes = struct
     let both = {phi.both with term_eqs= Term.VarMap.empty; atoms= Atom.Set.empty} in
     let* both, new_eqs =
       let f t v acc_both =
-        let* acc_both = acc_both in
+        let* acc_both in
         let t = simplify_term t in
         Formula.Normalizer.and_var_term v t acc_both
       in
@@ -2087,7 +2085,7 @@ module DynamicTypes = struct
     in
     let+ both, new_eqs =
       let f atom acc_both =
-        let* acc_both = acc_both in
+        let* acc_both in
         let atom = simplify_atom atom in
         Formula.Normalizer.and_atom atom acc_both
       in

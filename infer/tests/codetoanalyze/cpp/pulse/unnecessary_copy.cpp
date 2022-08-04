@@ -191,14 +191,14 @@ void copy_in_both_cases_branch_bad(bool cond) {
   auto cpy = get_cond_arr_ref(arr1, arr2, true); // call to copy ctor
 }
 
-void copy_modified_after_abort_ok_FP(std::vector<int> source_vec) {
+void copy_modified_after_abort_ok(std::vector<int> source_vec) {
   auto cpy = source_vec;
   std::vector<int> vec(2);
   int* elt = &vec[1];
   vec.push_back(0);
-  int temp = *elt; // abort: vector invalidation
-  cpy.push_back(0); // copy modified, but we propagate Abort state without
-                     // executing the rest of the stmts
+  int temp = *elt; // abort: vector invalidation, so non-disjunctive
+                   // value becomes top
+  cpy.push_back(0);
 }
 
 namespace ns {
@@ -351,3 +351,33 @@ struct TriviallyCopyable {
 void copy_trivially_copyable_ok(TriviallyCopyable source) {
   TriviallyCopyable c = source;
 }
+
+class WrapperArr {
+
+  explicit WrapperArr(const Arr& internal_arr) : hidden_arr_(internal_arr) {}
+
+  // unnecessary copy into hidden_arr_, it should be moved
+  explicit WrapperArr(Arr&& internal_arr) : hidden_arr_(internal_arr) {}
+
+  const Arr getArr() const { return hidden_arr_; }
+
+ private:
+  Arr hidden_arr_;
+
+  void unnecessary_copy_moveable_bad(Arr&& a) {
+    hidden_arr_ = a;
+    hidden_arr_.arr[0] = 9; // it is ok that the copy is modified since it has
+                            // the ownership of the object.
+  }
+
+  void unnecessary_copy_moveable_source_mod_ok(Arr&& a) {
+    hidden_arr_ = a;
+    a.arr[0] = 9; // we cannot suggest move above as source is modified
+  }
+
+  void unnecessary_copy_moveable_copy_mod_bad(Arr&& a) {
+    hidden_arr_ = a;
+    hidden_arr_.arr[0] = 9; // copy can be modified since it will have the
+                            // ownership of the object.
+  }
+};

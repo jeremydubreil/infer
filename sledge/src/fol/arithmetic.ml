@@ -229,7 +229,7 @@ struct
     include S0
 
     (** hide S0.trm and S0.trms that ignore the embedding, shadowed below *)
-    let[@warning "-32"] trm, trms = ((), ())
+    let[@warning "-unused-value-declaration"] trm, trms = ((), ())
 
     let pp = ppx Trm.pp
 
@@ -473,7 +473,7 @@ struct
           match get_mono for_poly with
           | Some m ->
               let c, p = Sum.find_and_remove m a in
-              let* c = c in
+              let* c in
               solve_for_mono Sum.empty c m p
           | _ -> None )
   end

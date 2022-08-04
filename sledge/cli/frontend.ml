@@ -96,6 +96,100 @@ let get_debug_loc_directory llv =
     String.Tbl.find_or_add realpath_tbl dir ~default:(fun () ->
         try Unix.realpath dir with Unix.Unix_error _ -> dir )
 
+module StringS = HashSet.Make (String)
+
+(** Modeling functions by other functions. Functions starting with the
+    __sledge_ prefix are model functions. If both foo and __sledge_foo
+    exist, then foo would not be translated and the llair name of
+    __sledge_foo appearing in the symbols table would be foo. As of now,
+    there is no attempt to check that both foo and __sledge_foo are
+    type-compatible. *)
+module Model : sig
+  val modelee : string -> string option
+  (** [modelee name] is [Some modelee_name] if [name] is the name of a model
+      of [modelee_name], and [None] if [name] is not the name of a model. *)
+
+  val has_model : string -> bool
+  (** [has_model name] holds if there is a model function for [name]. *)
+
+  val init : Llvm.llmodule -> unit
+  (** Initialize the module state. Must be called before [has_model]. *)
+end = struct
+  let modeled = StringS.create 0
+  let model_prefix = "__sledge_"
+
+  (* Scans name from [from_idx] to [to_idx], expecting to encounter (len,
+     id) blocks (as a concatenation of the respective strings), and returns
+     the len component corresponding to the pair where id is at [to_idx]
+     (plus the accumulator [idlen]). If the scan fails, returns -1. *)
+  let rec extract_model_name_len name ~from_idx ~to_idx ~idlen =
+    let c = String.get name from_idx in
+    let is_digit = Char.('0' <= c && c <= '9') in
+    if from_idx > to_idx then -1
+    else if is_digit then
+      (* Continue by accumulating the length of the current block. *)
+      extract_model_name_len name ~from_idx:(from_idx + 1) ~to_idx
+        ~idlen:((idlen * 10) + Char.to_int c - Char.to_int '0')
+    else if from_idx == to_idx then idlen
+    else
+      (* Move to the next block. *)
+      extract_model_name_len name ~from_idx:(from_idx + idlen) ~to_idx
+        ~idlen:0
+
+  (* This is specific to the mangling schemes of Clang and GCC. We want to
+     replace, for example, 12__sledge_foo by 3foo. *)
+  let modelee name =
+    let mangled_symbol_prefix = "_ZN" in
+    let model_prefix_idx = String.find ~sub:model_prefix name in
+    if
+      model_prefix_idx == -1
+      || not (String.prefix ~pre:mangled_symbol_prefix name)
+    then None
+    else
+      (* 12 in our example. *)
+      let model_name_len =
+        extract_model_name_len name
+          ~from_idx:(String.length mangled_symbol_prefix)
+          ~to_idx:model_prefix_idx ~idlen:0
+      in
+      if model_name_len == -1 then (
+        warn "Unable to transform %s to modelee!" name () ;
+        None (* __sledge_foo in our example. *) )
+      else
+        let model_name =
+          String.sub name ~pos:model_prefix_idx ~len:model_name_len
+        in
+        (* 12__sledge_foo in our example. *)
+        let mangled_model_name =
+          Printf.sprintf "%d%s" model_name_len model_name
+        in
+        (* foo in our example. *)
+        let modelee_func_name =
+          String.replace ~which:`Left ~sub:model_prefix ~by:String.empty
+            model_name
+        in
+        (* 3foo in our example. *)
+        let mangled_modelee_name =
+          Printf.sprintf "%d%s"
+            (String.length modelee_func_name)
+            modelee_func_name
+        in
+        let result =
+          String.replace ~which:`Left ~sub:mangled_model_name
+            ~by:mangled_modelee_name name
+        in
+        Some result
+
+  let has_model = StringS.mem modeled
+
+  let init llmodule =
+    Llvm.iter_functions
+      (fun llf ->
+        modelee (Llvm.value_name llf)
+        |> Option.iter ~f:(StringS.insert modeled) )
+      llmodule
+end
+
 open struct
   open struct
     let loc_of_global g =
@@ -185,7 +279,10 @@ open struct
                       (* escape to avoid clash with names of anonymous
                          values *)
                       "\"" ^ name ^ "\""
-                  | None -> name )
+                  | None ->
+                      (* Associate model functions with the names of the
+                         functions they are modeling. *)
+                      Option.value (Model.modelee name) ~default:name )
             in
             let id = 1 + SymTbl.length sym_tbl in
             SymTbl.set sym_tbl ~key:llv ~data:(name, id, loc) )
@@ -321,8 +418,12 @@ let rec xlate_type : x -> Llvm.lltype -> Typ.t =
             in
             Typ.struct_ ~name elts ~bits ~byts
       | Function -> fail "expected to be unsized: %a" pp_lltype llt ()
-      | Vector | X86_amx | ScalableVector ->
-          todo "vector types: %a" pp_lltype llt ()
+      | Vector ->
+          let elt = xlate_type x (Llvm.element_type llt) in
+          let len = Llvm.vector_size llt in
+          Typ.array ~elt ~len ~bits ~byts
+      | X86_amx | ScalableVector ->
+          todo "matrix / scalable vector types: %a" pp_lltype llt ()
       | Void | Label | Metadata | Token -> assert false
     else
       match Llvm.classify_type llt with
@@ -460,6 +561,15 @@ let convert_to_siz =
         else arg
     | _ -> fail "convert_to_siz: %a" Typ.pp typ ()
 
+type backpatch =
+  | DirectBP of
+      {typ: Typ.t; llcallee: Llvm.llvalue; backpatch: callee:func -> unit}
+  | IndirectBP of {typ: Typ.t; backpatch: candidates:func iarray -> unit}
+
+let calls_to_backpatch : backpatch list ref = ref []
+let rval_fns : FuncName.t list Typ.Tbl.t = Typ.Tbl.create ()
+let func_tbl : Func.t String.Tbl.t = String.Tbl.create ()
+
 let xlate_llvm_eh_typeid_for : x -> Typ.t -> Exp.t -> Exp.t =
  fun x typ arg -> Exp.convert typ ~to_:(i32 x) arg
 
@@ -501,11 +611,10 @@ and xlate_value ?(inline = false) : x -> Llvm.llvalue -> Inst.t list * Exp.t
      |Argument ->
         ([], Exp.reg (xlate_name x llv))
     | Function ->
-        ( []
-        , Exp.function_
-            (Function.mk
-               (xlate_type x (Llvm.type_of llv))
-               (fst (find_name llv)) ) )
+        let typ = xlate_type x (Llvm.type_of llv) in
+        let fn = FuncName.mk typ (fst (find_name llv)) in
+        Typ.Tbl.add_multi rval_fns ~key:typ ~data:fn ;
+        ([], Exp.funcname fn)
     | GlobalVariable -> ([], Exp.global (xlate_global x llv).name)
     | GlobalAlias -> xlate_value x (Llvm.operand llv 0)
     | ConstantInt -> ([], xlate_int x llv)
@@ -724,7 +833,7 @@ and xlate_opcode : x -> Llvm.llvalue -> Llvm.Opcode.t -> Inst.t list * Exp.t
           | _ -> fail "xlate_value: %a" pp_llvalue llv ()
         in
         let update_or_return elt ret =
-          match[@warning "p"] opcode with
+          match[@warning "-partial-match"] opcode with
           | InsertValue ->
               let pre, elt = Lazy.force elt in
               (pre0 @ pre, upd ~elt)
@@ -953,8 +1062,7 @@ let xlate_jump :
       let src_lbl = label_of_block (Llvm.instr_parent instr) in
       let lbl = src_lbl ^ ".jmp." ^ dst_lbl in
       let blk =
-        Block.mk ~lbl
-          ~cmnd:(IArray.of_array [|mov|])
+        Block.mk ~lbl ~cmnd:(IArray.of_array [|mov|])
           ~term:(Term.goto ~dst:jmp ~loc)
       in
       let blocks =
@@ -985,8 +1093,6 @@ let pp_code fs (insts, term, blocks) =
             Term.pp term )
     (fun fs -> if List.is_empty blocks then () else Format.fprintf fs "@\n")
     (List.pp "@ " Block.pp) blocks
-
-module StringS = HashSet.Make (String)
 
 let ignored_callees = StringS.create 0
 
@@ -1069,8 +1175,6 @@ let xlate_builtin_inst emit_inst x name_segs instr num_actuals loc =
     | None -> None )
   | _ -> None
 
-let calls_to_backpatch = ref []
-
 let term_call x llcallee name ~typ ~actuals ~areturn ~return ~throw ~loc =
   match Intrinsic.of_name name with
   | Some callee ->
@@ -1085,12 +1189,16 @@ let term_call x llcallee name ~typ ~actuals ~areturn ~return ~throw ~loc =
           Term.call ~name ~typ ~actuals ~areturn ~return ~throw ~loc
         in
         calls_to_backpatch :=
-          (llcallee, typ, backpatch) :: !calls_to_backpatch ;
+          DirectBP {llcallee; typ; backpatch} :: !calls_to_backpatch ;
         ([], call)
     | _ ->
         let prefix, callee = xlate_value x llcallee in
-        ( prefix
-        , Term.icall ~callee ~typ ~actuals ~areturn ~return ~throw ~loc ) )
+        let icall, backpatch =
+          Term.icall ~callee ~typ ~actuals ~areturn ~return ~throw ~loc
+        in
+        calls_to_backpatch :=
+          IndirectBP {typ; backpatch} :: !calls_to_backpatch ;
+        (prefix, icall) )
 
 let xlate_instr :
        pop_thunk
@@ -1199,7 +1307,7 @@ let xlate_instr :
       let name_segs = String.split_on_char fname ~by:'.' in
       let skip msg =
         if StringS.add ignored_callees fname then
-          warn "ignoring uninterpreted %s %s" msg fname () ;
+          warn "ignoring uninterpreted %s %s at %a" msg fname Loc.pp loc () ;
         let reg = xlate_name_opt x instr in
         emit_inst (Inst.nondet ~reg ~msg:fname ~loc)
       in
@@ -1415,8 +1523,7 @@ let xlate_instr :
         in
         let lbl_i = lbl ^ "." ^ Int.to_string i in
         let blk =
-          Block.mk ~lbl:lbl_i
-            ~cmnd:(IArray.of_array [|mov|])
+          Block.mk ~lbl:lbl_i ~cmnd:(IArray.of_array [|mov|])
             ~term:(Term.goto ~dst:(Jump.mk lbl) ~loc)
         in
         (Jump.mk lbl_i, blk :: rev_blocks)
@@ -1521,7 +1628,8 @@ let xlate_instr :
   | CleanupRet | CatchRet | CatchPad | CleanupPad | CatchSwitch ->
       todo "windows exception handling: %a" pp_llvalue instr ()
   | CallBr -> todo "inline asm: %a" pp_llvalue instr ()
-  | PHI | Invalid | Invalid2 | UserOp1 | UserOp2 -> assert false
+  | PHI -> fail "unexpected phi node" ()
+  | Invalid | Invalid2 | UserOp1 | UserOp2 -> assert false
 
 let rec xlate_instrs : pop_thunk -> x -> _ Llvm.llpos -> code =
  fun pop x -> function
@@ -1558,11 +1666,11 @@ let xlate_block : pop_thunk -> x -> Llvm.llbasicblock -> Llair.block list =
 
 let report_undefined func name =
   if Option.is_some (Llvm.use_begin func) then
-    [%Dbg.printf "@\n@[undefined function: %a@]" Function.pp name]
+    [%Dbg.printf "@\n@[undefined function: %a@]" FuncName.pp name]
 
 let xlate_function_decl x llfunc typ k =
   let loc = find_loc llfunc in
-  let name = Function.mk typ (fst (find_name llfunc)) in
+  let name = FuncName.mk typ (fst (find_name llfunc)) in
   let formals =
     Iter.from_iter (fun f -> Llvm.iter_params f llfunc)
     |> Iter.map ~f:(xlate_name x)
@@ -1592,7 +1700,7 @@ let xlate_function : x -> Llvm.llvalue -> Typ.t -> Llair.func =
   ( match Llvm.block_begin llf with
   | Before entry_blk ->
       let pop = pop_stack_frame_of_function x llf entry_blk in
-      let[@warning "p"] (entry_block :: entry_blocks) =
+      let[@warning "-partial-match"] (entry_block :: entry_blocks) =
         xlate_block pop x entry_blk
       in
       let entry =
@@ -1617,25 +1725,54 @@ let xlate_function : x -> Llvm.llvalue -> Typ.t -> Llair.func =
   |>
   [%Dbg.retn fun {pf} -> pf "@\n%a" Func.pp]
 
-let backpatch_calls x func_tbl =
-  List.iter !calls_to_backpatch ~f:(fun (llfunc, typ, backpatch) ->
-      match LlvalueTbl.find func_tbl llfunc with
+let backpatch_calls x =
+  List.iter !calls_to_backpatch ~f:(function
+    | DirectBP {llcallee; typ; backpatch} -> (
+      match String.Tbl.find func_tbl (Llvm.value_name llcallee) with
       | Some callee -> backpatch ~callee
       | None ->
-          xlate_function_decl x llfunc typ
+          xlate_function_decl x llcallee typ
           @@ fun ~name ~formals ~freturn ~fthrow ~loc ->
           let callee =
             Func.mk_undefined ~name ~formals ~freturn ~fthrow ~loc
           in
           backpatch ~callee )
+    | IndirectBP {typ; backpatch} ->
+        let resolve_func = FuncName.name >> String.Tbl.find_exn func_tbl in
+        let candidates =
+          Typ.Tbl.fold rval_fns Iter.empty ~f:(fun ~key ~data acc ->
+              if Typ.compatible_fnptr key typ then
+                Iter.(map ~f:resolve_func (of_list data) <+> acc)
+              else acc )
+          |> IArray.of_iter
+        in
+        backpatch ~candidates )
 
-let transform ~internalize ~opt_level ~size_level : Llvm.llmodule -> unit =
+(** add [attr] to each function in a [llmodule] satisfying [pred] *)
+let add_function_attr ~attr ~pred =
+  Llvm.iter_functions (fun fn ->
+      if pred (Llvm.value_name fn) then
+        Llvm.add_function_attr fn attr Llvm.AttrIndex.Function )
+
+let transform ~internalize ~preserve_fns ~opt_level ~size_level :
+    Llvm.llmodule -> unit =
  fun llmodule ->
   let pm = Llvm.PassManager.create () in
-  let entry_points = Config.find_list "entry-points" in
+  let should_preserve_fn =
+    let fns = Config.find_list "entry-points" @ preserve_fns in
+    fun x ->
+      List.exists ~f:(String.equal x) fns
+      || Option.is_some (Model.modelee x)
+  in
+  (* Apply "noinline" attribute to each function marked for preservation in
+     [preserve_fns], suppressing optimizations that inline the function at
+     its callsites.
+     (https://clang.llvm.org/docs/AttributeReference.html#noinline) *)
+  add_function_attr
+    ~attr:Llvm.(create_enum_attr (module_context llmodule) "noinline" 0L)
+    ~pred:should_preserve_fn llmodule ;
   if internalize then
-    Llvm_ipo.add_internalize_predicate pm (fun fn ->
-        List.exists entry_points ~f:(String.equal fn) ) ;
+    Llvm_ipo.add_internalize_predicate pm should_preserve_fn ;
   Llvm_scalar_opts.add_memory_to_register_promotion pm ;
   Llvm_scalar_opts.add_scalarizer pm ;
   let pmb = Llvm_passmgr_builder.create () in
@@ -1700,12 +1837,14 @@ let cleanup llmodule llcontext =
   GlobTbl.clear memo_global ;
   ValTbl.clear memo_value ;
   calls_to_backpatch := [] ;
+  Typ.Tbl.clear rval_fns ;
+  String.Tbl.clear func_tbl ;
   Gc.full_major () ;
   Llvm.dispose_module llmodule ;
   Llvm.dispose_context llcontext
 
-let translate ~internalize ~opt_level ~size_level ?dump_bitcode :
-    string -> Llair.program =
+let translate ~internalize ~preserve_fns ~opt_level ~size_level
+    ?dump_bitcode : string -> Llair.program =
  fun input ->
   [%Dbg.call fun {pf} -> pf "@ %s" input]
   ;
@@ -1714,11 +1853,12 @@ let translate ~internalize ~opt_level ~size_level ?dump_bitcode :
   let llmodule = read_and_parse llcontext input in
   assert (
     Llvm_analysis.verify_module llmodule |> Option.for_all ~f:invalid_llvm ) ;
-  transform ~internalize ~opt_level ~size_level llmodule ;
+  transform ~internalize ~preserve_fns ~opt_level ~size_level llmodule ;
   Option.for_all
     ~f:(Llvm_bitwriter.write_bitcode_file llmodule)
     dump_bitcode
   |> ignore ;
+  Model.init llmodule ;
   scan_names_and_locs llmodule ;
   let lldatalayout =
     Llvm_target.DataLayout.of_string (Llvm.data_layout llmodule)
@@ -1735,7 +1875,6 @@ let translate ~internalize ~opt_level ~size_level ?dump_bitcode :
         else xlate_global x llg :: globals )
       [] llmodule
   in
-  let func_tbl : Func.t LlvalueTbl.t = LlvalueTbl.create () in
   let functions =
     Llvm.fold_left_functions
       (fun functions llf ->
@@ -1744,21 +1883,22 @@ let translate ~internalize ~opt_level ~size_level ?dump_bitcode :
           String.prefix name ~pre:"__llair_"
           || String.prefix name ~pre:"llvm."
           || Option.is_some (Intrinsic.of_name name)
+          || Model.has_model name
         then functions
         else
           let typ = xlate_type x (Llvm.type_of llf) in
           let func =
             try xlate_function x llf typ
             with Unimplemented feature ->
-              [%Dbg.info "Unimplemented feature %s in %s" feature name] ;
+              warn "Unimplemented feature %s in %s" feature name () ;
               xlate_function_decl x llf typ Func.mk_undefined
               $> Report.unimplemented feature
           in
-          LlvalueTbl.set func_tbl ~key:llf ~data:func ;
+          String.Tbl.set func_tbl ~key:(FuncName.name func.name) ~data:func ;
           func :: functions )
       [] llmodule
   in
-  backpatch_calls x func_tbl ;
+  backpatch_calls x ;
   cleanup llmodule llcontext ;
   Llair.Program.mk ~globals ~functions
   |>

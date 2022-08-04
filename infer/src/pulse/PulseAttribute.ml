@@ -9,6 +9,7 @@ module F = Format
 module L = Logging
 module AbstractValue = PulseAbstractValue
 module CallEvent = PulseCallEvent
+module DecompilerExpr = PulseDecompilerExpr
 module Invalidation = PulseInvalidation
 module Taint = PulseTaint
 module Timestamp = PulseTimestamp
@@ -50,37 +51,98 @@ module Attribute = struct
 
   let pp_taint_in fmt {v} = F.fprintf fmt "{@[v= %a@]}" AbstractValue.pp v
 
+  module Tainted = struct
+    type t =
+      { source: Taint.t
+      ; time_trace: Timestamp.trace
+      ; hist: ValueHistory.t
+      ; intra_procedural_only: bool }
+    [@@deriving compare, equal]
+
+    let pp fmt {source; hist; time_trace; intra_procedural_only} =
+      F.fprintf fmt "(%a, %a, %b, t=%a)" Taint.pp source ValueHistory.pp hist intra_procedural_only
+        Timestamp.pp_trace time_trace
+  end
+
+  module TaintedSet = PrettyPrintable.MakePPSet (Tainted)
+
+  module TaintSink = struct
+    type t = {sink: Taint.t; time: Timestamp.t; trace: Trace.t} [@@deriving compare, equal]
+
+    let pp fmt {time; sink; trace} =
+      F.fprintf fmt "(%a, t=%d)"
+        (Trace.pp ~pp_immediate:(fun fmt -> Taint.pp fmt sink))
+        trace
+        (time :> int)
+  end
+
+  module TaintSinkSet = PrettyPrintable.MakePPSet (TaintSink)
+
+  module TaintSanitized = struct
+    type t = {sanitizer: Taint.t; time_trace: Timestamp.trace; trace: Trace.t}
+    [@@deriving compare, equal]
+
+    let pp fmt {sanitizer; time_trace; trace} =
+      F.fprintf fmt "(%a, t=%a)"
+        (Trace.pp ~pp_immediate:(fun fmt -> Taint.pp fmt sanitizer))
+        trace Timestamp.pp_trace time_trace
+  end
+
+  module TaintSanitizedSet = PrettyPrintable.MakePPSet (TaintSanitized)
+
+  module CopyOrigin = struct
+    type t = CopyCtor | CopyAssignment [@@deriving compare, equal]
+
+    let pp fmt = function
+      | CopyCtor ->
+          F.fprintf fmt "copied"
+      | CopyAssignment ->
+          F.fprintf fmt "copy assigned"
+  end
+
+  module CopiedInto = struct
+    type t =
+      | IntoVar of Var.t
+      | IntoField of {field: Fieldname.t; source_opt: DecompilerExpr.t option}
+    [@@deriving compare, equal]
+
+    let pp fmt = function
+      | IntoVar var ->
+          Var.pp fmt var
+      | IntoField {field} ->
+          Fieldname.pp fmt field
+  end
+
   type t =
     | AddressOfCppTemporary of Var.t * ValueHistory.t
     | AddressOfStackVariable of Var.t * Location.t * ValueHistory.t
     | Allocated of allocator * Trace.t
     | AlwaysReachable
     | Closure of Procname.t
-    | CopiedVar of Var.t
+    | CopiedInto of CopiedInto.t
     | DynamicType of Typ.t
     | EndOfCollection
     | Invalid of Invalidation.t * Trace.t
     | ISLAbduced of Trace.t
     | MustBeInitialized of Timestamp.t * Trace.t
     | MustBeValid of Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option
-    | MustNotBeTainted of Timestamp.t * Taint.t * Trace.t
+    | MustNotBeTainted of TaintSinkSet.t
     | JavaResourceReleased
-    | PropagateTaintFrom of taint_in list (* [v -> PropagateTaintFrom \[v1; ..; vn\]] does not
-                                             retain [v1] to [vn], in fact they should be collected
-                                             when they become unreachable *)
+    | PropagateTaintFrom of taint_in list
+      (* [v -> PropagateTaintFrom \[v1; ..; vn\]] does not
+         retain [v1] to [vn], in fact they should be collected
+         when they become unreachable *)
     | RefCounted
     | SourceOriginOfCopy of {source: AbstractValue.t; is_const_ref: bool}
     | StdMoved
     | StdVectorReserve
-    | Tainted of {source: Taint.t; hist: ValueHistory.t; intra_procedural_only: bool}
-    | TaintSanitized of Taint.t
+    | Tainted of TaintedSet.t
+    | TaintSanitized of TaintSanitizedSet.t
     | Uninitialized
     | UnknownEffect of CallEvent.t * ValueHistory.t
     | UnreachableAt of Location.t
     | WrittenTo of Trace.t
-  [@@deriving compare, variants]
-
-  let equal = [%compare.equal: t]
+  [@@deriving compare, equal, variants]
 
   type rank = int
 
@@ -94,7 +156,7 @@ module Attribute = struct
 
   let closure_rank = Variants.closure.rank
 
-  let copied_var_rank = Variants.copiedvar.rank
+  let copied_into_rank = Variants.copiedinto.rank
 
   let copy_origin_rank = Variants.sourceoriginofcopy.rank
 
@@ -170,8 +232,8 @@ module Attribute = struct
         F.pp_print_string f "AlwaysReachable"
     | Closure pname ->
         Procname.pp f pname
-    | CopiedVar var ->
-        Var.pp f var
+    | CopiedInto copied_into ->
+        CopiedInto.pp f copied_into
     | DynamicType typ ->
         F.fprintf f "DynamicType %a" (Typ.pp Pp.text) typ
     | EndOfCollection ->
@@ -192,11 +254,8 @@ module Attribute = struct
           (Trace.pp ~pp_immediate:(pp_string_if_debug "access"))
           trace Invalidation.pp_must_be_valid_reason reason
           (timestamp :> int)
-    | MustNotBeTainted (timestamp, sink, trace) ->
-        F.fprintf f "MustNotBeTainted(%a, t=%d)"
-          (Trace.pp ~pp_immediate:(fun fmt -> Taint.pp fmt sink))
-          trace
-          (timestamp :> int)
+    | MustNotBeTainted sinks ->
+        F.fprintf f "MustNotBeTainted%a" TaintSinkSet.pp sinks
     | JavaResourceReleased ->
         F.pp_print_string f "Released"
     | PropagateTaintFrom taints_in ->
@@ -210,10 +269,10 @@ module Attribute = struct
         F.pp_print_string f "std::move()"
     | StdVectorReserve ->
         F.pp_print_string f "std::vector::reserve()"
-    | Tainted {source; hist; intra_procedural_only} ->
-        F.fprintf f "Tainted(%a,%a,%b)" Taint.pp source ValueHistory.pp hist intra_procedural_only
-    | TaintSanitized sanitizer ->
-        F.fprintf f "TaintSanitized(%a)" Taint.pp sanitizer
+    | Tainted tainted ->
+        F.fprintf f "Tainted%a" TaintedSet.pp tainted
+    | TaintSanitized taint_sanitized ->
+        F.fprintf f "TaintedSanitized%a" TaintSanitizedSet.pp taint_sanitized
     | Uninitialized ->
         F.pp_print_string f "Uninitialized"
     | UnknownEffect (call, hist) ->
@@ -233,7 +292,7 @@ module Attribute = struct
     | AddressOfStackVariable _
     | AlwaysReachable
     | Closure _
-    | CopiedVar _
+    | CopiedInto _
     | DynamicType _
     | EndOfCollection
     | JavaResourceReleased
@@ -258,7 +317,7 @@ module Attribute = struct
     | Allocated _
     | AlwaysReachable
     | Closure _
-    | CopiedVar _
+    | CopiedInto _
     | DynamicType _
     | EndOfCollection
     | ISLAbduced _
@@ -277,12 +336,15 @@ module Attribute = struct
         true
 
 
-  let is_suitable_for_summary attr =
+  let make_suitable_for_summary attr =
     match attr with
-    | CopiedVar _ | SourceOriginOfCopy _ ->
-        false
-    | Tainted {intra_procedural_only} ->
-        not intra_procedural_only
+    | CopiedInto _ | SourceOriginOfCopy _ ->
+        None
+    | Tainted tainted ->
+        let tainted' =
+          TaintedSet.filter (fun {intra_procedural_only} -> not intra_procedural_only) tainted
+        in
+        if TaintedSet.is_empty tainted' then None else Some (Tainted tainted')
     | AddressOfCppTemporary _
     | AddressOfStackVariable _
     | Allocated _
@@ -305,7 +367,7 @@ module Attribute = struct
     | UnknownEffect _
     | UnreachableAt _
     | WrittenTo _ ->
-        true
+        Some attr
 
 
   let add_call_and_subst subst timestamp proc_name call_location caller_history attr =
@@ -326,17 +388,39 @@ module Attribute = struct
         MustBeValid (timestamp, add_call_to_trace trace, reason)
     | MustBeInitialized (_timestamp, trace) ->
         MustBeInitialized (timestamp, add_call_to_trace trace)
-    | MustNotBeTainted (_timestamp, sink, trace) ->
-        MustNotBeTainted (timestamp, sink, add_call_to_trace trace)
+    | MustNotBeTainted sinks ->
+        let add_call_to_sink taint_sink =
+          TaintSink.{taint_sink with trace= add_call_to_trace taint_sink.trace}
+        in
+        MustNotBeTainted (TaintSinkSet.map add_call_to_sink sinks)
     | PropagateTaintFrom taints_in ->
         PropagateTaintFrom (List.map taints_in ~f:(fun {v} -> {v= subst v}))
-    | Tainted {source; hist; intra_procedural_only= false} ->
-        Tainted {source; hist= add_call_to_history hist; intra_procedural_only= false}
+    | Tainted tainted ->
+        let add_call_to_tainted Tainted.{source; time_trace; hist; intra_procedural_only} =
+          if intra_procedural_only then
+            L.die InternalError "Unexpected attribute %a in the summary of %a" pp attr Procname.pp
+              proc_name
+          else
+            Tainted.
+              { source
+              ; time_trace= Timestamp.add_to_trace time_trace timestamp
+              ; hist= add_call_to_history hist
+              ; intra_procedural_only }
+        in
+        Tainted (TaintedSet.map add_call_to_tainted tainted)
+    | TaintSanitized taint_sanitized ->
+        let add_call_to_taint_sanitized TaintSanitized.{sanitizer; time_trace; trace} =
+          TaintSanitized.
+            { sanitizer
+            ; time_trace= Timestamp.add_to_trace time_trace timestamp
+            ; trace= add_call_to_trace trace }
+        in
+        TaintSanitized (TaintSanitizedSet.map add_call_to_taint_sanitized taint_sanitized)
     | UnknownEffect (call, hist) ->
         UnknownEffect (call, add_call_to_history hist)
     | WrittenTo trace ->
         WrittenTo (add_call_to_trace trace)
-    | CopiedVar _ | SourceOriginOfCopy _ | Tainted {intra_procedural_only= true} ->
+    | CopiedInto _ | SourceOriginOfCopy _ ->
         L.die InternalError "Unexpected attribute %a in the summary of %a" pp attr Procname.pp
           proc_name
     | ( AddressOfCppTemporary _
@@ -349,7 +433,6 @@ module Attribute = struct
       | RefCounted
       | StdMoved
       | StdVectorReserve
-      | TaintSanitized _
       | UnreachableAt _
       | Uninitialized ) as attr ->
         attr
@@ -368,16 +451,34 @@ module Attribute = struct
         false
 
 
-  let filter_unreachable f_keep = function
+  let filter_unreachable subst f_keep attr =
+    match attr with
     | PropagateTaintFrom taints_in ->
-        let taints_in' = List.filter taints_in ~f:(fun {v} -> f_keep v) in
-        if List.is_empty taints_in' then None else Some (PropagateTaintFrom taints_in')
+        let taints_in' =
+          List.fold taints_in ~init:AbstractValue.Set.empty ~f:(fun acc {v} ->
+              if f_keep v then AbstractValue.Set.add v acc
+              else
+                AbstractValue.Set.union
+                  (Option.value ~default:AbstractValue.Set.empty
+                     (AbstractValue.Map.find_opt v subst) )
+                  acc )
+        in
+        if AbstractValue.Set.is_empty taints_in' then None
+        else
+          let taints_in' = AbstractValue.Set.fold (fun v list -> {v} :: list) taints_in' [] in
+          Some (PropagateTaintFrom taints_in')
+    | MustNotBeTainted sinks when TaintSinkSet.is_empty sinks ->
+        L.die InternalError "Unexpected attribute %a." pp attr
+    | Tainted set when TaintedSet.is_empty set ->
+        L.die InternalError "Unexpected attribute %a." pp attr
+    | TaintSanitized set when TaintSanitizedSet.is_empty set ->
+        L.die InternalError "Unexpected attribute %a." pp attr
     | ( AddressOfCppTemporary _
       | AddressOfStackVariable _
       | Allocated _
       | AlwaysReachable
       | Closure _
-      | CopiedVar _
+      | CopiedInto _
       | DynamicType _
       | EndOfCollection
       | Invalid _
@@ -400,9 +501,55 @@ module Attribute = struct
 end
 
 module Attributes = struct
-  module Set = PrettyPrintable.MakePPUniqRankSet (Int) (Attribute)
+  module Set = struct
+    include PrettyPrintable.MakePPUniqRankSet (Int) (Attribute)
 
-  let get_by_rank rank ~dest attrs = Set.find_rank attrs rank |> Option.map ~f:dest
+    let get_by_rank rank ~dest attrs = find_rank attrs rank |> Option.map ~f:dest
+
+    let get_tainted attrs =
+      get_by_rank Attribute.tainted_rank
+        ~dest:(function[@warning "-8"] Tainted tainted -> tainted)
+        attrs
+      |> Option.value ~default:Attribute.TaintedSet.empty
+
+
+    let get_taint_sanitized attrs =
+      get_by_rank Attribute.taint_sanitized_rank
+        ~dest:(function[@warning "-8"] TaintSanitized taint_sanitized -> taint_sanitized)
+        attrs
+      |> Option.value ~default:Attribute.TaintSanitizedSet.empty
+
+
+    let get_must_not_be_tainted attrs =
+      get_by_rank Attribute.must_not_be_tainted_rank
+        ~dest:(function[@warning "-8"] MustNotBeTainted sinks -> sinks)
+        attrs
+      |> Option.value ~default:Attribute.TaintSinkSet.empty
+
+
+    let add attrs value =
+      let open Attribute in
+      match value with
+      | Tainted new_set ->
+          if TaintedSet.is_empty new_set then attrs
+          else
+            let existing_set = get_tainted attrs in
+            update (Tainted (TaintedSet.union new_set existing_set)) attrs
+      | TaintSanitized new_set ->
+          if TaintSanitizedSet.is_empty new_set then attrs
+          else
+            let existing_set = get_taint_sanitized attrs in
+            update (TaintSanitized (TaintSanitizedSet.union new_set existing_set)) attrs
+      | MustNotBeTainted new_sinks ->
+          if TaintSinkSet.is_empty new_sinks then attrs
+          else
+            let sinks = get_must_not_be_tainted attrs in
+            update (MustNotBeTainted (TaintSinkSet.union new_sinks sinks)) attrs
+      | _ ->
+          add attrs value
+  end
+
+  let get_by_rank = Set.get_by_rank
 
   let mem_by_rank rank attrs = Set.find_rank attrs rank |> Option.is_some
 
@@ -416,26 +563,11 @@ module Attributes = struct
         | PropagateTaintFrom taints_in -> taints_in )
 
 
-  let get_tainted =
-    get_by_rank Attribute.tainted_rank ~dest:(function [@warning "-8"]
-        | Tainted {source; hist; intra_procedural_only} -> (source, hist, intra_procedural_only) )
-
-
-  let get_taint_sanitized =
-    get_by_rank Attribute.taint_sanitized_rank ~dest:(function [@warning "-8"]
-        | TaintSanitized sanitizer -> sanitizer )
-
-
   let is_java_resource_released = mem_by_rank Attribute.java_resource_released_rank
 
   let get_must_be_valid =
     get_by_rank Attribute.must_be_valid_rank ~dest:(function [@warning "-8"]
         | Attribute.MustBeValid (timestamp, trace, reason) -> (timestamp, trace, reason) )
-
-
-  let get_must_not_be_tainted =
-    get_by_rank Attribute.must_not_be_tainted_rank ~dest:(function [@warning "-8"]
-        | MustNotBeTainted (timestamp, sink, trace) -> (timestamp, sink, trace) )
 
 
   let get_written_to =
@@ -448,8 +580,9 @@ module Attributes = struct
         proc_name )
 
 
-  let get_copied_var =
-    get_by_rank Attribute.copied_var_rank ~dest:(function [@warning "-8"] CopiedVar var -> var)
+  let get_copied_into =
+    get_by_rank Attribute.copied_into_rank ~dest:(function [@warning "-8"]
+        | CopiedInto copied_into -> copied_into )
 
 
   let get_source_origin_of_copy =
@@ -557,7 +690,7 @@ module Attributes = struct
         else allocated_opt )
 
 
-  let remove_unsuitable_for_summary = Set.filter ~f:Attribute.is_suitable_for_summary
+  let remove_unsuitable_for_summary = Set.filter_map ~f:Attribute.make_suitable_for_summary
 
   include Set
 end

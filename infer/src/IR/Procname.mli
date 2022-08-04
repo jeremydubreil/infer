@@ -44,7 +44,7 @@ module Java : sig
         (** in Java, procedures called with invokevirtual, invokespecial, and invokeinterface *)
     | Static  (** in Java, procedures called with invokestatic *)
 
-  type t [@@deriving compare]
+  type t [@@deriving compare, equal]
 
   val to_simplified_string : ?withclass:bool -> t -> string
 
@@ -173,9 +173,6 @@ module ObjC_Cpp : sig
   val is_objc_constructor : string -> bool
   (** Check if this is a constructor method in Objective-C. *)
 
-  val is_objc_dealloc : string -> bool
-  (** Check if this is a dealloc method in Objective-C. *)
-
   val is_destructor : t -> bool
   (** Check if this is a dealloc method. *)
 
@@ -208,8 +205,6 @@ module Block : sig
             is defined *)
 
   type t = {block_type: block_type; parameters: Parameter.clang_parameter list} [@@deriving compare]
-
-  val make_surrounding : Typ.name option -> string -> Parameter.clang_parameter list -> t
 
   val make_in_outer_scope : block_type -> int -> Parameter.clang_parameter list -> t
 end

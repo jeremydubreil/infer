@@ -50,6 +50,7 @@ type t =
   ; formals: (Mangled.t * Typ.t * Annot.Item.t) list
         (** name, type, and annotation of formal parameters *)
   ; const_formals: int list  (** list of indices of formals that are const-qualified *)
+  ; reference_formals: int list  (** list of indices of formals that are passed by reference *)
   ; is_abstract: bool  (** the procedure is abstract *)
   ; is_biabduction_model: bool  (** the procedure is a model for the biabduction analysis *)
   ; is_bridge_method: bool  (** the procedure is a bridge method *)
@@ -75,6 +76,7 @@ type t =
             closure used to specialize the procedure. *)
   ; clang_method_kind: ClangMethodKind.t  (** the kind of method the procedure is *)
   ; loc: Location.t  (** location of this procedure in the source code *)
+  ; loc_instantiated: Location.t option  (** location of this procedure is possibly instantiated *)
   ; translation_unit: SourceFile.t  (** source file where the procedure was captured *)
   ; mutable locals: var_data list  (** name, type and attributes of local variables *)
   ; objc_accessor: objc_accessor_type option  (** type of ObjC accessor, if any *)
@@ -104,5 +106,12 @@ val get_proc_name : t -> Procname.t
 
 val get_pvar_formals : t -> (Pvar.t * Typ.t) list
 (** Return pvar and type of formal parameters *)
+
+val get_passed_by_value_formals : t -> (Pvar.t * Typ.t) list
+(** Return pvar and type of formal parameters that are passed by reference *)
+
+val to_return_type : t -> Typ.t
+(** the return type from method signature, taking into account if the procedure has added return
+    parameter *)
 
 module SQLite : SqliteUtils.Data with type t = t

@@ -15,7 +15,7 @@ module F = Format
 
 module IntegerWidths = struct
   type t = {char_width: int; short_width: int; int_width: int; long_width: int; longlong_width: int}
-  [@@deriving compare]
+  [@@deriving compare, equal]
 
   let java = {char_width= 16; short_width= 16; int_width= 32; long_width= 64; longlong_width= 64}
 
@@ -165,8 +165,10 @@ let ptr_kind_string = function
 
 
 module T = struct
+  (* Note that [is_trivially_copyable] is ignored when compare/equal-ing, since it can be
+     inconsistent for the same type depending on compilation units. *)
   type type_quals =
-    {is_const: bool; is_restrict: bool; is_trivially_copyable: bool; is_volatile: bool}
+    {is_const: bool; is_restrict: bool; is_trivially_copyable: bool [@ignore]; is_volatile: bool}
   [@@deriving compare, equal, yojson_of]
 
   (** types for sil (structured) expressions *)
@@ -187,9 +189,7 @@ module T = struct
     | CStruct of QualifiedCppName.t
     | CUnion of QualifiedCppName.t
     | CppClass of
-        { name: QualifiedCppName.t
-        ; template_spec_info: template_spec_info
-        ; is_union: bool [@compare.ignore] }
+        {name: QualifiedCppName.t; template_spec_info: template_spec_info; is_union: bool [@ignore]}
     | CSharpClass of CSharpClassName.t
     | ErlangType of ErlangTypeName.t
     | JavaClass of JavaClassName.t
@@ -201,17 +201,9 @@ module T = struct
   and template_spec_info =
     | NoTemplate
     | Template of {mangled: string option; args: template_arg list}
-  [@@deriving compare, yojson_of]
+  [@@deriving compare, equal, yojson_of]
 
   let yojson_of_name = [%yojson_of: _]
-
-  let equal_desc = [%compare.equal: desc]
-
-  let equal_name = [%compare.equal: name]
-
-  let equal_quals = [%compare.equal: type_quals]
-
-  let equal = [%compare.equal: t]
 
   let rec equal_ignore_quals t1 t2 = equal_desc_ignore_quals t1.desc t2.desc
 
@@ -608,6 +600,12 @@ module Name = struct
     type nonrec t = t [@@deriving compare]
 
     let pp = pp
+  end)
+
+  module Hash = Hashtbl.Make (struct
+    type nonrec t = t [@@deriving equal]
+
+    let hash = hash
   end)
 
   module Normalizer = HashNormalizer.Make (struct

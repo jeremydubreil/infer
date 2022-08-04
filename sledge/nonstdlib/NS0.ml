@@ -16,7 +16,7 @@ include Ppx_sexp_conv_lib.Conv
 
 (** Iterators *)
 
-module Iter = Iter
+module Iter = IterLabels
 include Iter.Import
 
 (** Specialize polymorphic comparison to int *)
@@ -82,7 +82,7 @@ let ( <$ ) f x =
   f x ;
   x
 
-let ( let@ ) x f = x @@ f
+let ( let@ ) f x = f @@ x
 
 (** Tuple operations *)
 
@@ -143,7 +143,7 @@ type 'a zero_one_many = Zero | One of 'a | Many
 type ('a, 'b) zero_one_many2 = Zero2 | One2 of 'a * 'b | Many2
 
 module Pair = Containers.Pair
-module Bijection = CCBijection [@@warning "-49"]
+module Bijection = CCBijection [@@warning "-no-cmi-file"]
 module HashQueue = Core_kernel.Hash_queue
 
 (** Input / Output *)

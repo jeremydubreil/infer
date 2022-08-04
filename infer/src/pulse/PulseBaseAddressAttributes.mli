@@ -42,7 +42,7 @@ val get_allocation : AbstractValue.t -> t -> (Attribute.allocator * Trace.t) opt
 
 val get_closure_proc_name : AbstractValue.t -> t -> Procname.t option
 
-val get_copied_var : AbstractValue.t -> t -> Var.t option
+val get_copied_into : AbstractValue.t -> t -> Attribute.CopiedInto.t option
 
 val get_source_origin_of_copy : AbstractValue.t -> t -> AbstractValue.t option
 
@@ -53,7 +53,7 @@ val get_invalid : AbstractValue.t -> t -> (Invalidation.t * Trace.t) option
 val get_must_be_valid :
   AbstractValue.t -> t -> (Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option) option
 
-val get_must_not_be_tainted : AbstractValue.t -> t -> (Timestamp.t * Taint.t * Trace.t) option
+val get_must_not_be_tainted : AbstractValue.t -> t -> Attribute.TaintSinkSet.t
 
 val is_must_be_valid_or_allocated_isl : AbstractValue.t -> t -> bool
 
