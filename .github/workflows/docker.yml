@@ -1,4 +1,4 @@
-name: default-build
+name: Docker Build
 
 on:
   - push
