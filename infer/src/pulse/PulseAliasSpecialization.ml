@@ -10,6 +10,7 @@ module FuncArg = ProcnameDispatcher.Call.FuncArg
 module IRAttributes = Attributes
 open PulseBasicInterface
 
+(* Relocalize all the pvars from the unspecialized pname to the specialized one *)
 module PvarSpecialization = struct
   let try_keep_original ~default orig new_ ~f = if phys_equal orig new_ then default else f new_
 
@@ -223,7 +224,7 @@ let get_actual_captured_vars callee_pname call_kind captured func_args path call
       ~actuals astate
   in
   let open IOption.Let_syntax in
-  let+ astate, captured_vars = PulseResult.ok astate_captured_vars in
+  let+ astate, captured_vars = PulseOperationResult.sat_ok astate_captured_vars in
   (astate, List.map captured_vars ~f:fst)
 
 

@@ -169,6 +169,10 @@ OPTIONS
            option. By default, all recursive dependencies are captured.       
     See also infer-capture(1).
 
+       --buck-erlang
+           Activates: Buck integration for Erlang. (Conversely:
+           --no-buck-erlang)           See also infer-capture(1).
+
        --buck-java-flavor
            Activates: Buck integration for Java which uses the buck flavor
            #infer-java-capture instead of genrules like buck-java.
@@ -652,6 +656,10 @@ OPTIONS
            more than one file. (Conversely: --no-dump-duplicate-symbols)       
     See also infer-capture(1).
 
+       --dynamic-dispatch-json-file-path path
+           Dynamic dispatch file path to get the JSON used for method name
+           substitution           See also infer-analyze(1).
+
        --enable-issue-type +issue_type
            Show reports coming from this type of issue. By default, all issue
            types are enabled except the ones listed in --disable-issue-type.
@@ -1081,6 +1089,10 @@ OPTIONS
            Regex of methods that should be modelled as allocs in Pulse       
     See also infer-analyze(1).
 
+       --pulse-model-cheap-copy-type regex
+           Regex of methods that should be cheap to copy in Pulse       
+    See also infer-analyze(1).
+
        --pulse-model-free-pattern string
            Regex of methods that should be modelled as wrappers to free(3) in
            Pulse. The pointer to be freed should be the first argument of the
@@ -1157,8 +1169,9 @@ OPTIONS
        --pulse-taint-config +path
            Path to a taint analysis configuration file. This file can define
            --pulse-taint-sources, --pulse-taint-sanitizers,
-           --pulse-taint-sinks, --pulse-taint-policies, and
-           --pulse-taint-data-flow-kinds.           See also infer-analyze(1).
+           --pulse-taint-sanitizers, --pulse-taint-sinks,
+           --pulse-taint-policies, and --pulse-taint-data-flow-kinds.       
+    See also infer-analyze(1).
 
        --pulse-taint-data-flow-kinds json
            Specify which taint kinds should be used for data flow reporting
@@ -1185,6 +1198,11 @@ OPTIONS
                                "sanitizer_kinds": ["Simple"] }]
            }
            See also infer-analyze(1).
+
+       --pulse-taint-propagaters json
+           Quick way to specify simple propagaters as a JSON objects. See
+           --pulse-taint-sources for the fields format documentation.       
+    See also infer-analyze(1).
 
        --pulse-taint-sanitizers json
            Quick way to specify simple sanitizers as a JSON objects. See
@@ -1218,7 +1236,8 @@ OPTIONS
                  ("Simple" by default).
              - "taint_target":
                  where the taint should be applied in the procedure.
-                 - "ReturnValue": (default for taint sources)
+                 - "ReturnValue": (default for taint sources and
+           propagaters)
                  - "AllArguments": (default for taint sanitizers and sinks)
                  - ["ArgumentPositions", [<int list>]]:
                      argument positions given by index (zero-indexed)
@@ -1758,12 +1777,12 @@ INTERNAL OPTIONS
        --capture-block-list-reset
            Cancel the effect of --capture-block-list.
 
-       --capture-textual-sil path
+       --capture-textual path
            Generate a SIL program from a textual representation given in a
            .sil file.
 
-       --capture-textual-sil-reset
-           Cancel the effect of --capture-textual-sil.
+       --capture-textual-reset
+           Cancel the effect of --capture-textual.
 
        --no-censor-report-reset
            Set --no-censor-report to the empty list.
@@ -1985,6 +2004,9 @@ INTERNAL OPTIONS
        --dump-textual-reset
            Cancel the effect of --dump-textual.
 
+       --dynamic-dispatch-json-file-path-reset
+           Cancel the effect of --dynamic-dispatch-json-file-path.
+
        --enable-issue-type-reset
            Set --enable-issue-type to the empty list.
 
@@ -2059,6 +2081,9 @@ INTERNAL OPTIONS
        --genrule-mode
            Activates: Enable the genrule compatibility mode used for the Buck
            integration (Conversely: --no-genrule-mode)
+
+       --hackc-binary path
+           Specify hackc binary to use (either name or path)
 
        --help-checker-reset
            Set --help-checker to the empty list.
@@ -2313,6 +2338,9 @@ INTERNAL OPTIONS
 
        --pulse-model-alloc-pattern-reset
            Cancel the effect of --pulse-model-alloc-pattern.
+
+       --pulse-model-cheap-copy-type-reset
+           Cancel the effect of --pulse-model-cheap-copy-type.
 
        --pulse-model-free-pattern-reset
            Cancel the effect of --pulse-model-free-pattern.

@@ -1,5 +1,6 @@
 {
   "pulse-model-abort": ["ns1::ns2::fun_abort"],
+  "pulse-model-cheap-copy-type":  "my_proj::CheapToCopy",
   "pulse-model-returns-copy-pattern": "ns::creates_copy",
   "pulse-model-return-nonnull": "Handle::get",
   "pulse-model-skip-pattern": "skip_model::SkipAll::.*\\|.*SkipSome<.*>::skip_me",
@@ -7,6 +8,7 @@
     { "short_description": "Simple Test",
       "taint_flows": [
         { "source_kinds": ["SimpleSource"],
+          "sanitizer_kinds": ["Simple"],
           "sink_kinds": ["SimpleSink"]
         }
       ]
@@ -82,6 +84,19 @@
     }
   ],
   "pulse-taint-sanitizers": [
-     { "procedure": "basics::Obj::sanitizer1" }
+     {
+       "procedure": "basics::Obj::sanitizer1",
+       "taint_target": "ReturnValue"
+     },
+     {
+       "procedure": "basics::Obj::sanitizer2",
+       "taint_target": "ReturnValue"
+     }
+  ],
+  "pulse-taint-propagaters": [
+    {
+      "procedure": "basics::Obj::propagater",
+      "taint_target": ["ArgumentPositions", [1]]
+    }
   ]
 }

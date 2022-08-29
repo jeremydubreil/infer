@@ -7,21 +7,16 @@
 
 open! IStd
 
-(** In Alloc, the allocation site is uniquely identified by the string
-    "class:line:assigned_variable" *)
-type t =
-  | Reachable of {proc_name: Procname.t}
-  | Extends of {typ: Typ.Name.t; typ_super: Typ.Name.t}
-  | Cast of {proc_name: Procname.t; dest: Ident.t; src: Ident.t; dest_typ: Typ.t}
-  | Alloc of {proc_name: Procname.t; return: Ident.t; allocation_site: string; typ: Typ.t}
-  | VirtualCall of {proc_name: Procname.t; call_site: string; return: Ident.t; call_proc: Procname.t}
-  | StaticCall of {proc_name: Procname.t; call_site: string; call_proc: Procname.t}
+type t
 
 val to_string : t -> string
 
 val iter_fact_types : (string -> unit) -> unit
 
-val reachable : Procname.t -> t
+val is_generated_per_class : t -> Typ.Name.t option
+(** If the fact is generated once for each class, return the corresponding class. *)
+
+val entrypoint : Procname.t -> t
 
 val extends : Typ.Name.t -> Typ.Name.t -> t
 
@@ -29,6 +24,24 @@ val cast : Procname.t -> Ident.t -> Ident.t -> Typ.t -> t
 
 val alloc : Procname.t -> Ident.t -> Location.t -> Typ.t -> t
 
-val virtual_call : Procname.t -> Location.t -> Ident.t -> Procname.t -> t
+val virtual_call : Procname.t -> Location.t -> Ident.t -> Procname.t -> Ident.t -> t
 
 val static_call : Procname.t -> Location.t -> Ident.t -> Procname.t -> t
+
+val actual_arg : Procname.t -> Location.t -> Ident.t -> int -> Ident.t -> t
+
+val formal_arg : Procname.t -> int -> Pvar.t -> t
+
+val actual_return : Procname.t -> Location.t -> Ident.t -> t
+
+val formal_return : Procname.t -> Ident.t -> t
+
+val implem : Typ.Name.t -> Procname.t -> t
+
+val load_field : Procname.t -> Ident.t -> Ident.t -> Fieldname.t -> t
+
+val store_field : Procname.t -> Ident.t -> Fieldname.t -> Ident.t -> t
+
+val move_load : Procname.t -> Ident.t -> Pvar.t -> t
+
+val move_store : Procname.t -> Pvar.t -> Ident.t -> t

@@ -33,6 +33,7 @@ BUILD_SYSTEMS_TESTS += \
   disjunctive_domain \
   duplicate_symbols \
   fail_on_issue \
+  infer-debug \
   j1 \
   project_root_rel \
   pulse_messages \
@@ -76,6 +77,12 @@ DIRECT_TESTS += \
   cpp_siof \
   cpp_starvation \
   cpp_uninit \
+
+ifeq ($(IS_FACEBOOK_TREE),yes)
+DIRECT_TESTS += \
+  c_fb-pulse \
+
+endif
 
 ifneq ($(BUCK),no)
 BUILD_SYSTEMS_TESTS += \
@@ -161,6 +168,12 @@ DIRECT_TESTS += \
 BUILD_SYSTEMS_TESTS += rebar3
 endif
 endif # BUILD_ERLANG_ANALYZERS
+
+ifeq ($(BUILD_PLATFORM)+$(BUILD_HACK_ANALYZERS),Linux+yes)
+ifneq ($(HACKC),no)
+DIRECT_TESTS += hack_capture
+endif
+endif # BUILD_PLATFORM+BUILD_HACK_ANALYZERS
 
 ifeq ($(BUILD_JAVA_ANALYZERS),yes)
 BUILD_SYSTEMS_TESTS += \

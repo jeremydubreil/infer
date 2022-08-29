@@ -12,10 +12,16 @@ open! IStd
 val store : proc_desc:Procdesc.t option -> ProcAttributes.t -> unit
 (** Save .attr file for the procedure into the attributes database. *)
 
+val load_from_uid : string -> ProcAttributes.t option
+(** Load the attributes for the unique procedure id from the attributes database. *)
+
 val load : Procname.t -> ProcAttributes.t option
 (** Load the attributes for the procedure from the attributes database. *)
 
 val is_no_return : Procname.t -> bool
+
+val load_formal_types : Procname.t -> Typ.t list
+(** Returns all the formal types of a given procedure. *)
 
 val clear_cache : unit -> unit
 (** clear attribute cache *)

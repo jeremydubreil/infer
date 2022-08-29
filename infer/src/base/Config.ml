@@ -52,6 +52,7 @@ type scheduler = File | Restart | SyntacticCallGraph [@@deriving equal]
 type pulse_taint_config =
   { sources: Pulse_config_t.matchers
   ; sanitizers: Pulse_config_t.matchers
+  ; propagaters: Pulse_config_t.matchers
   ; sinks: Pulse_config_t.matchers
   ; policies: Pulse_config_t.taint_policies
   ; data_flow_kinds: string list }
@@ -866,6 +867,10 @@ and buck_mode =
      clang targets, as per Buck's $(i,#compilation-database) flavor."
     ~symbols:[("no-deps", `NoDeps); ("deps", `DepsTmp)]
   |> ignore ;
+  CLOpt.mk_bool ~long:"buck-erlang"
+    ~in_help:InferCommand.[(Capture, manual_buck)]
+    ~f:(set_mode `Erlang) "Buck integration for Erlang."
+  |> ignore ;
   CLOpt.mk_bool ~long:"buck-java-flavor"
     ~in_help:InferCommand.[(Capture, manual_buck)]
     ~f:(set_mode `JavaFlavor)
@@ -901,8 +906,8 @@ and capture_block_list =
      the javac integration for now)."
 
 
-and capture_textual_sil =
-  CLOpt.mk_path_opt ~long:"capture-textual-sil" ~meta:"path"
+and capture_textual =
+  CLOpt.mk_path_opt ~long:"capture-textual" ~meta:"path"
     "Generate a SIL program from a textual representation given in a .sil file."
 
 
@@ -1445,6 +1450,12 @@ and dump_textual =
     "Generate a SIL program from the captured target. The target has to be a single Java file."
 
 
+and dynamic_dispatch_json_file_path =
+  CLOpt.mk_path_opt ~long:"dynamic-dispatch-json-file-path"
+    ~in_help:InferCommand.[(Analyze, manual_clang)]
+    "Dynamic dispatch file path to get the JSON used for method name substitution"
+
+
 and eradicate_condition_redundant =
   CLOpt.mk_bool ~long:"eradicate-condition-redundant" "Condition redundant warnings"
 
@@ -1584,6 +1595,11 @@ and generated_classes =
 and genrule_mode =
   CLOpt.mk_bool ~default:false ~long:"genrule-mode"
     "Enable the genrule compatibility mode used for the Buck integration"
+
+
+and hackc_binary =
+  CLOpt.mk_string ~long:"hackc-binary" ~default:"hackc" ~meta:"path"
+    "Specify hackc binary to use (either name or path)"
 
 
 and headers =
@@ -2139,6 +2155,12 @@ and pulse_model_alloc_pattern =
     "Regex of methods that should be modelled as allocs in Pulse"
 
 
+and pulse_model_cheap_copy_type =
+  CLOpt.mk_string_opt ~long:"pulse-model-cheap-copy-type" ~meta:"regex"
+    ~in_help:InferCommand.[(Analyze, manual_generic)]
+    "Regex of methods that should be cheap to copy in Pulse"
+
+
 and pulse_model_free_pattern =
   CLOpt.mk_string_opt ~long:"pulse-model-free-pattern"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
@@ -2283,6 +2305,13 @@ and pulse_taint_sanitizers =
      the fields format documentation."
 
 
+and pulse_taint_propagaters =
+  CLOpt.mk_json ~long:"pulse-taint-propagaters"
+    ~in_help:InferCommand.[(Analyze, manual_generic)]
+    "Quick way to specify simple propagaters as a JSON objects. See $(b,--pulse-taint-sources) for \
+     the fields format documentation."
+
+
 and pulse_taint_sinks =
   CLOpt.mk_json ~long:"pulse-taint-sinks"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
@@ -2310,7 +2339,7 @@ and pulse_taint_sources =
       ("Simple" by default).
   - "taint_target":
       where the taint should be applied in the procedure.
-      - "ReturnValue": (default for taint sources)
+      - "ReturnValue": (default for taint sources and propagaters)
       - "AllArguments": (default for taint sanitizers and sinks)
       - ["ArgumentPositions", [<int list>]]:
           argument positions given by index (zero-indexed)
@@ -2335,8 +2364,8 @@ and pulse_taint_config =
   CLOpt.mk_path_list ~long:"pulse-taint-config"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
     "Path to a taint analysis configuration file. This file can define $(b,--pulse-taint-sources), \
-     $(b,--pulse-taint-sanitizers), $(b,--pulse-taint-sinks), $(b,--pulse-taint-policies), and \
-     $(b,--pulse-taint-data-flow-kinds)."
+     $(b,--pulse-taint-sanitizers), $(b,--pulse-taint-sanitizers), $(b,--pulse-taint-sinks), \
+     $(b,--pulse-taint-policies), and $(b,--pulse-taint-data-flow-kinds)."
 
 
 and pulse_widen_threshold =
@@ -3244,6 +3273,8 @@ and buck_mode : BuckMode.t option =
       Some (ClangCompilationDB DepsAllDepths)
   | `ClangCompilationDB `DepsTmp, Some depth ->
       Some (ClangCompilationDB (DepsUpToDepth depth))
+  | `Erlang, _ ->
+      Some Erlang
   | `JavaFlavor, _ ->
       Some JavaFlavor
 
@@ -3252,7 +3283,7 @@ and buck_targets_block_list = RevList.to_list !buck_targets_block_list
 
 and capture = !capture
 
-and capture_textual_sil = !capture_textual_sil
+and capture_textual = !capture_textual
 
 and capture_block_list = !capture_block_list
 
@@ -3393,6 +3424,8 @@ and dump_duplicate_symbols = !dump_duplicate_symbols
 
 and dump_textual = !dump_textual
 
+and dynamic_dispatch_json_file_path = !dynamic_dispatch_json_file_path
+
 and eradicate_condition_redundant = !eradicate_condition_redundant
 
 and eradicate_field_over_annotated = !eradicate_field_over_annotated
@@ -3451,6 +3484,8 @@ and frontend_tests = !frontend_tests
 and generated_classes = !generated_classes
 
 and genrule_mode = !genrule_mode
+
+and hackc_binary = !hackc_binary
 
 and help_checker =
   RevList.rev_map !help_checker ~f:(fun checker_string ->
@@ -3651,6 +3686,8 @@ and pulse_model_abort = RevList.to_list !pulse_model_abort
 
 and pulse_model_alloc_pattern = Option.map ~f:Str.regexp !pulse_model_alloc_pattern
 
+and pulse_model_cheap_copy_type = Option.map ~f:Str.regexp !pulse_model_cheap_copy_type
+
 and pulse_model_free_pattern = Option.map ~f:Str.regexp !pulse_model_free_pattern
 
 and pulse_model_malloc_pattern = Option.map ~f:Str.regexp !pulse_model_malloc_pattern
@@ -3725,6 +3762,7 @@ and pulse_taint_config =
     in
     { sources= mk_matchers pulse_taint_sources
     ; sanitizers= mk_matchers pulse_taint_sanitizers
+    ; propagaters= mk_matchers pulse_taint_propagaters
     ; sinks= mk_matchers pulse_taint_sinks
     ; policies=
         Pulse_config_j.taint_policies_of_string (Yojson.Basic.to_string !pulse_taint_policies)
@@ -3753,6 +3791,7 @@ and pulse_taint_config =
       let combine_matchers = combine_fields Pulse_config_j.matchers_of_string in
       { sources= combine_matchers "pulse-taint-sources" taint_config.sources
       ; sanitizers= combine_matchers "pulse-taint-sanitizers" taint_config.sanitizers
+      ; propagaters= combine_matchers "pulse-taint-propagaters" taint_config.propagaters
       ; sinks= combine_matchers "pulse-taint-sinks" taint_config.sinks
       ; policies=
           combine_fields Pulse_config_j.taint_policies_of_string "pulse-taint-policies"

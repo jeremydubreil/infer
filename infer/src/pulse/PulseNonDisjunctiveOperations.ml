@@ -9,6 +9,15 @@ open! IStd
 module L = Logging
 open PulseDomainInterface
 open PulseBasicInterface
+module CheapCopyTypes = PulseCheapCopyTypes
+
+type origin =
+  | Copy  (** the copied value *)
+  | Source  (** the original source value that has been copied *)
+  | Parameter  (** the parameter value that is checked for modifications *)
+[@@deriving show {with_path= false}]
+
+let is_param = function Parameter -> true | Source | Copy -> false
 
 let get_modeled_as_returning_copy_opt proc_name =
   Option.value_map ~default:None Config.pulse_model_returns_copy_pattern ~f:(fun r ->
@@ -23,10 +32,10 @@ let get_copied_and_source copy_type path rest_args location from (disjunct : Abd
     match rest_args with
     | (source_arg, source_typ) :: _ -> (
       match PulseOperations.eval path NoAccess location source_arg disjunct with
-      | Ok (disjunct, (source_addr, _)) ->
+      | Sat (Ok (disjunct, (source_addr, _))) ->
           let source_expr = PulseDecompiler.find source_addr disjunct.decompiler in
           (disjunct, Some (source_addr, source_expr, source_typ))
-      | Recoverable _ | FatalError _ ->
+      | Sat (Recoverable _ | FatalError _) | Unsat ->
           (disjunct, None) )
     | _ ->
         (disjunct, None)
@@ -34,17 +43,39 @@ let get_copied_and_source copy_type path rest_args location from (disjunct : Abd
   (copied, disjunct, source_addr_typ_opt)
 
 
-let add_copies path location call_exp actuals astates astate_non_disj =
-  let is_ptr_to_trivially_copyable typ =
-    Typ.is_pointer typ && Typ.is_trivially_copyable (Typ.strip_ptr typ).quals
-  in
+let is_modeled_as_cheap_to_copy tenv actual_typ =
+  match actual_typ with
+  | {Typ.desc= Tptr ({desc= Tstruct actual_name}, _)} ->
+      Option.exists Config.pulse_model_cheap_copy_type ~f:(fun cheap_modeled ->
+          PatternMatch.supertype_exists tenv
+            (fun type_name _struct -> Str.string_match cheap_modeled (Typ.Name.name type_name) 0)
+            actual_name )
+  | _ ->
+      false
+
+
+let is_known_cheap_copy typ =
+  match typ.Typ.desc with
+  | Tptr ({desc= Tstruct typename}, _) ->
+      CheapCopyTypes.is_known_cheap_copy typename
+  | _ ->
+      false
+
+
+let is_cheap_to_copy tenv typ =
+  (Typ.is_pointer typ && Typ.is_trivially_copyable (Typ.strip_ptr typ).quals)
+  || is_modeled_as_cheap_to_copy tenv typ
+  || is_known_cheap_copy typ
+
+
+let add_copies tenv path location call_exp actuals astates astate_non_disj =
   let aux (copy_check_fn, args_map_fn) init astates =
     List.fold_map astates ~init ~f:(fun astate_non_disj (exec_state : ExecutionDomain.t) ->
         match (exec_state, (call_exp : Exp.t), args_map_fn actuals) with
         | ( ContinueProgram disjunct
           , (Const (Cfun procname) | Closure {name= procname})
           , (Exp.Lvar copy_pvar, copy_type) :: rest_args )
-          when not (is_ptr_to_trivially_copyable copy_type) ->
+          when not (is_cheap_to_copy tenv copy_type) ->
             let default = (astate_non_disj, exec_state) in
             copy_check_fn procname
             |> Option.value_map ~default ~f:(fun from ->
@@ -72,7 +103,7 @@ let add_copies path location call_exp actuals astates astate_non_disj =
         | ( ContinueProgram disjunct
           , (Const (Cfun procname) | Closure {name= procname})
           , ((Exp.Lfield (_, field, _) as exp), copy_type) :: ((_, source_typ) :: _ as rest_args) )
-          when Typ.is_rvalue_reference source_typ && not (is_ptr_to_trivially_copyable copy_type) ->
+          when Typ.is_rvalue_reference source_typ && not (is_cheap_to_copy tenv copy_type) ->
             let default = (astate_non_disj, exec_state) in
             copy_check_fn procname
             |> Option.value_map ~default ~f:(fun from ->
@@ -80,7 +111,7 @@ let add_copies path location call_exp actuals astates astate_non_disj =
                      get_copied_and_source copy_type path rest_args location from disjunct
                    in
                    match PulseOperations.eval path NoAccess location exp disjunct with
-                   | Ok (disjunct, (copy_addr, _)) ->
+                   | Sat (Ok (disjunct, (copy_addr, _))) ->
                        let disjunct' =
                          Option.value_map source_addr_typ_opt ~default:disjunct
                            ~f:(fun (source_addr, source_expr, _) ->
@@ -98,7 +129,7 @@ let add_copies path location call_exp actuals astates astate_non_disj =
                            ~source_opt:(Option.map source_addr_typ_opt ~f:snd3)
                            copied astate_non_disj
                        , ExecutionDomain.continue disjunct' )
-                   | Recoverable _ | FatalError _ ->
+                   | Sat (Recoverable _ | FatalError _) | Unsat ->
                        default )
         | ExceptionRaised _, _, _
         | ISLLatentMemoryError _, _, _
@@ -120,7 +151,7 @@ let add_copies path location call_exp actuals astates astate_non_disj =
   aux (get_modeled_as_returning_copy_opt, List.rev) astate_n astates
 
 
-let add_const_refable_parameters procdesc astates astate_non_disj =
+let add_const_refable_parameters procdesc tenv astates astate_non_disj =
   let proc_parameters = Procdesc.get_passed_by_value_formals procdesc in
   let location = Procdesc.get_loc procdesc in
   List.fold astates ~init:astate_non_disj
@@ -128,13 +159,11 @@ let add_const_refable_parameters procdesc astates astate_non_disj =
       match exec_state with
       | ContinueProgram disjunct ->
           List.fold proc_parameters ~init:astate_non_disj ~f:(fun astate_non_disj (pvar, typ) ->
-              let is_ptr_to_trivially_copyable typ =
-                Typ.is_pointer typ && Typ.is_trivially_copyable (Typ.strip_ptr typ).quals
-              in
               let var = Var.of_pvar pvar in
               if
                 Var.appears_in_source_code var && Typ.is_reference typ
-                && not (is_ptr_to_trivially_copyable typ)
+                && (not (is_cheap_to_copy tenv typ))
+                && not (Var.is_cpp_unnamed_param var)
               then
                 NonDisjDomain.add_parameter var
                   (NonDisjDomain.Unmodified
@@ -169,21 +198,23 @@ let get_matching_dest_addr_opt (edges_curr, attr_curr) edges_orig : AbstractValu
             None )
 
 
-let is_modified_since_copy addr ~current_heap ~current_attrs ~copy_heap
-    ~reachable_addresses_from_copy =
+let is_modified_since_detected addr ~is_param ~current_heap ~current_attrs ~copy_heap =
   let rec aux ~addr_to_explore ~visited =
     match addr_to_explore with
     | [] ->
         false
     | addr :: addr_to_explore -> (
-        if
-          AbstractValue.Set.mem addr visited
-          || not (AbstractValue.Set.mem addr reachable_addresses_from_copy)
-        then aux ~addr_to_explore ~visited
+        if AbstractValue.Set.mem addr visited then aux ~addr_to_explore ~visited
         else
           let copy_edges_opt = BaseMemory.find_opt addr copy_heap in
           let current_edges_opt = BaseMemory.find_opt addr current_heap in
           let visited = AbstractValue.Set.add addr visited in
+          let is_moved =
+            (is_param || BaseAddressAttributes.is_copied_from_const_ref addr current_attrs)
+            && BaseAddressAttributes.is_std_moved addr current_attrs
+          in
+          is_moved
+          ||
           match (current_edges_opt, copy_edges_opt) with
           | None, None ->
               aux ~addr_to_explore ~visited
@@ -202,45 +233,38 @@ let is_modified_since_copy addr ~current_heap ~current_attrs ~copy_heap
               |> Option.value_map ~default:true ~f:(fun matching_addr_list ->
                      aux ~addr_to_explore:(matching_addr_list @ addr_to_explore) ~visited ) )
   in
-  BaseAddressAttributes.is_copied_from_const_ref addr current_attrs
-  && BaseAddressAttributes.is_std_moved addr current_attrs
-  || aux ~addr_to_explore:[addr] ~visited:AbstractValue.Set.empty
+  aux ~addr_to_explore:[addr] ~visited:AbstractValue.Set.empty
 
 
-let is_modified ?(is_source_opt = None) address astate heap =
-  let reachable_addresses_from_copy =
-    BaseDomain.reachable_addresses_from (Caml.List.to_seq [address])
-      (astate.AbductiveDomain.post :> BaseDomain.t)
-  in
+let is_modified origin address astate heap =
   let current_heap = (astate.AbductiveDomain.post :> BaseDomain.t).heap in
   let current_attrs = (astate.AbductiveDomain.post :> BaseDomain.t).attrs in
-  let reachable_from heap =
-    BaseMemory.filter
-      (fun address _ -> AbstractValue.Set.mem address reachable_addresses_from_copy)
-      heap
-  in
   if Config.debug_mode then (
+    let reachable_addresses_from_copy =
+      BaseDomain.reachable_addresses_from (Caml.List.to_seq [address])
+        (astate.AbductiveDomain.post :> BaseDomain.t)
+    in
+    let reachable_from heap =
+      BaseMemory.filter
+        (fun address _ -> AbstractValue.Set.mem address reachable_addresses_from_copy)
+        heap
+    in
     L.d_printfln_escaped "Current reachable heap %a" BaseMemory.pp (reachable_from current_heap) ;
-    match is_source_opt with
-    | None ->
-        ()
-    | Some s ->
-        L.d_printfln_escaped "%s reachable heap %a"
-          (if s then "Source" else "Copy")
-          BaseMemory.pp (reachable_from heap) ) ;
-  is_modified_since_copy address ~current_heap ~copy_heap:heap ~current_attrs
-    ~reachable_addresses_from_copy
+    L.d_printfln_escaped "%a reachable heap %a" pp_origin origin BaseMemory.pp (reachable_from heap)
+    ) ;
+  is_modified_since_detected address ~is_param:(is_param origin) ~current_heap ~copy_heap:heap
+    ~current_attrs
 
 
-let mark_modified_address_at ~address ~source_addr_opt ?(is_source = false) ~copied_into astate
+let mark_modified_address_at ~address ~source_addr_opt origin ~copied_into astate
     (astate_n : NonDisjDomain.t) : NonDisjDomain.t =
   NonDisjDomain.mark_copy_as_modified ~copied_into ~source_addr_opt astate_n
-    ~is_modified:(is_modified ~is_source_opt:(Some is_source) address astate)
+    ~is_modified:(is_modified origin address astate)
 
 
 let mark_modified_parameter_at ~address ~var astate (astate_n : NonDisjDomain.t) : NonDisjDomain.t =
   NonDisjDomain.mark_parameter_as_modified ~var astate_n
-    ~is_modified:(is_modified ~is_source_opt:None address astate)
+    ~is_modified:(is_modified Parameter address astate)
 
 
 let mark_modified_copies_and_parameters_with vars ~astate astate_n =
@@ -249,7 +273,7 @@ let mark_modified_copies_and_parameters_with vars ~astate astate_n =
     |> Option.value_map ~default ~f:(fun (address, _history) ->
            let source_addr_opt = AddressAttributes.get_source_origin_of_copy address astate in
            mark_modified_address_at ~address ~source_addr_opt
-             ~copied_into:(Attribute.CopiedInto.IntoVar var) astate default )
+             ~copied_into:(Attribute.CopiedInto.IntoVar var) Copy astate default )
   in
   let mark_modified_parameter var default =
     Stack.find_opt var astate
@@ -262,8 +286,8 @@ let mark_modified_copies_and_parameters_with vars ~astate astate_n =
         let open IOption.Let_syntax in
         let* source_addr, _ = Stack.find_opt var astate in
         let+ copied_into = AddressAttributes.get_copied_into source_addr astate in
-        mark_modified_address_at ~address:source_addr ~source_addr_opt:(Some source_addr)
-          ~is_source:true ~copied_into astate astate_n
+        mark_modified_address_at ~address:source_addr ~source_addr_opt:(Some source_addr) Source
+          ~copied_into astate astate_n
       in
       match res_opt with Some res -> res | None -> mark_modified_copy var astate_n )
 

@@ -207,7 +207,7 @@ val capture : bool
 
 val capture_block_list : string option
 
-val capture_textual_sil : string option
+val capture_textual : string option
 
 val censor_report : ((bool * Str.regexp) * (bool * Str.regexp) * string) list
 
@@ -315,6 +315,8 @@ val dump_duplicate_symbols : bool
 
 val dump_textual : string option
 
+val dynamic_dispatch_json_file_path : string option
+
 val eradicate_condition_redundant : bool
 
 val eradicate_field_over_annotated : bool
@@ -364,6 +366,8 @@ val generated_classes : string option
 val genrule_mode : bool
 
 val global_tenv : bool
+
+val hackc_binary : string
 
 val help_checker : Checker.t list
 
@@ -540,6 +544,8 @@ val pulse_model_abort : string list
 
 val pulse_model_alloc_pattern : Str.regexp option
 
+val pulse_model_cheap_copy_type : Str.regexp option
+
 val pulse_model_free_pattern : Str.regexp option
 
 val pulse_model_malloc_pattern : Str.regexp option
@@ -583,6 +589,7 @@ val pulse_skip_procedures : Str.regexp option
 type pulse_taint_config =
   { sources: Pulse_config_t.matchers
   ; sanitizers: Pulse_config_t.matchers
+  ; propagaters: Pulse_config_t.matchers
   ; sinks: Pulse_config_t.matchers
   ; policies: Pulse_config_t.taint_policies
   ; data_flow_kinds: string list }
