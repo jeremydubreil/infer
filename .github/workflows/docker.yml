@@ -18,8 +18,11 @@ jobs:
             sudo apt install opam
             sudo apt clean
 
+      - name: Setup opam
+        run: ./build-infer.sh --only-setup-opam
+
       - name: Build Infer for Java
-        run: ./build-infer.sh --yes --user-opam-switch java
+        run: ./build-infer.sh --yes java
 
       - name: Run direct java tests
         run: make direct_java_racerd_test direct_java_pulse_test direct_java_nullsafe_test
