@@ -102,13 +102,15 @@ module Attribute = struct
 
   module CopiedInto = struct
     type t =
-      | IntoVar of Var.t
+      | IntoVar of {copied_var: Var.t; source_opt: Pvar.t option}
       | IntoField of {field: Fieldname.t; source_opt: DecompilerExpr.t option}
     [@@deriving compare, equal]
 
     let pp fmt = function
-      | IntoVar var ->
-          Var.pp fmt var
+      | IntoVar {copied_var; source_opt= None} ->
+          Var.pp fmt copied_var
+      | IntoVar {source_opt= Some pvar} ->
+          (Pvar.pp Pp.text) fmt pvar
       | IntoField {field} ->
           Fieldname.pp fmt field
   end
@@ -120,6 +122,11 @@ module Attribute = struct
     | AlwaysReachable
     | Closure of Procname.t
     | CopiedInto of CopiedInto.t
+    | CopiedReturn of
+        { source: AbstractValue.t
+        ; is_const_ref: bool
+        ; from: CopyOrigin.t
+        ; copied_location: Location.t }
     | DynamicType of Typ.t
     | EndOfCollection
     | Invalid of Invalidation.t * Trace.t
@@ -133,6 +140,9 @@ module Attribute = struct
          retain [v1] to [vn], in fact they should be collected
          when they become unreachable *)
     | RefCounted
+    | ReturnedFromUnknown of AbstractValue.t list
+    (* [ret_v -> ReturnedFromUnknown \[v1; ..; vn\]] does not
+         retain actuals [v1] to [vn] just like PropagateTaintFrom *)
     | SourceOriginOfCopy of {source: AbstractValue.t; is_const_ref: bool}
     | StdMoved
     | StdVectorReserve
@@ -158,6 +168,8 @@ module Attribute = struct
 
   let copied_into_rank = Variants.copiedinto.rank
 
+  let copied_return_rank = Variants.copiedreturn.rank
+
   let copy_origin_rank = Variants.sourceoriginofcopy.rank
 
   let dynamic_type_rank = Variants.dynamictype.rank
@@ -179,6 +191,8 @@ module Attribute = struct
   let propagate_taint_from_rank = Variants.propagatetaintfrom.rank
 
   let ref_counted_rank = Variants.refcounted.rank
+
+  let returned_from_unknown = Variants.returnedfromunknown.rank
 
   let std_moved_rank = Variants.stdmoved.rank
 
@@ -234,6 +248,10 @@ module Attribute = struct
         Procname.pp f pname
     | CopiedInto copied_into ->
         CopiedInto.pp f copied_into
+    | CopiedReturn {source; is_const_ref; from; copied_location} ->
+        F.fprintf f "CopiedReturn (%a%t by %a at %a)" AbstractValue.pp source
+          (fun f -> if is_const_ref then F.pp_print_string f ":const&")
+          CopyOrigin.pp from Location.pp copied_location
     | DynamicType typ ->
         F.fprintf f "DynamicType %a" (Typ.pp Pp.text) typ
     | EndOfCollection ->
@@ -262,6 +280,8 @@ module Attribute = struct
         F.fprintf f "PropagateTaintFrom([%a])" (Pp.seq ~sep:";" pp_taint_in) taints_in
     | RefCounted ->
         F.fprintf f "RefCounted"
+    | ReturnedFromUnknown values ->
+        F.fprintf f "ReturnedFromUnknown([%a])" (Pp.seq ~sep:";" AbstractValue.pp) values
     | SourceOriginOfCopy {source; is_const_ref} ->
         F.fprintf f "copied of source %a" AbstractValue.pp source ;
         if is_const_ref then F.pp_print_string f " (const&)"
@@ -293,10 +313,12 @@ module Attribute = struct
     | AlwaysReachable
     | Closure _
     | CopiedInto _
+    | CopiedReturn _
     | DynamicType _
     | EndOfCollection
     | JavaResourceReleased
     | PropagateTaintFrom _
+    | ReturnedFromUnknown _
     | SourceOriginOfCopy _
     | StdMoved
     | StdVectorReserve
@@ -318,6 +340,7 @@ module Attribute = struct
     | AlwaysReachable
     | Closure _
     | CopiedInto _
+    | CopiedReturn _
     | DynamicType _
     | EndOfCollection
     | ISLAbduced _
@@ -325,6 +348,7 @@ module Attribute = struct
     | JavaResourceReleased
     | PropagateTaintFrom _
     | RefCounted
+    | ReturnedFromUnknown _
     | SourceOriginOfCopy _
     | StdMoved
     | StdVectorReserve
@@ -350,6 +374,7 @@ module Attribute = struct
     | Allocated _
     | AlwaysReachable
     | Closure _
+    | CopiedReturn _
     | DynamicType _
     | EndOfCollection
     | Invalid _
@@ -360,6 +385,7 @@ module Attribute = struct
     | JavaResourceReleased
     | PropagateTaintFrom _
     | RefCounted
+    | ReturnedFromUnknown _
     | StdMoved
     | StdVectorReserve
     | TaintSanitized _
@@ -380,6 +406,8 @@ module Attribute = struct
     match attr with
     | Allocated (proc_name, trace) ->
         Allocated (proc_name, add_call_to_trace trace)
+    | CopiedReturn {source; is_const_ref; from; copied_location} ->
+        CopiedReturn {source= subst source; is_const_ref; from; copied_location}
     | Invalid (invalidation, trace) ->
         Invalid (invalidation, add_call_to_trace trace)
     | ISLAbduced trace ->
@@ -395,6 +423,8 @@ module Attribute = struct
         MustNotBeTainted (TaintSinkSet.map add_call_to_sink sinks)
     | PropagateTaintFrom taints_in ->
         PropagateTaintFrom (List.map taints_in ~f:(fun {v} -> {v= subst v}))
+    | ReturnedFromUnknown values ->
+        ReturnedFromUnknown (List.map values ~f:subst)
     | Tainted tainted ->
         let add_call_to_tainted Tainted.{source; time_trace; hist; intra_procedural_only} =
           if intra_procedural_only then
@@ -452,21 +482,28 @@ module Attribute = struct
 
 
   let filter_unreachable subst f_keep attr =
+    let filter_aux values ~f_in ~f_out =
+      let values' =
+        List.fold values ~init:AbstractValue.Set.empty ~f:(fun acc v ->
+            let v = f_in v in
+            if f_keep v then AbstractValue.Set.add v acc
+            else
+              AbstractValue.Set.union
+                (Option.value ~default:AbstractValue.Set.empty (AbstractValue.Map.find_opt v subst))
+                acc )
+      in
+      if AbstractValue.Set.is_empty values' then None
+      else AbstractValue.Set.fold (fun v list -> f_out v :: list) values' [] |> Option.some
+    in
     match attr with
+    | CopiedReturn {source} ->
+        Option.some_if (f_keep source) attr
     | PropagateTaintFrom taints_in ->
-        let taints_in' =
-          List.fold taints_in ~init:AbstractValue.Set.empty ~f:(fun acc {v} ->
-              if f_keep v then AbstractValue.Set.add v acc
-              else
-                AbstractValue.Set.union
-                  (Option.value ~default:AbstractValue.Set.empty
-                     (AbstractValue.Map.find_opt v subst) )
-                  acc )
-        in
-        if AbstractValue.Set.is_empty taints_in' then None
-        else
-          let taints_in' = AbstractValue.Set.fold (fun v list -> {v} :: list) taints_in' [] in
-          Some (PropagateTaintFrom taints_in')
+        filter_aux taints_in ~f_in:(fun {v} -> v) ~f_out:(fun v -> {v})
+        |> Option.map ~f:(fun taints_in -> PropagateTaintFrom taints_in)
+    | ReturnedFromUnknown values ->
+        filter_aux values ~f_in:Fn.id ~f_out:Fn.id
+        |> Option.map ~f:(fun values -> ReturnedFromUnknown values)
     | MustNotBeTainted sinks when TaintSinkSet.is_empty sinks ->
         L.die InternalError "Unexpected attribute %a." pp attr
     | Tainted set when TaintedSet.is_empty set ->
@@ -513,12 +550,16 @@ module Attributes = struct
       |> Option.value ~default:Attribute.TaintedSet.empty
 
 
+    let remove_tainted = remove_by_rank Attribute.tainted_rank
+
     let get_taint_sanitized attrs =
       get_by_rank Attribute.taint_sanitized_rank
         ~dest:(function[@warning "-8"] TaintSanitized taint_sanitized -> taint_sanitized)
         attrs
       |> Option.value ~default:Attribute.TaintSanitizedSet.empty
 
+
+    let remove_taint_sanitized = remove_by_rank Attribute.taint_sanitized_rank
 
     let get_must_not_be_tainted attrs =
       get_by_rank Attribute.must_not_be_tainted_rank
@@ -551,6 +592,8 @@ module Attributes = struct
 
   let get_by_rank = Set.get_by_rank
 
+  let remove_by_rank = Set.remove_by_rank
+
   let mem_by_rank rank attrs = Set.find_rank attrs rank |> Option.is_some
 
   let get_invalid =
@@ -563,12 +606,21 @@ module Attributes = struct
         | PropagateTaintFrom taints_in -> taints_in )
 
 
+  let remove_propagate_taint_from = remove_by_rank Attribute.propagate_taint_from_rank
+
+  let get_returned_from_unknown =
+    get_by_rank Attribute.returned_from_unknown ~dest:(function [@warning "-8"]
+        | ReturnedFromUnknown values -> values )
+
+
   let is_java_resource_released = mem_by_rank Attribute.java_resource_released_rank
 
   let get_must_be_valid =
     get_by_rank Attribute.must_be_valid_rank ~dest:(function [@warning "-8"]
         | Attribute.MustBeValid (timestamp, trace, reason) -> (timestamp, trace, reason) )
 
+
+  let remove_must_be_valid = remove_by_rank Attribute.must_be_valid_rank
 
   let get_written_to =
     get_by_rank Attribute.written_to_rank ~dest:(function [@warning "-8"] WrittenTo action ->
@@ -584,6 +636,14 @@ module Attributes = struct
     get_by_rank Attribute.copied_into_rank ~dest:(function [@warning "-8"]
         | CopiedInto copied_into -> copied_into )
 
+
+  let get_copied_return =
+    get_by_rank Attribute.copied_return_rank ~dest:(function [@warning "-8"]
+        | CopiedReturn {source; is_const_ref; from; copied_location} ->
+        (source, is_const_ref, from, copied_location) )
+
+
+  let remove_copied_return = remove_by_rank Attribute.copied_return_rank
 
   let get_source_origin_of_copy =
     get_by_rank Attribute.copy_origin_rank ~dest:(function [@warning "-8"]
@@ -613,6 +673,8 @@ module Attributes = struct
 
   let is_uninitialized = mem_by_rank Attribute.uninitialized_rank
 
+  let remove_uninitialized = remove_by_rank Attribute.uninitialized_rank
+
   let is_ref_counted = mem_by_rank Attribute.ref_counted_rank
 
   let get_allocation =
@@ -620,10 +682,14 @@ module Attributes = struct
         | Allocated (allocator, trace) -> (allocator, trace) )
 
 
+  let remove_allocation = remove_by_rank Attribute.allocated_rank
+
   let get_isl_abduced =
     get_by_rank Attribute.isl_abduced_rank ~dest:(function [@warning "-8"] ISLAbduced trace ->
         trace )
 
+
+  let remove_isl_abduced = remove_by_rank Attribute.isl_abduced_rank
 
   let get_unknown_effect =
     get_by_rank Attribute.unknown_effect_rank ~dest:(function [@warning "-8"]

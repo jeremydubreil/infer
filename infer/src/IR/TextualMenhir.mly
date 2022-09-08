@@ -18,6 +18,7 @@
 
 %token AMPERSAND
 %token ASSIGN
+%token ATTRIBUTE
 %token COLON
 %token COMMA
 %token DECLARE
@@ -58,8 +59,9 @@
 %token <string> STRING
 
 %start <SourceFile.t -> Textual.Module.t> main
+%type <Attr.t> attribute
 %type <Module.decl> declaration
-%type <Procname.enclosing_class * ProcBaseName.t> pname_and_enclosing
+%type <Procname.qualified_name> qualified_pname
 %type <ProcBaseName.t> pname
 %type <FieldBaseName.t> fname
 %type <NodeName.t> nname
@@ -95,8 +97,8 @@
 %%
 
 main:
-  | l=declaration* EOF
-    { (fun sourcefile -> { decls=l; sourcefile}) }
+  | attrs=attribute* decls=declaration* EOF
+    { (fun sourcefile -> { attrs; decls; sourcefile }) }
 
 pname:
   | id=IDENT
@@ -118,11 +120,15 @@ vname:
   | id=IDENT
     { { value=id; loc=location_of_pos $startpos(id) } }
 
-pname_and_enclosing:
-  | tname=tname DOT pname=pname
-    { (Enclosing tname, pname) }
-  | pname=pname
-    { (TopLevel, pname) }
+qualified_pname:
+  | tname=tname DOT name=pname
+    { {enclosing_class=Enclosing tname; name} }
+  | name=pname
+    { {enclosing_class=TopLevel; name} }
+
+attribute:
+  | ATTRIBUTE name=IDENT EQ value=STRING
+    { {name; value; loc=location_of_pos $startpos} }
 
 declaration:
   | GLOBAL name=vname
@@ -133,19 +139,19 @@ declaration:
         List.map l ~f:(fun (typ, name_f) ->
                         {Fieldname.name=name_f; typ; enclosing_type=name}) in
       Struct {name; fields; methods=[]} }
-  | DECLARE pname_and_enclosing=pname_and_enclosing LPAREN targs = separated_list(COMMA, typ) RPAREN COLON tres=typ
+  | DECLARE qualified_name=qualified_pname LPAREN
+            formals_types = separated_list(COMMA, typ) RPAREN COLON result_type=typ
     { let kind : Procname.kind = NonVirtual in
-      let (enclosing_class, name) = pname_and_enclosing in
-      let pname : Procname.t = {name; targs; tres; kind; enclosing_class}
+      let pname : Procname.t = {qualified_name; formals_types; result_type; kind}
       (* FIXME: deals with virutal kind *) in
       Procname pname
     }
-  | DEFINE pname_and_enclosing=pname_and_enclosing LPAREN params = separated_list(COMMA, typed_var) RPAREN COLON tres=typ
+  | DEFINE qualified_name=qualified_pname LPAREN
+           params = separated_list(COMMA, typed_var) RPAREN COLON result_type=typ
                          LBRACKET nodes=block+ RBRACKET
-    { let targs = List.map ~f:fst params in
+    { let formals_types = List.map ~f:fst params in
       let kind : Procname.kind = NonVirtual in
-      let (enclosing_class, name) = pname_and_enclosing in
-      let procname : Procname.t = {name; targs; tres; kind; enclosing_class}
+      let procname : Procname.t = {qualified_name; formals_types; result_type; kind}
       (* FIXME:: deals with virtual kind *) in
       let start_node = List.hd_exn nodes in
       let params = List.map ~f:snd params in
@@ -234,8 +240,8 @@ terminator:
 node_call:
   | label=nname
     { {label; ssa_args=[]} }
-  | label=nname LPAREN l=separated_nonempty_list(COMMA, LOCAL) RPAREN
-    { {label; ssa_args=List.map ~f:Ident.of_int l} }
+  | label=nname LPAREN ssa_args=separated_nonempty_list(COMMA, expression) RPAREN
+    { {label; ssa_args} }
 
 opt_handlers:
   | { [] }
@@ -253,7 +259,7 @@ expression:
     { Index (e1, e2) }
   | c=const
     { Const c }
-  | proc=pname LPAREN args=separated_list(COMMA, expression) RPAREN
+  | proc=qualified_pname LPAREN args=separated_list(COMMA, expression) RPAREN
     { Call {proc; args} }
   | LPAREN e=expression COLON t=typ RPAREN
     { Cast (t, e) }
