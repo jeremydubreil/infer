@@ -12,7 +12,7 @@ AC_PREREQ([2.63])
 # - the values below
 # - opam
 AC_INIT([Infer],
-        [1.1.0],
+        [1.1.1],
         [https://github.com/facebook/infer/issues/])
 
 AC_CONFIG_SRCDIR([infer/src/istd/IStd.ml])
@@ -20,7 +20,7 @@ AC_CONFIG_SRCDIR([infer/src/istd/IStd.ml])
 # WARNING: keep in sync with above
 INFER_MAJOR=1
 INFER_MINOR=1
-INFER_PATCH=0
+INFER_PATCH=1
 
 AC_SUBST([INFER_MAJOR])
 AC_SUBST([INFER_MINOR])
