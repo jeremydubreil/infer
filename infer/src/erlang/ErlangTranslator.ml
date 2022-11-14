@@ -62,6 +62,13 @@ let update_location (loc : Ast.location) (env : (_, _) Env.t) =
   {env with location}
 
 
+let update_path (path : string) (env : (_, _) Env.t) =
+  (* Ignore if we don't find the source for OTP related files. *)
+  let file = SourceFile.create path ~warn_on_error:(not env.is_otp) in
+  let location = {env.location with file} in
+  {env with location}
+
+
 let check_type env value typ : Block.t =
   let is_right_type_id = mk_fresh_id () in
   let start =
@@ -464,7 +471,7 @@ and translate_pattern_variable (env : (_, _) Env.t) value vname scope : Block.t 
   let store : Sil.instr =
     let e1 : Exp.t = Lvar (Pvar.mk (Mangled.from_string vname) procname) in
     let e2 : Exp.t = Var value in
-    Store {e1; root_typ= any_typ; typ= any_typ; e2; loc= env.location}
+    Store {e1; typ= any_typ; e2; loc= env.location}
   in
   let exit_success = Node.make_stmt env [store] in
   let exit_failure = Node.make_nop env in
@@ -594,9 +601,7 @@ and translate_expression env {Ast.location; simple_expression} =
   | Exp.Var _ ->
       expression_block
   | _ ->
-      let store_instr =
-        Sil.Store {e1= result; root_typ= any_typ; typ= any_typ; e2= Var ret_var; loc= env.location}
-      in
+      let store_instr = Sil.Store {e1= result; typ= any_typ; e2= Var ret_var; loc= env.location} in
       let store_block = Block.make_instruction env [store_instr] in
       Block.all env [expression_block; store_block]
 
@@ -845,9 +850,7 @@ and translate_expression_lambda (env : (_, _) Env.t) ret_var cases procname_opt 
   let load_block, closure =
     let mk_capt_var (var : Pvar.t) =
       let id = mk_fresh_id () in
-      let instr =
-        Sil.Load {id; e= Exp.Lvar var; root_typ= any_typ; typ= any_typ; loc= env.location}
-      in
+      let instr = Sil.Load {id; e= Exp.Lvar var; typ= any_typ; loc= env.location} in
       (instr, (Exp.Var id, var, any_typ, CapturedVar.ByValue))
     in
     let instrs, captured_vars = List.unzip (List.map ~f:mk_capt_var captured_vars) in
@@ -1155,6 +1158,13 @@ and translate_expression_record_update (env : (_, _) Env.t) ret_var record name 
             (* (4) Check if there is an initializer *)
             match field_info.initializer_ with
             | Some expr ->
+                (* Warning: we are inlining the initializer expression here. If it has _ variable
+                   inside, it will crash because it doesn't have a scope. We could fix this by using
+                   the current function as scope. But then it would also not have a unique name:
+                   Erlang-syntactically distinct occurrences of _ are translated as _anon_1, _anon_2,
+                   ... to prevent them being considered as the same variable. However, this is done on
+                   the record level, so inlining them multiple times may yield non-unique variable names.
+                   See T134336886.*)
                 translate_expression_to_id env one_id expr
             | None ->
                 (* (5) Finally, it's undefined *)
@@ -1237,10 +1247,11 @@ and translate_expression_variable (env : (_, _) Env.t) ret_var vname scope : Blo
     | Some name ->
         name
     | None ->
+        (* This can happen for example if we have the _ variable in record field initializers. *)
         L.die InternalError "Scope not found for variable, probably missing annotation."
   in
   let e = Exp.Lvar (Pvar.mk (Mangled.from_string vname) procname) in
-  let load_instr = Sil.Load {id= ret_var; e; root_typ= any_typ; typ= any_typ; loc= env.location} in
+  let load_instr = Sil.Load {id= ret_var; e; typ= any_typ; loc= env.location} in
   Block.make_instruction env [load_instr]
 
 
@@ -1286,7 +1297,7 @@ and translate_function_clauses (env : (_, _) Env.t) procdesc (attributes : ProcA
     let load (formal, typ, _) =
       let id = mk_fresh_id () in
       let pvar = Pvar.mk formal procname in
-      let load = Sil.Load {id; e= Exp.Lvar pvar; root_typ= typ; typ; loc= attributes.loc} in
+      let load = Sil.Load {id; e= Exp.Lvar pvar; typ; loc= attributes.loc} in
       (id, load)
     in
     List.unzip (List.map ~f:load attributes.formals)
@@ -1368,16 +1379,12 @@ let translate_one_type (env : (_, _) Env.t) name type_ =
   let body =
     let arg_id = mk_fresh_id () in
     let pvar = Pvar.mk formal procname in
-    let load_instr =
-      Sil.Load {id= arg_id; e= Exp.Lvar pvar; root_typ= any_typ; typ= any_typ; loc= attributes.loc}
-    in
+    let load_instr = Sil.Load {id= arg_id; e= Exp.Lvar pvar; typ= any_typ; loc= attributes.loc} in
     let load_block = Block.make_instruction env [load_instr] in
     let type_check_block, condition =
       ErlangTypes.type_condition env String.Map.empty (arg_id, type_)
     in
-    let store_instr =
-      Sil.Store {e1= ret_var; root_typ= any_typ; typ= any_typ; e2= condition; loc= env.location}
-    in
+    let store_instr = Sil.Store {e1= ret_var; typ= any_typ; e2= condition; loc= env.location} in
     let store_block = Block.make_instruction env [store_instr] in
     Block.all env [load_block; type_check_block; store_block]
   in
@@ -1402,9 +1409,7 @@ let translate_one_spec (env : (_, _) Env.t) function_ spec =
     let env = {env with procdesc= Env.Present procdesc; result= Env.Present ret_var} in
     let body =
       let ret_id = mk_fresh_id () in
-      let store_instr =
-        Sil.Store {e1= ret_var; root_typ= any_typ; typ= any_typ; e2= Var ret_id; loc= env.location}
-      in
+      let store_instr = Sil.Store {e1= ret_var; typ= any_typ; e2= Var ret_id; loc= env.location} in
       let prune_block = ErlangTypes.prune_spec_return env ret_id spec in
       let store_block = Block.make_instruction env [store_instr] in
       Block.all env [prune_block; store_block]
@@ -1416,19 +1421,25 @@ let translate_one_spec (env : (_, _) Env.t) function_ spec =
 
 (** Translate forms of a module. *)
 let translate_module (env : (_, _) Env.t) module_ =
-  let f {Ast.location; simple_form} =
-    let env = update_location location env in
+  let f env {Ast.location; simple_form} =
+    let sub_env = update_location location env in
     match simple_form with
     | Function {function_; clauses} ->
-        translate_one_function env function_ clauses
+        translate_one_function sub_env function_ clauses ;
+        env
     | Type {name; type_} ->
-        translate_one_type env name type_
+        translate_one_type sub_env name type_ ;
+        env
     | Spec {function_; spec} ->
-        translate_one_spec env function_ spec
+        translate_one_spec sub_env function_ spec ;
+        env
+    | File {path} ->
+        update_path path env
     | _ ->
-        ()
+        env
   in
-  List.iter module_ ~f ;
+  (* Processing in order due to [file] attributes updating the path. *)
+  let env = List.fold_left module_ ~f ~init:env in
   DB.Results_dir.init env.location.file ;
   let tenv = Tenv.FileLocal (Tenv.create ()) in
   SourceFiles.add env.location.file env.cfg tenv None

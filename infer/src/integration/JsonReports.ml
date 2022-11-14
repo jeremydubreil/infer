@@ -61,20 +61,35 @@ let loc_trace_to_jsonbug_record trace_list ekind =
       []
   | _ ->
       let trace_item_to_record trace_item =
-        { Jsonbug_j.level= trace_item.Errlog.lt_level
-        ; filename=
-            SourceFile.to_string ~force_relative:Config.report_force_relative_path
-              trace_item.Errlog.lt_loc.Location.file
-        ; line_number= trace_item.Errlog.lt_loc.Location.line
-        ; column_number= trace_item.Errlog.lt_loc.Location.col
-        ; description= trace_item.Errlog.lt_description }
+        let loc : Location.t = trace_item.Errlog.lt_loc in
+        let trace =
+          { Jsonbug_j.level= trace_item.Errlog.lt_level
+          ; filename=
+              SourceFile.to_string ~force_relative:Config.report_force_relative_path loc.file
+          ; line_number= loc.line
+          ; column_number= loc.col
+          ; description= trace_item.Errlog.lt_description }
+        in
+        Location.get_macro_file_line_opt trace_item.Errlog.lt_loc
+        |> Option.value_map ~default:[trace] ~f:(fun (macro_source, macro_line) ->
+               let trace = {trace with Jsonbug_j.description= "macro expanded here"} in
+               let macro_trace =
+                 { Jsonbug_j.level= trace_item.Errlog.lt_level
+                 ; filename=
+                     SourceFile.to_string ~force_relative:Config.report_force_relative_path
+                       macro_source
+                 ; line_number= macro_line
+                 ; column_number= -1
+                 ; description= trace_item.Errlog.lt_description }
+               in
+               [trace; macro_trace] )
       in
-      let record_list = List.rev (List.rev_map ~f:trace_item_to_record trace_list) in
+      let record_list = List.concat_map ~f:trace_item_to_record trace_list in
       record_list
 
 
-let should_report issue_type error_desc =
-  if (not Config.filtering) || Language.curr_language_is CIL then true
+let should_report proc_name issue_type error_desc =
+  if (not Config.filtering) || Language.equal (Procname.get_language proc_name) CIL then true
   else
     let issue_type_is_null_deref =
       let null_deref_issue_types =
@@ -189,7 +204,7 @@ module JsonIssuePrinter = MakeJsonListPrinter (struct
     if
       error_filter source_file err_key.issue_type
       && should_report_proc_name
-      && should_report err_key.issue_type err_key.err_desc
+      && should_report proc_name err_key.issue_type err_key.err_desc
       && not (is_in_clang_header source_file)
     then
       let severity = IssueType.string_of_severity err_key.severity in
@@ -333,8 +348,8 @@ end
 
 module JsonConfigImpactPrinter = MakeJsonListPrinter (JsonConfigImpactPrinterElt)
 
-let is_in_changed_files {Location.file} =
-  match SourceFile.read_config_changed_files () with
+let is_in_files_to_analyze {Location.file} =
+  match SourceFile.read_config_files_to_analyze () with
   | None ->
       (* when Config.changed_files_index is not given *)
       true
@@ -356,7 +371,7 @@ let collect_issues proc_name proc_location_opt err_log issues_acc =
 
 
 let write_costs proc_name loc cost_opt (outfile : Utils.outfile) =
-  if (not (Cost.is_report_suppressed proc_name)) && is_in_changed_files loc then
+  if (not (Cost.is_report_suppressed proc_name)) && is_in_files_to_analyze loc then
     JsonCostsPrinter.pp outfile.fmt {loc; proc_name; cost_opt}
 
 
@@ -367,7 +382,7 @@ let write_config_impact proc_name loc config_impact_opt (outfile : Utils.outfile
        || ConfigImpactAnalysis.is_in_strict_mode_paths loc.Location.file
        || ConfigImpactAnalysis.is_in_strict_beta_mode_paths loc.Location.file
        || ExternalConfigImpactData.is_in_config_data_file proc_name )
-    && is_in_changed_files loc
+    && is_in_files_to_analyze loc
   then
     if ConfigImpactPostProcess.is_in_gated_classes proc_name then ()
       (* Ignore reporting methods of gated classes *)
@@ -396,10 +411,8 @@ let process_all_summaries_and_issues ~issues_outf ~costs_outf ~config_impact_out
           ~config_impact:(config_impact_opt, config_impact_outf)
           err_log !all_issues ) ;
   (* Issues that are generated and stored outside of summaries by linter and checkers *)
-  List.iter (ResultsDirEntryName.get_issues_directories ()) ~f:(fun dir_name ->
-      IssueLog.load dir_name
-      |> IssueLog.iter ~f:(fun proc_name errlog ->
-             all_issues := collect_issues proc_name None errlog !all_issues ) ) ;
+  IssueLog.iter_all_issues ~f:(fun _checker proc_name errlog ->
+      all_issues := collect_issues proc_name None errlog !all_issues ) ;
   let all_issues = Issue.sort_filter_issues !all_issues in
   List.iter all_issues ~f:(fun {Issue.proc_name; proc_location_opt; err_key; err_data} ->
       let error_filter = mk_error_filter filters proc_name in

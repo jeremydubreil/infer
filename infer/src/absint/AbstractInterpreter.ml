@@ -60,6 +60,14 @@ module type S = sig
     -> Procdesc.t
     -> TransferFunctions.Domain.t option
 
+  val compute_post_including_exceptional :
+       ?do_narrowing:bool
+    -> ?pp_instr:(TransferFunctions.Domain.t -> Sil.instr -> (Format.formatter -> unit) option)
+    -> TransferFunctions.analysis_data
+    -> initial:TransferFunctions.Domain.t
+    -> Procdesc.t
+    -> TransferFunctions.Domain.t option * TransferFunctions.Domain.t option
+
   val exec_cfg :
        ?do_narrowing:bool
     -> TransferFunctions.CFG.t
@@ -86,6 +94,10 @@ module type Make = functor (TransferFunctions : TransferFunctions.SIL) ->
 
 module type TransferFunctionsWithExceptions = sig
   include TransferFunctions.SIL
+
+  val join_all : Domain.t list -> into:Domain.t option -> Domain.t option
+  (** Joins the abstract states from predecessors. It returns [None] when the given list is empty
+      and [into] is [None]. *)
 
   val filter_normal : Domain.t -> Domain.t
   (** Refines the abstract state to select non-exceptional concrete states. Should return bottom if
@@ -118,6 +130,11 @@ end
 (** most transfer functions will use this simple [Instrs.fold] approach *)
 module SimpleNodeTransferFunctions (T : TransferFunctions.SIL) = struct
   include T
+
+  let join_all x ~into =
+    List.fold x ~init:into ~f:(fun acc astate ->
+        Some (Option.value_map acc ~default:astate ~f:(fun acc -> Domain.join acc astate)) )
+
 
   (* Warning: we provide a very simple default implementation for the three next functions. If
      you really wish to take into account exceptions, you may need to seriously add an exceptional
@@ -163,6 +180,10 @@ struct
 
   let (`UnderApproximateAfter disjunct_limit) = DConfig.join_policy
 
+  let has_geq_disj ~leq ~than:disj disjs =
+    List.exists disjs ~f:(fun disj' -> leq ~lhs:disj ~rhs:disj')
+
+
   module Domain = struct
     (** a list [\[x1; x2; ...; xN\]] represents a disjunction [x1 ∨ x2 ∨ ... ∨ xN] *)
     type t = T.DisjDomain.t list * T.NonDisjDomain.t
@@ -173,7 +194,7 @@ struct
         | hd :: tl when n_acc < limit ->
             (* check with respect to the original [into] and not [acc] as we assume lists of
                disjuncts are already deduplicated *)
-            if List.exists into ~f:(fun into_disj -> leq ~lhs:hd ~rhs:into_disj) then
+            if has_geq_disj ~leq ~than:hd into then
               (* [hd] is already implied by one of the states in [into]; skip it
                  ([(a=>b) => (a\/b <=> b)]) *)
               aux acc n_acc tl
@@ -249,9 +270,46 @@ struct
         List.iteri (List.rev disjuncts) ~f:(fun i disjunct ->
             F.fprintf f "#%d: @[%a@]@;" i T.DisjDomain.pp disjunct )
       in
-      F.fprintf f "@[<v>%d disjuncts:@;%a@]" (List.length disjuncts) pp_disjuncts disjuncts ;
-      F.fprintf f "\n Non-disj state:@[%a@]@;" T.NonDisjDomain.pp non_disj
+      F.fprintf f "@[<v>%d disjuncts:@;%a@;@[<hv 2>Non-disj state:@ %a@]@]" (List.length disjuncts)
+        pp_disjuncts disjuncts T.NonDisjDomain.pp non_disj
   end
+
+  let join_all_disj_astates ~into astates =
+    let leq ~lhs ~rhs = T.DisjDomain.equal_fast lhs rhs in
+    let rec join_hd res res_n to_join =
+      if res_n >= disjunct_limit then res
+      else
+        match Fqueue.dequeue to_join with
+        | None ->
+            res
+        | Some ([], to_join) ->
+            join_hd res res_n to_join
+        | Some (hd :: tl, to_join) ->
+            let res, res_n =
+              if has_geq_disj ~leq ~than:hd res then (res, res_n) else (hd :: res, res_n + 1)
+            in
+            join_hd res res_n (Fqueue.enqueue to_join tl)
+    in
+    let to_join =
+      List.map astates ~f:(fun (disjuncts, _) -> List.rev disjuncts) |> Fqueue.of_list
+    in
+    join_hd into (List.length into) to_join
+
+
+  let join_all astates ~into =
+    match (astates, into) with
+    | [], _ ->
+        into
+    | [disjuncts], None ->
+        Some disjuncts
+    | _ :: _, _ ->
+        let d_into, nd_into = Option.value into ~default:([], T.NonDisjDomain.bottom) in
+        let d = join_all_disj_astates astates ~into:d_into in
+        let nd =
+          List.fold astates ~init:nd_into ~f:(fun acc (_, nd) -> T.NonDisjDomain.join acc nd)
+        in
+        Some (d, nd)
+
 
   let filter_disjuncts ~f ((l, nd) : Domain.t) =
     let filtered = List.filter l ~f in
@@ -281,13 +339,15 @@ struct
             (post_astate, n_disjuncts) )
           else (
             L.d_printfln "@[<v2>Executing instruction from disjunct #%d@;" i ;
+            (* check timeout once per disjunct to execute instead of once for all disjuncts *)
+            Timer.check_timeout () ;
             let disjuncts', non_disj' =
               T.exec_instr (pre_disjunct, non_disj) analysis_data node instr
             in
+            L.d_printfln "@]@\n" ;
             ( if Config.write_html then
               let n = List.length disjuncts' in
-              L.d_printfln "@]@\n@[Got %d disjunct%s back@]" n (if Int.equal n 1 then "" else "s")
-            ) ;
+              L.d_printfln "@[Got %d disjunct%s back@]" n (if Int.equal n 1 then "" else "s") ) ;
             let post_disj', n = Domain.join_up_to ~limit ~into:post disjuncts' in
             ((post_disj', non_disj' :: non_disj_astates), n) ) )
     in
@@ -379,6 +439,23 @@ module AbstractInterpreterCommon (TransferFunctions : NodeTransferFunctions) = s
       pp_right pp_result
 
 
+  let debug_absint_join_operation (`Join (inputs, into, result)) =
+    match (inputs, into) with
+    | [(_, left); (_, right)], None ->
+        debug_absint_operation (`Join (left, right, result))
+    | _, _ ->
+        let pp_into f =
+          Option.iter into ~f:(fun into -> F.fprintf f "@[<2>INTO:@ %a@]@\n@\n" Domain.pp into)
+        in
+        (* We set the max number of [inputs] as 99, which is the number of predecessor nodes, but we
+           do not expect it to be hit in usual CFGs. *)
+        L.d_printfln_escaped "JOIN@\n@\n@[<v>INPUTS:@,%a@]@\n@\n%t@[<2>RESULT:@ %a@]@\n"
+          (IList.pp_print_list ~max:99 (fun f (node, astate) ->
+               F.fprintf f "@[<2>FROM Node %a:@ @[%a@]@]" Procdesc.Node.pp
+                 (Node.underlying_node node) Domain.pp astate ) )
+          inputs pp_into Domain.pp result
+
+
   (** reference to log errors only at the innermost recursive call *)
   let logged_error = ref false
 
@@ -409,14 +486,25 @@ module AbstractInterpreterCommon (TransferFunctions : NodeTransferFunctions) = s
     L.d_printfln_escaped "%t" pp_all
 
 
+  let call_once_in_ten =
+    let n = ref 0 in
+    fun ~f () ->
+      if !n >= 10 then (
+        f () ;
+        n := 0 )
+      else incr n
+
+
   let exec_node_instrs old_state_opt ~pp_instr proc_data node pre =
     let instrs = CFG.instrs node in
     if Config.write_html then L.d_printfln_escaped "PRE STATE:@\n@[%a@]@\n" Domain.pp pre ;
     let exec_instr idx pre instr =
+      call_once_in_ten ~f:!ProcessPoolState.update_heap_words () ;
       AnalysisState.set_instr instr ;
       let result =
         try
           let post = TransferFunctions.exec_instr pre proc_data node idx instr in
+          Timer.check_timeout () ;
           (* don't forget to reset this so we output messages for future errors too *)
           logged_error := false ;
           Ok post
@@ -431,7 +519,7 @@ module AbstractInterpreterCommon (TransferFunctions : NodeTransferFunctions) = s
           post
       | Error (exn, backtrace, instr) ->
           ( match exn with
-          | RestartSchedulerException.ProcnameAlreadyLocked _ ->
+          | RestartSchedulerException.ProcnameAlreadyLocked _ | Timer.Timeout _ ->
               (* this isn't an error; don't log it *)
               ()
           | _ ->
@@ -511,24 +599,24 @@ module AbstractInterpreterCommon (TransferFunctions : NodeTransferFunctions) = s
 
   let compute_pre cfg node inv_map =
     let extract_post_ pred = extract_post (Node.id pred) inv_map in
-    let join_opt =
-      let f a1 a2 =
-        let res = Domain.join a1 a2 in
-        if Config.write_html then debug_absint_operation (`Join (a1, a2, res)) ;
-        res
+    let filter_and_join ~fold ~filter into =
+      let astates =
+        fold cfg node ~init:[] ~f:(fun acc pred ->
+            Option.value_map (extract_post_ pred) ~default:acc ~f:(fun astate ->
+                (pred, filter astate) :: acc ) )
       in
-      Option.merge ~f
+      let res = TransferFunctions.join_all (List.map astates ~f:snd) ~into in
+      if
+        Config.write_html
+        &&
+        let astates_len = List.length astates in
+        astates_len >= 2 || (Int.equal astates_len 1 && Option.is_some into)
+      then Option.iter res ~f:(fun res -> debug_absint_join_operation (`Join (astates, into, res))) ;
+      res
     in
-    let filter_and_join ~f joined_post_opt pred =
-      let pred_post = Option.map ~f (extract_post_ pred) in
-      join_opt pred_post joined_post_opt
-    in
-    let fold_normal =
-      CFG.fold_normal_preds cfg node ~init:None
-        ~f:(filter_and_join ~f:TransferFunctions.filter_normal)
-    in
-    CFG.fold_exceptional_preds cfg node ~init:fold_normal
-      ~f:(filter_and_join ~f:TransferFunctions.transform_on_exceptional_edge)
+    filter_and_join ~fold:CFG.fold_normal_preds ~filter:TransferFunctions.filter_normal None
+    |> filter_and_join ~fold:CFG.fold_exceptional_preds
+         ~filter:TransferFunctions.transform_on_exceptional_edge
 
 
   (* shadowed for HTML debug *)
@@ -549,6 +637,20 @@ module AbstractInterpreterCommon (TransferFunctions : NodeTransferFunctions) = s
     let cfg = CFG.from_pdesc proc_desc in
     let inv_map = exec_cfg_internal ~pp_instr cfg analysis_data ~do_narrowing ~initial in
     extract_post (Node.id (CFG.exit_node cfg)) inv_map
+
+
+  (** compute and return the postconditions of [pdesc] at the exit node, and the exceptions sink
+      node *)
+  let make_compute_post_including_exceptional ~exec_cfg_internal ?(pp_instr = pp_sil_instr)
+      analysis_data ~do_narrowing ~initial proc_desc =
+    let cfg = CFG.from_pdesc proc_desc in
+    let inv_map = exec_cfg_internal ~pp_instr cfg analysis_data ~do_narrowing ~initial in
+    let post_at_exit = extract_post (Node.id (CFG.exit_node cfg)) inv_map in
+    let exn_sink_opt : Node.t option = CFG.exn_sink_node cfg in
+    let post_at_exn_sink =
+      Option.bind exn_sink_opt ~f:(fun exn_sink -> extract_post (Node.id exn_sink) inv_map)
+    in
+    (post_at_exit, post_at_exn_sink)
 end
 
 module MakeWithScheduler
@@ -598,6 +700,9 @@ struct
   let exec_pdesc ?do_narrowing:_ = make_exec_pdesc ~exec_cfg_internal ~do_narrowing:false
 
   let compute_post ?do_narrowing:_ = make_compute_post ~exec_cfg_internal ~do_narrowing:false
+
+  let compute_post_including_exceptional ?do_narrowing:_ =
+    make_compute_post_including_exceptional ~exec_cfg_internal ~do_narrowing:false
 end
 
 module MakeRPONode (T : NodeTransferFunctions) =
@@ -722,6 +827,9 @@ module MakeWTONode (TransferFunctions : NodeTransferFunctions) = struct
   let exec_pdesc ?(do_narrowing = false) = make_exec_pdesc ~exec_cfg_internal ~do_narrowing
 
   let compute_post ?(do_narrowing = false) = make_compute_post ~exec_cfg_internal ~do_narrowing
+
+  let compute_post_including_exceptional ?(do_narrowing = false) =
+    make_compute_post_including_exceptional ~exec_cfg_internal ~do_narrowing
 end
 
 module MakeWTO (T : TransferFunctions.SIL) = MakeWTONode (SimpleNodeTransferFunctions (T))

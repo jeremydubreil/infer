@@ -11,7 +11,7 @@
 open! IStd
 module F = Format
 
-type translation_unit = SourceFile.t option [@@deriving compare]
+type translation_unit = SourceFile.t option
 
 (** Type for program variables. There are 4 kinds of variables:
 
@@ -19,7 +19,7 @@ type translation_unit = SourceFile.t option [@@deriving compare]
     + callee program variables, used to handle recursion ([x | callee] is distinguished from [x])
     + global variables
     + seed variables, used to store the initial value of formal parameters *)
-type t [@@deriving compare, yojson_of]
+type t [@@deriving compare, yojson_of, sexp, hash]
 
 val compare_modulo_this : t -> t -> int
 (** Comparison considering all pvars named 'this'/'self' to be equal *)

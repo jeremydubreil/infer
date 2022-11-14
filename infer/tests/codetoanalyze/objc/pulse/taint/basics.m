@@ -7,6 +7,21 @@
 
 #import <Foundation/Foundation.h>
 
+typedef struct {
+  int x;
+} structure;
+
+void taint_strucuture(structure) {}
+void sink_ptr(void*) {}
+
+void cleanInternalPointerGood_FP(void) {
+  structure s = {0};
+  taint_structure(s);
+  s.x = 1;
+  int* ptr = &(s.x);
+  sink_ptr(ptr);
+}
+
 @class InferTaint;
 
 typedef void (^InferTaintBlock)(InferTaint*);
@@ -169,5 +184,48 @@ void taintSourceParameterBlockIndirect(InferTaintBlock completion) {
 void taintSourceParameterBlockIndirectSink() {
   taintSourceParameterBlockIndirect(^(InferTaint* arg) {
     [InferTaint sink:arg];
+  });
+}
+
+void taintUnifiedValueGood_FP() {
+  NSObject* obj1 = NULL;
+  NSObject* obj2 = NULL;
+  [InferTaint taintsArg:obj1];
+  [InferTaint twoKindSink:obj2];
+}
+
+@protocol TaintProtocol
+- (void)callsSink:(NSObject*)param;
+@end
+
+@interface ImplementsTaintProtocol : NSObject<TaintProtocol>
+@end
+
+@implementation ImplementsTaintProtocol : NSObject
+
+- (void)callsSink:(NSObject*)param {
+  [InferTaint sink:param];
+}
+@end
+
+@interface InterfaceWithProtocolProperty : NSObject
+@property(nonatomic, readonly) id<TaintProtocol> protocolProperty;
+- (instancetype)initWithArg:(id<TaintProtocol>)arg;
+@end
+
+@implementation InterfaceWithProtocolProperty : NSObject
+
+- (instancetype)initWithArg:(id<TaintProtocol>)arg {
+  _protocolProperty = arg;
+  return self;
+}
+@end
+
+void taintSourceParameterBlockIndirectSinkProtocol_FN() {
+  ImplementsTaintProtocol* itp = [ImplementsTaintProtocol alloc];
+  InterfaceWithProtocolProperty* iwpp =
+      [[InterfaceWithProtocolProperty alloc] initWithArg:itp];
+  taintSourceParameterBlockIndirect(^(InferTaint* arg) {
+    [iwpp.protocolProperty callsSink:arg];
   });
 }

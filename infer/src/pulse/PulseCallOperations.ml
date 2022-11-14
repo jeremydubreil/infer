@@ -31,8 +31,18 @@ let add_returned_from_unknown callee_pname_opt ret_val actuals astate =
   else astate
 
 
+(** if the procedure has a variadic number of arguments, its known [formals] will be less than the
+    [actuals] we get but currently there is no support for handling the remaining arguments (the
+    ones in [...]) so we just drop them *)
+let trim_actuals_if_var_arg proc_name_opt ~formals ~actuals =
+  let proc_attrs = Option.bind ~f:IRAttributes.load proc_name_opt in
+  if Option.exists proc_attrs ~f:(fun {ProcAttributes.is_variadic} -> is_variadic) then
+    List.take actuals (List.length formals)
+  else actuals
+
+
 let unknown_call ({PathContext.timestamp} as path) call_loc (reason : CallEvent.t) callee_pname_opt
-    ~ret ~actuals ~formals_opt ({AbductiveDomain.post} as astate) =
+    ~ret ~actuals ~formals_opt ({AbductiveDomain.post; path_condition} as astate) =
   let hist =
     ValueHistory.singleton
       (Call {f= reason; location= call_loc; in_call= ValueHistory.epoch; timestamp})
@@ -55,6 +65,8 @@ let unknown_call ({PathContext.timestamp} as path) call_loc (reason : CallEvent.
     | Typ.Tstruct (Typ.CppClass {name})
       when QualifiedCppName.Match.match_qualifiers matches_iter name ->
         `ShouldHavoc
+    | Tptr _ when Language.curr_language_is CIL ->
+        `DoNotHavoc
     | Tptr _ when not (is_ptr_to_const formal_typ_opt) ->
         AbductiveDomain.should_havoc_if_unknown ()
     | _ ->
@@ -82,16 +94,20 @@ let unknown_call ({PathContext.timestamp} as path) call_loc (reason : CallEvent.
         in
         if
           Option.exists callee_pname_opt ~f:(fun p ->
-              Procname.is_constructor p || Procname.is_copy_assignment p )
+              Procname.is_constructor p || Procname.is_copy_assignment p || Procname.is_destructor p )
         then astate
         else
           (* record the [WrittenTo] attribute for all reachable values
              starting from actual argument so that we don't assume
              that they are not modified in the unnecessary copy analysis. *)
           let call_trace = Trace.Immediate {location= call_loc; history= hist} in
-          let written_attrs = Attributes.singleton (WrittenTo call_trace) in
-          fold_on_reachable_from_arg astate (fun reachable_actual ->
-              AddressAttributes.add_attrs reachable_actual written_attrs )
+          let written_attrs = Attributes.singleton (WrittenTo (timestamp, call_trace)) in
+          fold_on_reachable_from_arg astate (fun reachable_actual acc ->
+              if Formula.is_known_non_pointer path_condition reachable_actual then
+                (* not add [WrittenTo] for the non-pointer value, because primitive constant value
+                   is immutable, i.e. cannot be modified. *)
+                acc
+              else AddressAttributes.add_attrs reachable_actual written_attrs acc )
     | `DoNotHavoc ->
         astate
     | `ShouldOnlyHavocResources ->
@@ -137,40 +153,61 @@ let unknown_call ({PathContext.timestamp} as path) call_loc (reason : CallEvent.
         havoc_actual_if_ptr actual_typ None astate )
   in
   L.d_printfln "skipping unknown procedure" ;
-  ( match formals_opt with
-  | None ->
+  ( match (actuals, formals_opt) with
+  | actual_typ :: _, _ when Option.exists callee_pname_opt ~f:Procname.is_constructor ->
+      (* when the callee is an unknown constructor, havoc the first arg (the constructed object)
+         only *)
+      let formal_typ_opt = Option.bind formals_opt ~f:List.hd |> Option.map ~f:snd in
+      havoc_actual_if_ptr actual_typ formal_typ_opt astate
+  | _, None ->
       havoc_actuals_without_typ_info astate
-  | Some formals -> (
-    match
-      List.fold2 actuals formals ~init:astate ~f:(fun astate actual_typ (_, formal_typ) ->
-          havoc_actual_if_ptr actual_typ (Some formal_typ) astate )
-    with
-    | Unequal_lengths ->
-        L.d_printfln "ERROR: formals have length %d but actuals have length %d"
-          (List.length formals) (List.length actuals) ;
-        havoc_actuals_without_typ_info astate
-    | Ok result ->
-        result ) )
+  | _, Some formals -> (
+      let actuals = trim_actuals_if_var_arg callee_pname_opt ~actuals ~formals in
+      match
+        List.fold2 actuals formals ~init:astate ~f:(fun astate actual_typ (_, formal_typ) ->
+            havoc_actual_if_ptr actual_typ (Some formal_typ) astate )
+      with
+      | Unequal_lengths ->
+          L.d_printfln "ERROR: formals have length %d but actuals have length %d"
+            (List.length formals) (List.length actuals) ;
+          havoc_actuals_without_typ_info astate
+      | Ok result ->
+          result ) )
   |> add_skipped_proc
 
 
 let apply_callee tenv ({PathContext.timestamp} as path) ~caller_proc_desc callee_pname call_loc
     callee_exec_state ~ret ~captured_formals ~captured_actuals ~formals ~actuals astate =
   let open ExecutionDomain in
-  let ( let* ) x f =
-    SatUnsat.bind
-      (fun result ->
-        PulseResult.map result ~f |> PulseResult.map ~f:SatUnsat.sat |> PulseResult.of_some
-        |> SatUnsat.of_option |> SatUnsat.map PulseResult.join )
-      x
+  let copy_to_caller_return_variable astate return_val_opt =
+    (* Copies the return value of the callee into the return register of the caller.
+        We use this function when the callee throws an exception.
+        If the write_deref fails, or if the callee return value does not exist,
+        we simply return the original abstract state unchanged. *)
+    match return_val_opt with
+    | Some return_val_hist ->
+        let caller_return_var : Pvar.t = Procdesc.get_ret_var caller_proc_desc in
+        let (astate, caller_return_val_hist) : AbductiveDomain.t * (AbstractValue.t * ValueHistory.t)
+            =
+          PulseOperations.eval_var path call_loc caller_return_var astate
+        in
+        let+ (astate : AbductiveDomain.t) =
+          PulseOperations.write_deref path call_loc ~ref:caller_return_val_hist ~obj:return_val_hist
+            astate
+        in
+        ExceptionRaised astate
+    | None ->
+        Ok (ExceptionRaised astate)
   in
   let map_call_result ~is_isl_error_prepost callee_summary ~f =
     let sat_unsat, contradiction =
       PulseInterproc.apply_summary path ~is_isl_error_prepost callee_pname call_loc ~callee_summary
-        ~captured_formals ~captured_actuals ~formals ~actuals astate
+        ~captured_formals ~captured_actuals ~formals
+        ~actuals:(trim_actuals_if_var_arg (Some callee_pname) ~actuals ~formals)
+        astate
     in
     let sat_unsat =
-      let* post, return_val_opt, subst = sat_unsat in
+      let** post, return_val_opt, subst = sat_unsat in
       let post =
         match return_val_opt with
         | Some return_val_hist ->
@@ -185,29 +222,34 @@ let apply_callee tenv ({PathContext.timestamp} as path) ~caller_proc_desc callee
                     ; timestamp } ) )
               post
       in
-      f subst post
+      f return_val_opt subst post
     in
     (sat_unsat, contradiction)
   in
   match callee_exec_state with
   | ContinueProgram astate ->
-      map_call_result ~is_isl_error_prepost:false astate ~f:(fun _subst astate ->
+      map_call_result ~is_isl_error_prepost:false astate ~f:(fun _return_val_opt _subst astate ->
           Sat (Ok (ContinueProgram astate)) )
   | ExceptionRaised astate ->
-      map_call_result ~is_isl_error_prepost:false astate ~f:(fun _subst astate ->
-          Sat (Ok (ExceptionRaised astate)) )
+      (* If the callee throws, then store the return value of the callee (the exception object)
+         in the return variable of the caller (using [copy_to_caller_return_variable])
+         ready to be accessed by the exception handler. *)
+      map_call_result ~is_isl_error_prepost:false astate ~f:(fun return_val_opt _subst astate ->
+          Sat (copy_to_caller_return_variable astate return_val_opt) )
   | AbortProgram astate
   | ExitProgram astate
   | LatentAbortProgram {astate}
   | LatentInvalidAccess {astate} ->
-      map_call_result ~is_isl_error_prepost:false astate ~f:(fun subst astate_post_call ->
-          let* astate_summary =
+      map_call_result ~is_isl_error_prepost:false astate
+        ~f:(fun _return_val_opt subst astate_post_call ->
+          let** astate_summary =
             let open SatUnsat.Import in
             AbductiveDomain.Summary.of_post tenv
               (Procdesc.get_proc_name caller_proc_desc)
               (Procdesc.get_attributes caller_proc_desc)
               call_loc astate_post_call
             >>| AccessResult.ignore_leaks >>| AccessResult.of_abductive_summary_result
+            >>| AccessResult.with_summary
           in
           match callee_exec_state with
           | ContinueProgram _ | ExceptionRaised _ | ISLLatentMemoryError _ ->
@@ -232,14 +274,14 @@ let apply_callee tenv ({PathContext.timestamp} as path) ~caller_proc_desc callee
                   L.d_printfln ~color:Red "issue is now manifest, emitting an error" ;
                   Sat
                     (AccessResult.of_error_f
-                       (Summary
+                       (WithSummary
                           (ReportableError {diagnostic; astate= astate_post_call}, astate_summary)
                        )
                        ~f:(fun _ ->
                          L.die InternalError
                            "LatentAbortProgram cannot be applied to non-fatal errors" ) )
               | `ISLDelay astate ->
-                  Sat (FatalError (Summary (ISLError {astate}, astate_summary), [])) )
+                  Sat (FatalError (WithSummary (ISLError {astate}, astate_summary), [])) )
           | LatentInvalidAccess
               { address= address_callee
               ; must_be_valid= callee_access_trace, must_be_valid_reason
@@ -290,7 +332,7 @@ let apply_callee tenv ({PathContext.timestamp} as path) ~caller_proc_desc callee
                       DecompilerExpr.pp address_callee DecompilerExpr.pp address_caller ;
                     Sat
                       (FatalError
-                         ( Summary
+                         ( WithSummary
                              ( ReportableError
                                  { diagnostic=
                                      AccessToInvalidAddress
@@ -304,21 +346,15 @@ let apply_callee tenv ({PathContext.timestamp} as path) ~caller_proc_desc callee
                              , astate_summary )
                          , [] ) ) ) ) )
   | ISLLatentMemoryError summary ->
-      map_call_result ~is_isl_error_prepost:true summary ~f:(fun _subst astate ->
+      map_call_result ~is_isl_error_prepost:true summary ~f:(fun _return_val_opt _subst astate ->
           let open SatUnsat.Import in
           AbductiveDomain.Summary.of_post tenv
             (Procdesc.get_proc_name caller_proc_desc)
             (Procdesc.get_attributes caller_proc_desc)
             call_loc astate
           >>| AccessResult.ignore_leaks >>| AccessResult.of_abductive_summary_result
+          >>| AccessResult.with_summary
           >>| PulseResult.map ~f:(fun astate_summary -> ISLLatentMemoryError astate_summary) )
-
-
-let conservatively_initialize_args arg_values ({AbductiveDomain.post} as astate) =
-  let reachable_values =
-    BaseDomain.reachable_addresses_from (Caml.List.to_seq arg_values) (post :> BaseDomain.t)
-  in
-  AbstractValue.Set.fold AbductiveDomain.initialize reachable_values astate
 
 
 let ( let<**> ) x f =
@@ -370,7 +406,9 @@ let call_aux tenv path caller_proc_desc call_loc callee_pname ret actuals call_k
           | contradiction, _ ->
               contradiction
         in
-        (* apply all pre/post specs *)
+        (* apply one pre/post spec, check for timeouts in-between each pre/post spec from the callee
+           *)
+        Timer.check_timeout () ;
         match
           apply_callee tenv path ~caller_proc_desc callee_pname call_loc callee_exec_state
             ~captured_formals ~captured_actuals ~formals ~actuals ~ret astate
@@ -388,13 +426,13 @@ let call tenv path ~caller_proc_desc ~(callee_data : (Procdesc.t * PulseSummary.
   let unknown_objc_nil_messaging astate_unknown proc_name proc_attrs =
     let result_unknown =
       let<++> astate_unknown =
-        PulseObjectiveCSummary.append_objc_actual_self_positive proc_name proc_attrs
-          (List.hd actuals) astate_unknown
+        PulseSummary.append_objc_actual_self_positive proc_name proc_attrs (List.hd actuals)
+          astate_unknown
       in
       astate_unknown
     in
     let result_unknown_nil, contradiction =
-      PulseObjectiveCSummary.mk_nil_messaging_summary tenv proc_name proc_attrs
+      PulseSummary.mk_objc_nil_messaging_summary tenv proc_name proc_attrs
       |> Option.value_map ~default:([], None) ~f:(fun nil_summary ->
              call_aux tenv path caller_proc_desc call_loc callee_pname ret actuals call_kind
                proc_attrs [nil_summary] astate )
@@ -411,7 +449,7 @@ let call tenv path ~caller_proc_desc ~(callee_data : (Procdesc.t * PulseSummary.
       L.d_printfln "No spec found for %a@\n" Procname.pp callee_pname ;
       let arg_values = List.map actuals ~f:(fun ((value, _), _) -> value) in
       let<**> astate_unknown =
-        conservatively_initialize_args arg_values astate
+        PulseOperations.conservatively_initialize_args arg_values astate
         |> unknown_call path call_loc (SkippedKnownCall callee_pname) (Some callee_pname) ~ret
              ~actuals ~formals_opt
       in

@@ -25,6 +25,7 @@ module Attribute = struct
     | CppNew
     | CppNewArray
     | JavaResource of JavaClassName.t
+    | CSharpResource of CSharpClassName.t
     | ObjCAlloc
   [@@deriving compare, equal]
 
@@ -42,7 +43,9 @@ module Attribute = struct
     | CppNewArray ->
         F.fprintf fmt "new[]"
     | JavaResource class_name ->
-        F.fprintf fmt "resource %a" JavaClassName.pp class_name
+        F.fprintf fmt "java resource %a" JavaClassName.pp class_name
+    | CSharpResource class_name ->
+        F.fprintf fmt "csharp resource %a" CSharpClassName.pp class_name
     | ObjCAlloc ->
         F.fprintf fmt "alloc"
 
@@ -102,15 +105,15 @@ module Attribute = struct
 
   module CopiedInto = struct
     type t =
-      | IntoVar of {copied_var: Var.t; source_opt: Pvar.t option}
+      | IntoVar of {copied_var: Var.t; source_opt: DecompilerExpr.source_expr option}
       | IntoField of {field: Fieldname.t; source_opt: DecompilerExpr.t option}
     [@@deriving compare, equal]
 
     let pp fmt = function
       | IntoVar {copied_var; source_opt= None} ->
           Var.pp fmt copied_var
-      | IntoVar {source_opt= Some pvar} ->
-          (Pvar.pp Pp.text) fmt pvar
+      | IntoVar {source_opt= Some source_expr} ->
+          DecompilerExpr.pp_source_expr fmt source_expr
       | IntoField {field} ->
           Fieldname.pp fmt field
   end
@@ -127,7 +130,7 @@ module Attribute = struct
         ; is_const_ref: bool
         ; from: CopyOrigin.t
         ; copied_location: Location.t }
-    | DynamicType of Typ.t
+    | DynamicType of Typ.t * SourceFile.t option
     | EndOfCollection
     | Invalid of Invalidation.t * Trace.t
     | ISLAbduced of Trace.t
@@ -135,6 +138,7 @@ module Attribute = struct
     | MustBeValid of Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option
     | MustNotBeTainted of TaintSinkSet.t
     | JavaResourceReleased
+    | CSharpResourceReleased
     | PropagateTaintFrom of taint_in list
       (* [v -> PropagateTaintFrom \[v1; ..; vn\]] does not
          retain [v1] to [vn], in fact they should be collected
@@ -151,7 +155,7 @@ module Attribute = struct
     | Uninitialized
     | UnknownEffect of CallEvent.t * ValueHistory.t
     | UnreachableAt of Location.t
-    | WrittenTo of Trace.t
+    | WrittenTo of Timestamp.t * Trace.t
   [@@deriving compare, equal, variants]
 
   type rank = int
@@ -181,6 +185,8 @@ module Attribute = struct
   let isl_abduced_rank = Variants.islabduced.rank
 
   let java_resource_released_rank = Variants.javaresourcereleased.rank
+
+  let csharp_resource_released_rank = Variants.csharpresourcereleased.rank
 
   let must_be_initialized_rank = Variants.mustbeinitialized.rank
 
@@ -252,8 +258,9 @@ module Attribute = struct
         F.fprintf f "CopiedReturn (%a%t by %a at %a)" AbstractValue.pp source
           (fun f -> if is_const_ref then F.pp_print_string f ":const&")
           CopyOrigin.pp from Location.pp copied_location
-    | DynamicType typ ->
-        F.fprintf f "DynamicType %a" (Typ.pp Pp.text) typ
+    | DynamicType (typ, source_file) ->
+        F.fprintf f "DynamicType %a, SourceFile %a" (Typ.pp Pp.text) typ (Pp.option SourceFile.pp)
+          source_file
     | EndOfCollection ->
         F.pp_print_string f "EndOfCollection"
     | Invalid (invalidation, trace) ->
@@ -276,6 +283,8 @@ module Attribute = struct
         F.fprintf f "MustNotBeTainted%a" TaintSinkSet.pp sinks
     | JavaResourceReleased ->
         F.pp_print_string f "Released"
+    | CSharpResourceReleased ->
+        F.pp_print_string f "Released"
     | PropagateTaintFrom taints_in ->
         F.fprintf f "PropagateTaintFrom([%a])" (Pp.seq ~sep:";" pp_taint_in) taints_in
     | RefCounted ->
@@ -296,11 +305,14 @@ module Attribute = struct
     | Uninitialized ->
         F.pp_print_string f "Uninitialized"
     | UnknownEffect (call, hist) ->
-        F.fprintf f "UnknownEffect(%a, %a)" CallEvent.pp call ValueHistory.pp hist
+        F.fprintf f "UnknownEffect(@[%a,@ %a)@]" CallEvent.pp call ValueHistory.pp hist
     | UnreachableAt location ->
         F.fprintf f "UnreachableAt(%a)" Location.pp location
-    | WrittenTo trace ->
-        F.fprintf f "WrittenTo %a" (Trace.pp ~pp_immediate:(pp_string_if_debug "mutation")) trace
+    | WrittenTo (timestamp, trace) ->
+        F.fprintf f "WrittenTo (%d, %a)"
+          (timestamp :> int)
+          (Trace.pp ~pp_immediate:(pp_string_if_debug "mutation"))
+          trace
 
 
   let is_suitable_for_pre = function
@@ -317,6 +329,7 @@ module Attribute = struct
     | DynamicType _
     | EndOfCollection
     | JavaResourceReleased
+    | CSharpResourceReleased
     | PropagateTaintFrom _
     | ReturnedFromUnknown _
     | SourceOriginOfCopy _
@@ -346,6 +359,7 @@ module Attribute = struct
     | ISLAbduced _
     | Invalid _
     | JavaResourceReleased
+    | CSharpResourceReleased
     | PropagateTaintFrom _
     | RefCounted
     | ReturnedFromUnknown _
@@ -378,11 +392,12 @@ module Attribute = struct
     | DynamicType _
     | EndOfCollection
     | Invalid _
+    | JavaResourceReleased
+    | CSharpResourceReleased
     | ISLAbduced _
     | MustBeInitialized _
     | MustBeValid _
     | MustNotBeTainted _
-    | JavaResourceReleased
     | PropagateTaintFrom _
     | RefCounted
     | ReturnedFromUnknown _
@@ -448,18 +463,21 @@ module Attribute = struct
         TaintSanitized (TaintSanitizedSet.map add_call_to_taint_sanitized taint_sanitized)
     | UnknownEffect (call, hist) ->
         UnknownEffect (call, add_call_to_history hist)
-    | WrittenTo trace ->
-        WrittenTo (add_call_to_trace trace)
+    | WrittenTo (_timestamp, trace) ->
+        WrittenTo (timestamp, add_call_to_trace trace)
     | CopiedInto _ | SourceOriginOfCopy _ ->
         L.die InternalError "Unexpected attribute %a in the summary of %a" pp attr Procname.pp
           proc_name
+    | JavaResourceReleased ->
+        JavaResourceReleased
+    | CSharpResourceReleased ->
+        CSharpResourceReleased
     | ( AddressOfCppTemporary _
       | AddressOfStackVariable _
       | AlwaysReachable
       | Closure _
       | DynamicType _
       | EndOfCollection
-      | JavaResourceReleased
       | RefCounted
       | StdMoved
       | StdVectorReserve
@@ -470,12 +488,12 @@ module Attribute = struct
 
   let alloc_free_match allocator (invalidation : (Invalidation.t * Trace.t) option) is_released =
     match (allocator, invalidation) with
-    | (CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _), Some ((CFree | CustomFree _), _)
+    | (CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _), Some (CFree, _)
     | CppNew, Some (CppDelete, _)
     | CppNewArray, Some (CppDeleteArray, _)
     | ObjCAlloc, _ ->
         true
-    | JavaResource _, _ ->
+    | JavaResource _, _ | CSharpResource _, _ ->
         is_released
     | _ ->
         false
@@ -510,6 +528,10 @@ module Attribute = struct
         L.die InternalError "Unexpected attribute %a." pp attr
     | TaintSanitized set when TaintSanitizedSet.is_empty set ->
         L.die InternalError "Unexpected attribute %a." pp attr
+    | JavaResourceReleased ->
+        Some JavaResourceReleased
+    | CSharpResourceReleased ->
+        Some CSharpResourceReleased
     | ( AddressOfCppTemporary _
       | AddressOfStackVariable _
       | Allocated _
@@ -523,7 +545,6 @@ module Attribute = struct
       | MustBeInitialized _
       | MustBeValid _
       | MustNotBeTainted _
-      | JavaResourceReleased
       | RefCounted
       | SourceOriginOfCopy _
       | StdMoved
@@ -615,6 +636,8 @@ module Attributes = struct
 
   let is_java_resource_released = mem_by_rank Attribute.java_resource_released_rank
 
+  let is_csharp_resource_released = mem_by_rank Attribute.csharp_resource_released_rank
+
   let get_must_be_valid =
     get_by_rank Attribute.must_be_valid_rank ~dest:(function [@warning "-8"]
         | Attribute.MustBeValid (timestamp, trace, reason) -> (timestamp, trace, reason) )
@@ -623,8 +646,8 @@ module Attributes = struct
   let remove_must_be_valid = remove_by_rank Attribute.must_be_valid_rank
 
   let get_written_to =
-    get_by_rank Attribute.written_to_rank ~dest:(function [@warning "-8"] WrittenTo action ->
-        action )
+    get_by_rank Attribute.written_to_rank ~dest:(function [@warning "-8"]
+        | WrittenTo (timestamp, trace) -> (timestamp, trace) )
 
 
   let get_closure_proc_name =
@@ -666,6 +689,7 @@ module Attributes = struct
     || mem_by_rank Attribute.invalid_rank attrs
     || mem_by_rank Attribute.unknown_effect_rank attrs
     || mem_by_rank Attribute.java_resource_released_rank attrs
+    || mem_by_rank Attribute.csharp_resource_released_rank attrs
     || mem_by_rank Attribute.propagate_taint_from_rank attrs
 
 
@@ -696,8 +720,9 @@ module Attributes = struct
         | UnknownEffect (call, hist) -> (call, hist) )
 
 
-  let get_dynamic_type =
-    get_by_rank Attribute.dynamic_type_rank ~dest:(function [@warning "-8"] DynamicType typ -> typ)
+  let get_dynamic_type_source_file =
+    get_by_rank Attribute.dynamic_type_rank ~dest:(function [@warning "-8"]
+        | DynamicType (typ, source_file_opt) -> (typ, source_file_opt) )
 
 
   let get_must_be_initialized =
@@ -752,7 +777,9 @@ module Attributes = struct
     let allocated_opt = get_allocation attributes in
     Option.value_map ~default:None allocated_opt ~f:(fun (allocator, _) ->
         let invalidation = get_invalid attributes in
-        let is_released = is_java_resource_released attributes in
+        let is_released =
+          is_java_resource_released attributes || is_csharp_resource_released attributes
+        in
         if Attribute.alloc_free_match allocator invalidation is_released then None
         else allocated_opt )
 

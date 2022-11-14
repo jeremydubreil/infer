@@ -74,14 +74,12 @@ let is_constant_deref_without_invalidation (invalidation : Invalidation.t) acces
     | ConstantDereference _ ->
         not (Trace.has_invalidation access_trace)
     | CFree
-    | CustomFree _
     | CppDelete
     | CppDeleteArray
     | EndIterator
     | GoneOutOfScope _
     | OptionalEmpty
-    | StdVector _
-    | JavaIterator _ ->
+    | StdVector _ ->
         false
   in
   if res then
@@ -94,11 +92,13 @@ let is_constant_deref_without_invalidation (invalidation : Invalidation.t) acces
 let is_constant_deref_without_invalidation_diagnostic (diagnostic : Diagnostic.t) =
   match diagnostic with
   | ConstRefableParameter _
+  | CSharpResourceLeak _
   | ErlangError _
+  | JavaResourceLeak _
   | MemoryLeak _
-  | ResourceLeak _
-  | RetainCycle _
+  | ReadonlySharedPtrParameter _
   | ReadUninitializedValue _
+  | RetainCycle _
   | StackVariableAddressEscape _
   | TaintFlow _
   | UnnecessaryCopy _ ->
@@ -138,7 +138,10 @@ let summary_of_error_post tenv proc_desc location mk_error astate =
       location astate
   with
   | Sat (Ok summary)
-  | Sat (Error (`MemoryLeak (summary, _, _, _, _)) | Error (`ResourceLeak (summary, _, _, _, _)))
+  | Sat
+      ( Error (`MemoryLeak (summary, _, _, _, _))
+      | Error (`JavaResourceLeak (summary, _, _, _, _))
+      | Error (`CSharpResourceLeak (summary, _, _, _, _)) )
   | Sat (Error (`RetainCycle (summary, _, _, _, _, _))) ->
       (* ignore potential memory leaks: error'ing in the middle of a function will typically produce
          spurious leaks *)
@@ -147,16 +150,15 @@ let summary_of_error_post tenv proc_desc location mk_error astate =
       (* ignore the error we wanted to report (with [mk_error]): the abstract state contained a
          potential error already so report [error] instead *)
       Sat
-        ( AccessResult.of_abductive_summary_error
-            (`PotentialInvalidAccessSummary (summary, astate, addr, trace))
-        , summary )
+        (AccessResult.of_abductive_summary_error
+           (`PotentialInvalidAccessSummary (summary, astate, addr, trace)) )
   | Unsat ->
       Unsat
 
 
 let summary_error_of_error tenv proc_desc location (error : AccessResult.error) : _ SatUnsat.t =
   match error with
-  | Summary (error, summary) ->
+  | WithSummary (error, summary) ->
       Sat (error, summary)
   | PotentialInvalidAccess {astate} | ReportableError {astate} | ISLError {astate} ->
       summary_of_error_post tenv proc_desc location (fun summary -> (error, summary)) astate
@@ -211,7 +213,7 @@ let report_summary_error tenv proc_desc err_log ((access_error : AccessResult.er
           if Config.pulse_report_latent_issues then
             report_latent_issue ~is_suppressed proc_desc err_log latent_issue ;
           Some (LatentAbortProgram {astate= summary; latent_issue}) )
-  | Summary _ ->
+  | WithSummary _ ->
       (* impossible thanks to prior application of [summary_error_of_error] *)
       assert false
 

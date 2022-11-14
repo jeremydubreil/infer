@@ -129,7 +129,11 @@ module Basic = struct
       PulseTaintOperations.taint_allocation analysis_data.tenv path location ~typ_desc:typ.desc
         ~alloc_desc:desc ~allocator:(Some CppNew) (fst value_address) astate
     in
-    let astate = PulseOperations.add_dynamic_type typ (fst value_address) astate in
+    let astate =
+      if Typ.is_objc_class typ then
+        PulseOperations.add_dynamic_type_source_file typ location.file (fst value_address) astate
+      else PulseOperations.add_dynamic_type typ (fst value_address) astate
+    in
     let++ astate = PulseArithmetic.and_positive (fst value_address) astate in
     (astate, value_address)
 
@@ -143,6 +147,7 @@ module Basic = struct
         (Procdesc.get_attributes proc_desc)
         location astate
       >>| AccessResult.ignore_leaks >>| AccessResult.of_abductive_summary_result
+      >>| AccessResult.with_summary
     with
     | Unsat ->
         []
@@ -194,6 +199,35 @@ module Basic = struct
         ~actuals ~formals_opt astate
     in
     astate
+
+
+  let id_first_arg_from_list ~desc args : model =
+   fun {path; callee_procname; location; ret= ret_id, _} astate ->
+    match args with
+    | _ :: arg :: _
+      when Procname.is_objc_instance_method callee_procname || Procname.is_java callee_procname ->
+        let arg_value, arg_history = arg.ProcnameDispatcher.Call.FuncArg.arg_payload in
+        let ret_value = (arg_value, Hist.add_call path location desc arg_history) in
+        PulseOperations.write_id ret_id ret_value astate |> ok_continue
+    | arg :: _ when Procname.is_c callee_procname || Procname.is_objc_class_method callee_procname
+      ->
+        let arg_value, arg_history = arg.ProcnameDispatcher.Call.FuncArg.arg_payload in
+        let ret_value = (arg_value, Hist.add_call path location desc arg_history) in
+        PulseOperations.write_id ret_id ret_value astate |> ok_continue
+    | _ ->
+        ok_continue astate
+
+
+  let return_this ~desc args : model =
+   fun {path; callee_procname; location; ret= ret_id, _} astate ->
+    match args with
+    | arg :: _
+      when Procname.is_objc_instance_method callee_procname || Procname.is_java callee_procname ->
+        let arg_value, arg_history = arg.ProcnameDispatcher.Call.FuncArg.arg_payload in
+        let ret_value = (arg_value, Hist.add_call path location desc arg_history) in
+        PulseOperations.write_id ret_id ret_value astate |> ok_continue
+    | _ ->
+        ok_continue astate
 
 
   let nondet ~desc : model =
@@ -339,7 +373,9 @@ module Basic = struct
     let astate =
       match size_exp_opt with
       | Some (Exp.Sizeof {typ}) ->
-          PulseOperations.add_dynamic_type typ ret_addr astate
+          if Typ.is_objc_class typ then
+            PulseOperations.add_dynamic_type_source_file typ location.file ret_addr astate
+          else PulseOperations.add_dynamic_type typ ret_addr astate
       | _ ->
           (* The type expr is sometimes a Var expr in Java but this is not expected.
               This seems to be introduced by inline mechanism of Java synthetic methods during preanalysis *)
@@ -398,11 +434,12 @@ module Basic = struct
     ; +BuiltinDecl.(match_builtin __get_array_length) <>--> return_unknown_size ~desc:""
     ; +match_regexp_opt Config.pulse_model_return_nonnull
       &::.*--> return_positive ~desc:"modelled as returning not null due to configuration option"
+    ; +match_regexp_opt Config.pulse_model_return_this
+      &::.*++> return_this
+                 ~desc:"modelled as returning `this` or `self` due to configuration option"
     ; +match_regexp_opt Config.pulse_model_return_first_arg
-      &::+ (fun _ _ -> true)
-      <>$ capt_arg_payload
-      $+...$--> id_first_arg
-                  ~desc:"modelled as returning the first argument due to configuration option"
+      &::.*++> id_first_arg_from_list
+                 ~desc:"modelled as returning the first argument due to configuration option"
     ; +match_regexp_opt Config.pulse_model_skip_pattern
       &::.*++> unknown_call "modelled as skip due to configuration option" ]
 end

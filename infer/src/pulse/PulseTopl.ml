@@ -6,8 +6,13 @@
  *)
 
 open! IStd
-open PulseBasicInterface
+module F = Format
 module L = Logging
+open PulseBasicInterface
+module BaseAddressAttributes = PulseBaseAddressAttributes
+module BaseDomain = PulseBaseDomain
+module Memory = PulseBaseMemory
+open IOption.Let_syntax
 
 type value = AbstractValue.t [@@deriving compare, equal]
 
@@ -20,10 +25,10 @@ let pp_comma_seq f xs = Pp.comma_seq ~print_env:Pp.text_break f xs
 
 let pp_event f = function
   | ArrayWrite {aw_array; aw_index} ->
-      Format.fprintf f "@[ArrayWrite %a[%a]@]" AbstractValue.pp aw_array AbstractValue.pp aw_index
+      F.fprintf f "@[ArrayWrite %a[%a]@]" AbstractValue.pp aw_array AbstractValue.pp aw_index
   | Call {return; arguments; procname} ->
       let procname = Procname.hashable_name procname (* as in [static_match] *) in
-      Format.fprintf f "@[call@ %a=%s(%a)@]" (Pp.option AbstractValue.pp) return procname
+      F.fprintf f "@[call@ %a=%s(%a)@]" (Pp.option AbstractValue.pp) return procname
         (pp_comma_seq AbstractValue.pp) arguments
 
 
@@ -57,14 +62,28 @@ let sub_list : 'a substitutor -> 'a list substitutor =
   (sub, List.rev xs)
 
 
+type pulse_state = {pulse_post: BaseDomain.t; pulse_pre: BaseDomain.t; path_condition: Formula.t}
+
+let get_reachable {pulse_post; pulse_pre} =
+  let post_keep = BaseDomain.reachable_addresses pulse_post in
+  let pre_keep = BaseDomain.reachable_addresses pulse_pre in
+  AbstractValue.Set.union post_keep pre_keep
+
+
+let get_dynamic_type {pulse_post} = BaseAddressAttributes.get_dynamic_type pulse_post.attrs
+
 module Constraint : sig
   type predicate
 
   type t [@@deriving compare, equal]
 
-  val make : Binop.t -> Formula.operand -> Formula.operand -> predicate
+  type operator = LeadsTo | NotLeadsTo | Builtin of Binop.t
+
+  val make : operator -> Formula.operand -> Formula.operand -> predicate
 
   val true_ : t
+
+  val false_ : t
 
   val and_predicate : predicate -> t -> t
 
@@ -84,28 +103,42 @@ module Constraint : sig
 
   val substitute : t substitutor
 
-  val prune_path : t -> Formula.t -> Formula.t SatUnsat.t
+  val is_unsat : pulse_state -> t -> bool
 
-  val pp : Format.formatter -> t -> unit
+  val pp : F.formatter -> t -> unit
 end = struct
-  type predicate = Binop.t * Formula.operand * Formula.operand [@@deriving compare, equal]
+  type operator = LeadsTo | NotLeadsTo | Builtin of Binop.t [@@deriving compare, equal]
+
+  type predicate = True | False | Binary of operator * Formula.operand * Formula.operand
+  [@@deriving compare, equal]
 
   type t = predicate list [@@deriving compare, equal]
 
-  let make binop lhs rhs = (binop, lhs, rhs)
+  let make binop lhs rhs = Binary (binop, lhs, rhs)
 
   let true_ = []
 
+  let false_ = [False]
+
   let is_trivially_true (predicate : predicate) =
     match predicate with
-    | Eq, AbstractValueOperand l, AbstractValueOperand r when AbstractValue.equal l r ->
+    | True ->
+        true
+    | Binary (Builtin Eq, AbstractValueOperand l, AbstractValueOperand r)
+      when AbstractValue.equal l r ->
         true
     | _ ->
         false
 
 
+  let is_trivially_false (predicate : predicate) (constr : predicate list) =
+    match predicate with False -> true | _ -> ( match constr with [False] -> true | _ -> false )
+
+
   let and_predicate predicate constr =
-    if is_trivially_true predicate then constr else predicate :: constr
+    if is_trivially_false predicate constr then [False]
+    else if is_trivially_true predicate then constr
+    else predicate :: constr
 
 
   let and_constr constr_a constr_b = List.rev_append constr_a constr_b
@@ -116,19 +149,27 @@ end = struct
 
   let negate_predicate (predicate : predicate) : predicate =
     match predicate with
-    | Eq, l, r ->
-        (Ne, l, r)
-    | Ne, l, r ->
-        (Eq, l, r)
-    | Ge, l, r ->
-        (Lt, r, l)
-    | Gt, l, r ->
-        (Le, r, l)
-    | Le, l, r ->
-        (Gt, r, l)
-    | Lt, l, r ->
-        (Ge, r, l)
-    | _ ->
+    | True ->
+        False
+    | False ->
+        True
+    | Binary (LeadsTo, l, r) ->
+        Binary (NotLeadsTo, l, r)
+    | Binary (NotLeadsTo, l, r) ->
+        Binary (LeadsTo, l, r)
+    | Binary (Builtin Eq, l, r) ->
+        Binary (Builtin Ne, l, r)
+    | Binary (Builtin Ne, l, r) ->
+        Binary (Builtin Eq, l, r)
+    | Binary (Builtin Ge, l, r) ->
+        Binary (Builtin Lt, r, l)
+    | Binary (Builtin Gt, l, r) ->
+        Binary (Builtin Le, r, l)
+    | Binary (Builtin Le, l, r) ->
+        Binary (Builtin Gt, r, l)
+    | Binary (Builtin Lt, l, r) ->
+        Binary (Builtin Ge, r, l)
+    | Binary (Builtin _, _, _) ->
         L.die InternalError
           "PulseTopl.negate_predicate should handle all outputs of PulseTopl.binop_to"
 
@@ -140,39 +181,151 @@ end = struct
   let substitute_predicate (sub, predicate) =
     let avo x : Formula.operand = AbstractValueOperand x in
     match (predicate : predicate) with
-    | op, AbstractValueOperand l, AbstractValueOperand r ->
+    | Binary (op, AbstractValueOperand l, AbstractValueOperand r) ->
         let sub, l = sub_value (sub, l) in
         let sub, r = sub_value (sub, r) in
-        (sub, (op, avo l, avo r))
-    | op, AbstractValueOperand l, r ->
+        (sub, Binary (op, avo l, avo r))
+    | Binary (op, AbstractValueOperand l, r) ->
         let sub, l = sub_value (sub, l) in
-        (sub, (op, avo l, r))
-    | op, l, AbstractValueOperand r ->
+        (sub, Binary (op, avo l, r))
+    | Binary (op, l, AbstractValueOperand r) ->
         let sub, r = sub_value (sub, r) in
-        (sub, (op, l, avo r))
+        (sub, Binary (op, l, avo r))
     | _ ->
         (sub, predicate)
 
 
   let substitute = sub_list substitute_predicate
 
-  let prune_path constr path_condition =
+  let prune_path constr path =
     let open SatUnsat.Import in
-    let f path_condition (op, l, r) =
-      Formula.prune_binop ~negated:false op l r path_condition >>| fst
+    let f pulse_formula predicate =
+      match predicate with
+      | Binary (Builtin op, l, r) ->
+          Formula.prune_binop ~negated:false op l r pulse_formula >>| fst
+      | Binary (LeadsTo, _, _) | Binary (NotLeadsTo, _, _) ->
+          (* These are not evaluated on the path_condition, but should be evaluated after calling
+           * [prune_path], on [pulse_post] *)
+          Sat pulse_formula
+      | True ->
+          Sat pulse_formula
+      | False ->
+          Unsat
     in
-    SatUnsat.list_fold ~init:path_condition ~f constr
+    SatUnsat.list_fold ~init:path ~f constr
 
 
-  let pp_predicate f (op, l, r) =
-    Format.fprintf f "@[%a%a%a@]" PulseFormula.pp_operand l Binop.pp op PulseFormula.pp_operand r
+  (* TODO: Replace with a proper type environment. *)
+  let default_tenv = Tenv.create ()
+
+  (** Use: [let rep = rep_of_new_eqs new_eqs in rep v]. Evaluating [rep_of_new_eqs new_eqs] is slow
+      but evaluating [rep v] is fast. Only [Formula.Equal] is used; e.g., [Formula.EqZero] is
+      dropped. *)
+  let rep_of_new_eqs (new_eqs : Formula.new_eq list) : value -> value =
+    let module UF =
+      UnionFind.Make
+        (struct
+          type t = value [@@deriving compare, equal]
+
+          let is_simpler_than _ _ = false
+        end)
+        (AbstractValue.Set)
+        (AbstractValue.Map)
+    in
+    let uf =
+      List.fold ~init:UF.empty new_eqs ~f:(fun uf -> function
+        | Formula.Equal (v1, v2) ->
+            let uf, _ = UF.union uf v1 v2 in
+            uf
+        | Formula.EqZero _ ->
+            uf )
+    in
+    fun v -> (UF.find uf v :> value)
+
+
+  (** Returns [true] only if the conjunction [pulse_state]∧[constr] is unsatisfiable. *)
+  let is_unsat pulse_state constr =
+    let leadsto heap source target =
+      let seen = ref AbstractValue.Set.empty in
+      let rec dfs value =
+        if AbstractValue.equal value target then true
+        else if AbstractValue.Set.mem value !seen then false
+        else (
+          seen := AbstractValue.Set.add value !seen ;
+          match Memory.find_opt value heap with
+          | None ->
+              false
+          | Some edges ->
+              Memory.Edges.exists edges ~f:(function _access, (to_value, _history) -> dfs to_value)
+          )
+      in
+      dfs source
+    in
+    let simplified =
+      let open SatUnsat.Import in
+      let* path_condition = prune_path constr pulse_state.path_condition in
+      let* path_condition, new_eqs =
+        let get_dynamic_type = get_dynamic_type pulse_state in
+        Formula.normalize default_tenv ~get_dynamic_type path_condition
+      in
+      let rep = rep_of_new_eqs new_eqs in
+      let incorporate_eq heap (eq : Formula.new_eq) =
+        match eq with
+        | Equal (v1, v2) ->
+            let w = rep v2 in
+            let* heap = Memory.subst_var (v1, w) heap in
+            let* heap = Memory.subst_var (v2, w) heap in
+            Sat heap
+        | EqZero _ ->
+            (* TODO: Detect more contradictions here. *)
+            Sat heap
+      in
+      let* heap = SatUnsat.list_fold ~init:pulse_state.pulse_post.heap ~f:incorporate_eq new_eqs in
+      (* Note: This checks that non/reachability is implied -- a stronger check. *)
+      let check_reachability path_condition predicate =
+        match predicate with
+        | Binary (LeadsTo, Formula.AbstractValueOperand l, Formula.AbstractValueOperand r) ->
+            if leadsto heap (rep l) (rep r) then Sat path_condition else Unsat
+        | Binary (NotLeadsTo, Formula.AbstractValueOperand l, Formula.AbstractValueOperand r) ->
+            if leadsto heap (rep l) (rep r) then Unsat else Sat path_condition
+        | Binary (LeadsTo, Formula.ConstOperand _, _)
+        | Binary (LeadsTo, _, Formula.ConstOperand _)
+        | Binary (NotLeadsTo, Formula.ConstOperand _, _)
+        | Binary (NotLeadsTo, _, Formula.ConstOperand _) ->
+            Unsat (* TODO: disallow such cases by (OCaml) typing, and don't parse it *)
+        | _ ->
+            Sat path_condition
+      in
+      SatUnsat.list_fold ~init:path_condition ~f:check_reachability constr
+    in
+    Option.is_none (SatUnsat.sat simplified)
+
+
+  let pp_operator f operator =
+    match operator with
+    | Builtin op ->
+        F.fprintf f "@[%a@]" Binop.pp op
+    | LeadsTo ->
+        F.fprintf f "~~>"
+    | NotLeadsTo ->
+        F.fprintf f "!~>"
+
+
+  let pp_predicate f pred =
+    match pred with
+    | Binary (op, l, r) ->
+        F.fprintf f "@[%a%a%a@]" PulseFormula.pp_operand l pp_operator op PulseFormula.pp_operand r
+    | True ->
+        F.fprintf f "true"
+    | False ->
+        F.fprintf f "false"
 
 
   let pp = Pp.seq ~sep:"∧" pp_predicate
 
   let eliminate_exists ~keep constr =
     (* TODO(rgrigore): replace the current weak approximation *)
-    let is_live_operand : PulseFormula.operand -> bool = function
+    let is_live_operand : Formula.operand -> bool = function
       | AbstractValueOperand v ->
           AbstractValue.Set.mem v keep
       | ConstOperand _ ->
@@ -180,11 +333,11 @@ end = struct
       | FunctionApplicationOperand _ ->
           true
     in
-    let is_live_predicate (_op, l, r) = is_live_operand l && is_live_operand r in
+    let is_live_predicate pred =
+      match pred with Binary (_op, l, r) -> is_live_operand l && is_live_operand r | _ -> true
+    in
     List.filter ~f:is_live_predicate constr
 end
-
-type predicate = Binop.t * Formula.operand * Formula.operand [@@deriving compare]
 
 type step =
   { step_location: Location.t
@@ -201,24 +354,23 @@ and simple_state =
 [@@deriving compare, equal]
 
 (* TODO: include a hash of the automaton in a summary to avoid caching problems. *)
-(* TODO: limit the number of simple_states to some configurable number (default ~5) *)
 type state = simple_state list [@@deriving compare, equal]
 
-let pp_mapping f (x, value) = Format.fprintf f "@[%s↦%a@]@," x AbstractValue.pp value
+let pp_mapping f (x, value) = F.fprintf f "@[%s↦%a@]@," x AbstractValue.pp value
 
-let pp_memory f memory = Format.fprintf f "@[<2>[%a]@]" (pp_comma_seq pp_mapping) memory
+let pp_memory f memory = F.fprintf f "@[<2>[%a]@]" (pp_comma_seq pp_mapping) memory
 
 let pp_configuration f {vertex; memory} =
-  Format.fprintf f "@[{ topl-config@;vertex=%d@;memory=%a }@]" vertex pp_memory memory
+  F.fprintf f "@[{ topl-config@;vertex=%d@;memory=%a }@]" vertex pp_memory memory
 
 
 let pp_simple_state f {pre; post; pruned} =
-  Format.fprintf f "@[<2>{ topl-simple-state@;pre=%a@;post=%a@;pruned=(%a) }@]" pp_configuration pre
+  F.fprintf f "@[<2>{ topl-simple-state@;pre=%a@;post=%a@;pruned=(%a) }@]" pp_configuration pre
     pp_configuration post Constraint.pp pruned
 
 
 let pp_state f state =
-  Format.fprintf f "@[<v2>{len=%d;content=@;@[<2>[ %a ]@]}@]" (List.length state)
+  F.fprintf f "@[<v2>{len=%d;content=@;@[<2>[ %a ]@]}@]" (List.length state)
     (pp_comma_seq pp_simple_state) state
 
 
@@ -250,44 +402,85 @@ let get env x =
 
 let set = List.Assoc.add ~equal:String.equal
 
-let binop_to : ToplAst.binop -> Binop.t = function
+let make_field class_name field_name : Fieldname.t =
+  match !Language.curr_language with
+  | Erlang -> (
+    match ErlangTypeName.from_string class_name with
+    | None ->
+        L.die UserError "Unknown/unsupported Erlang type %s" class_name
+    | Some typ ->
+        Fieldname.make (ErlangType typ) field_name )
+  | _ ->
+      L.die InternalError "Field access is not supported for current language (%s)"
+        (Language.to_string !Language.curr_language)
+
+
+let deref_field_access pulse_state value class_name field_name : value option =
+  (* Dereferencing is done in 2 steps: (v) --f-> (v1) --*-> (v2) *)
+  let heap = pulse_state.pulse_post.heap in
+  let* edges = Memory.find_opt value heap in
+  let field = make_field class_name field_name in
+  let* v1, _hist = Memory.Edges.find_opt (FieldAccess field) edges in
+  let* edges = Memory.find_opt v1 heap in
+  let* v2, _hist = Memory.Edges.find_opt Dereference edges in
+  Some v2
+
+
+let binop_to : ToplAst.binop -> Constraint.operator = function
+  | LeadsTo ->
+      LeadsTo
   | OpEq ->
-      Eq
+      Builtin Eq
   | OpNe ->
-      Ne
+      Builtin Ne
   | OpGe ->
-      Ge
+      Builtin Ge
   | OpGt ->
-      Gt
+      Builtin Gt
   | OpLe ->
-      Le
+      Builtin Le
   | OpLt ->
-      Lt
+      Builtin Lt
 
 
-let eval_guard memory tcontext guard : Constraint.t =
-  let operand_of_value (value : ToplAst.value) : Formula.operand =
+let eval_guard pulse_state memory tcontext guard : Constraint.t =
+  let rec operand_of_value (value : ToplAst.value) : Formula.operand option =
     match value with
     | Constant (LiteralInt x) ->
-        ConstOperand (Cint (IntLit.of_int x))
+        Some (ConstOperand (Cint (IntLit.of_int x)))
     | Register reg ->
-        AbstractValueOperand (get memory reg)
+        Some (AbstractValueOperand (get memory reg))
     | Binding v ->
-        AbstractValueOperand (get tcontext v)
+        Some (AbstractValueOperand (get tcontext v))
+    | FieldAccess {value; class_name; field_name} -> (
+        let* value_op = operand_of_value value in
+        match value_op with
+        | Formula.AbstractValueOperand v ->
+            let* f = deref_field_access pulse_state v class_name field_name in
+            Some (Formula.AbstractValueOperand f)
+        | _ ->
+            (* TODO: enforce in parser and make this an internal error. *)
+            L.die UserError "Unsupported value for accessing field %s" field_name )
   in
-  let conjoin_predicate pruned (predicate : ToplAst.predicate) =
+  let conjoin_predicate (pruned : Constraint.t option) (predicate : ToplAst.predicate) =
     match predicate with
     | Binop (binop, l, r) ->
-        let l = operand_of_value l in
-        let r = operand_of_value r in
+        let* l = operand_of_value l in
+        let* r = operand_of_value r in
+        let* pruned in
         let binop = binop_to binop in
-        Constraint.and_predicate (Constraint.make binop l r) pruned
+        Some (Constraint.and_predicate (Constraint.make binop l r) pruned)
     | Value v ->
-        let v = operand_of_value v in
+        let* v = operand_of_value v in
+        let* pruned in
         let one = Formula.ConstOperand (Cint IntLit.one) in
-        Constraint.and_predicate (Constraint.make Binop.Ne v one) pruned
+        Some (Constraint.and_predicate (Constraint.make (Builtin Ne) v one) pruned)
   in
-  List.fold ~init:Constraint.true_ ~f:conjoin_predicate guard
+  match List.fold ~init:(Some Constraint.true_) ~f:conjoin_predicate guard with
+  | Some result ->
+      result
+  | None ->
+      Constraint.false_
 
 
 let apply_action tcontext assignments memory =
@@ -298,7 +491,9 @@ let apply_action tcontext assignments memory =
 type tcontext = (ToplAst.variable_name * AbstractValue.t) list
 
 let pp_tcontext f tcontext =
-  Format.fprintf f "@[[%a]@]" (pp_comma_seq (Pp.pair ~fst:String.pp ~snd:AbstractValue.pp)) tcontext
+  F.fprintf f "@[[%a]@]"
+    (pp_comma_seq (Pp.pair ~fst:F.pp_print_string ~snd:AbstractValue.pp))
+    tcontext
 
 
 let static_match_array_write arr index label : tcontext option =
@@ -372,7 +567,7 @@ module Debug = struct
     let pp f i = ToplAutomaton.pp_tindex (Topl.automaton ()) f i in
     if Config.trace_topl && not (List.is_empty unseen) then
       L.user_warning "@[<v>@[<v2>The following Topl transitions never match:@;%a@]@;@]"
-        (Format.pp_print_list pp) unseen
+        (F.pp_print_list pp) unseen
 
 
   let dropped_disjuncts_count = ref 0
@@ -403,22 +598,8 @@ let static_match event : (ToplAutomaton.transition * tcontext) list =
   ToplAutomaton.tfilter_mapi (Topl.automaton ()) ~f:match_one
 
 
-let is_unsat = function SatUnsat.Unsat -> true | SatUnsat.Sat _ -> false
-
-let is_unsat_cheap path_condition pruned = Constraint.prune_path pruned path_condition |> is_unsat
-
-let default_tenv = Tenv.create ()
-
-let is_unsat_expensive ~get_dynamic_type path_condition pruned =
-  let open SatUnsat.Import in
-  Constraint.prune_path pruned path_condition
-  >>= Formula.normalize default_tenv ~get_dynamic_type
-  |> is_unsat
-
-
-let drop_infeasible ?(expensive = false) ~get_dynamic_type ~path_condition state =
-  let is_unsat = if expensive then is_unsat_expensive ~get_dynamic_type else is_unsat_cheap in
-  let f {pruned} = not (is_unsat path_condition pruned) in
+let drop_infeasible pulse_state state =
+  let f {pruned} = not (Constraint.is_unsat pulse_state pruned) in
   List.filter ~f state
 
 
@@ -456,14 +637,14 @@ let drop_garbage ~keep state =
   List.filter ~f:should_keep state
 
 
-let simplify ~keep ~get_dynamic_type ~path_condition state =
+let simplify pulse_state state =
   let simplify_simple_state {pre; post; pruned; last_step} =
     (* NOTE: We do not consider registers live. If the Topl monitor has a hold of something that is
        garbage for the program, then that something is still garbage. *)
     let collect memory keep =
       List.fold ~init:keep ~f:(fun keep (_reg, value) -> AbstractValue.Set.add value keep) memory
     in
-    let keep = keep |> collect pre.memory |> collect post.memory in
+    let keep = get_reachable pulse_state |> collect pre.memory |> collect post.memory in
     let pruned = Constraint.eliminate_exists ~keep pruned in
     L.d_printfln "@[<2>PulseTopl.simplify@;before=%a@;after=%a@]" Constraint.pp pruned Constraint.pp
       pruned ;
@@ -471,13 +652,13 @@ let simplify ~keep ~get_dynamic_type ~path_condition state =
   in
   (* The following three steps are ordered from fastest to slowest. *)
   let state = List.map ~f:simplify_simple_state state in
-  let state = drop_garbage ~keep state in
-  let state = drop_infeasible ~expensive:true ~get_dynamic_type ~path_condition state in
+  let state = drop_garbage ~keep:(get_reachable pulse_state) state in
+  let state = drop_infeasible pulse_state state in
   List.dedup_and_sort ~compare:compare_simple_state state
 
 
-let apply_limits ~keep ~get_dynamic_type ~path_condition state =
-  let expensive_simplification state = simplify ~keep ~get_dynamic_type ~path_condition state in
+let apply_limits pulse_state state =
+  let expensive_simplification state = simplify pulse_state state in
   let drop_disjuncts state =
     let old_len = List.length state in
     let new_len = (Config.topl_max_disjuncts / 2) + 1 in
@@ -499,7 +680,7 @@ let apply_limits ~keep ~get_dynamic_type ~path_condition state =
   state |> maybe needs_shrinking expensive_simplification |> maybe needs_shrinking drop_disjuncts
 
 
-let small_step loc ~keep ~get_dynamic_type ~path_condition event simple_states =
+let small_step loc pulse_state event simple_states =
   let tmatches = static_match event in
   let evolve_transition (old : simple_state) (transition, tcontext) : state =
     let mk ?(memory = old.post.memory) ?(pruned = Constraint.true_) significant =
@@ -520,7 +701,7 @@ let small_step loc ~keep ~get_dynamic_type ~path_condition event simple_states =
         [mk (not is_loop)]
     | Some label ->
         let memory = old.post.memory in
-        let pruned = eval_guard memory tcontext label.ToplAst.condition in
+        let pruned = eval_guard pulse_state memory tcontext label.ToplAst.condition in
         let memory = apply_action tcontext label.ToplAst.action memory in
         [mk ~memory ~pruned true]
   in
@@ -540,7 +721,7 @@ let small_step loc ~keep ~get_dynamic_type ~path_condition event simple_states =
   in
   let result = List.concat_map ~f:evolve_simple_state simple_states in
   L.d_printfln "@[<2>PulseTopl.small_step:@;%a@ -> %a@]" pp_state simple_states pp_state result ;
-  result |> apply_limits ~keep ~get_dynamic_type ~path_condition
+  result |> apply_limits pulse_state
 
 
 let of_unequal (or_unequal : 'a List.Or_unequal_lengths.t) =
@@ -566,8 +747,7 @@ let sub_simple_state (sub, {pre; post; pruned; last_step}) =
   (sub, {pre; post; pruned; last_step})
 
 
-let large_step ~call_location ~callee_proc_name ~substitution ~keep ~get_dynamic_type
-    ~path_condition ~callee_summary state =
+let large_step ~call_location ~callee_proc_name ~substitution pulse_state ~callee_summary state =
   let seq ((p : simple_state), (q : simple_state)) =
     if not (Int.equal p.post.vertex q.pre.vertex) then None
     else
@@ -576,7 +756,7 @@ let large_step ~call_location ~callee_proc_name ~substitution ~keep ~get_dynamic
            equalities, because a growing [pruned] leads to quadratic behaviour. *)
         let mk_eq val1 val2 =
           let op x = Formula.AbstractValueOperand x in
-          Constraint.make Binop.Eq (op val1) (op val2)
+          Constraint.make (Builtin Eq) (op val1) (op val2)
         in
         let f (sub, eqs) (reg1, val1) (reg2, val2) =
           if not (String.equal reg1 reg2) then
@@ -608,20 +788,18 @@ let large_step ~call_location ~callee_proc_name ~substitution ~keep ~get_dynamic
   let result = List.filter_map ~f:seq (List.cartesian_product state callee_summary) in
   L.d_printfln "@[<2>PulseTopl.large_step:@;callee_prepost=%a@;%a@ -> %a@]" pp_state callee_summary
     pp_state state pp_state result ;
-  result |> apply_limits ~keep ~get_dynamic_type ~path_condition
+  result |> apply_limits pulse_state
 
 
-let filter_for_summary ~get_dynamic_type path_condition state =
-  drop_infeasible ~get_dynamic_type ~expensive:true ~path_condition state
-
+let filter_for_summary pulse_state state = drop_infeasible pulse_state state
 
 let description_of_step_data step_data =
   ( match step_data with
   | SmallStep (Call {procname}) | LargeStep (procname, _) ->
-      Format.fprintf Format.str_formatter "@[call to %a@]" Procname.pp procname
+      F.fprintf F.str_formatter "@[call to %a@]" Procname.pp procname
   | SmallStep (ArrayWrite _) ->
-      Format.fprintf Format.str_formatter "@[write to array@]" ) ;
-  Format.flush_str_formatter ()
+      F.fprintf F.str_formatter "@[write to array@]" ) ;
+  F.flush_str_formatter ()
 
 
 let report_errors proc_desc err_log state =

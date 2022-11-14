@@ -1015,9 +1015,7 @@ let resolve_and_analyze_no_dynamic_dispatch {InterproceduralAnalysis.analyze_dep
 
 let resolve_and_analyze_clang analysis_data prop_r n_actual_params callee_pname call_flags =
   if
-    Config.dynamic_dispatch
-    && (not (is_variadic_procname callee_pname))
-    && Procname.is_objc_method callee_pname
+    ((not (is_variadic_procname callee_pname)) && Procname.is_objc_method callee_pname)
     || Procname.is_objc_block callee_pname
     (* to be extended to other methods *)
   then
@@ -1146,10 +1144,19 @@ let rec sym_exec
   let call_args prop_ proc_name args ret_id_typ loc =
     {Builtin.instr; prop_; path; ret_id_typ; args; proc_name; loc; analysis_data}
   in
+  let root_type exp typ =
+    match (exp : Exp.t) with
+    | Lfield (_, f, _) ->
+        Fieldname.get_class_name f |> Typ.mk_struct
+    | _ ->
+        typ
+  in
   match instr with
-  | Sil.Load {id; e= rhs_exp; root_typ= typ; loc} ->
+  | Sil.Load {id; e= rhs_exp; typ; loc} ->
+      let typ = root_type rhs_exp typ in
       execute_load analysis_data id rhs_exp typ loc prop_ |> ret_old_path
-  | Sil.Store {e1= lhs_exp; root_typ= typ; e2= rhs_exp; loc} ->
+  | Sil.Store {e1= lhs_exp; typ; e2= rhs_exp; loc} ->
+      let typ = root_type lhs_exp typ in
       execute_store analysis_data lhs_exp typ rhs_exp loc prop_ |> ret_old_path
   | Sil.Prune (cond, _, _, _) ->
       let prop__ = Attribute.nullify_exp_with_objc_null tenv prop_ cond in
@@ -1161,7 +1168,7 @@ let rec sym_exec
         exec_builtin (call_args prop_ callee_pname actual_params ret_id_typ loc)
     | None -> (
       match callee_pname with
-      | Java callee_pname_java when Config.dynamic_dispatch -> (
+      | Java callee_pname_java -> (
           let norm_prop, norm_args' = normalize_params analysis_data prop_ actual_params in
           let norm_args = call_constructor_url_update_args callee_pname norm_args' in
           let exec_skip_call ~reason skipped_pname ret_annots ret_type =
@@ -1187,33 +1194,6 @@ let rec sym_exec
                 let ret_annots = proc_attrs.ProcAttributes.ret_annots in
                 exec_skip_call ~reason resolved_pname ret_annots proc_attrs.ProcAttributes.ret_type
             ) )
-      | Java callee_pname_java ->
-          let norm_prop, norm_args = normalize_params analysis_data prop_ actual_params in
-          let url_handled_args = call_constructor_url_update_args callee_pname norm_args in
-          let resolved_pnames =
-            resolve_virtual_pname tenv norm_prop url_handled_args callee_pname call_flags
-          in
-          let exec_one_pname pname =
-            let exec_skip_call ~reason ret_annots ret_type =
-              skip_call ~reason norm_prop path pname ret_annots loc ret_id_typ ret_type
-                url_handled_args
-            in
-            match analyze_dependency pname with
-            | None ->
-                let ret_typ = Procname.Java.get_return_typ callee_pname_java in
-                let ret_annots = load_ret_annots callee_pname in
-                exec_skip_call ~reason:"unknown method" ret_annots ret_typ
-            | Some ((callee_proc_desc, _) as callee_summary) -> (
-              match reason_to_skip ~callee_desc:(`Summary callee_summary) with
-              | None ->
-                  let handled_args = call_args norm_prop pname url_handled_args ret_id_typ loc in
-                  proc_call callee_summary handled_args
-              | Some reason ->
-                  let proc_attrs = Procdesc.get_attributes callee_proc_desc in
-                  let ret_annots = proc_attrs.ProcAttributes.ret_annots in
-                  exec_skip_call ~reason ret_annots proc_attrs.ProcAttributes.ret_type )
-          in
-          List.fold ~f:(fun acc pname -> exec_one_pname pname @ acc) ~init:[] resolved_pnames
       | CSharp callee_pname_csharp ->
           let norm_prop, norm_args = normalize_params analysis_data prop_ actual_params in
           let url_handled_args = call_constructor_url_update_args callee_pname norm_args in
@@ -1584,7 +1564,7 @@ and check_variadic_sentinel ?(fails_on_nil = false) n_formals (sentinel, null_po
   let check_allocated result ((lexp, typ), i) =
     (* simulate a Load for [lexp] *)
     let tmp_id_deref = Ident.create_fresh Ident.kprimed in
-    let load_instr = Sil.Load {id= tmp_id_deref; e= lexp; root_typ= typ; typ; loc} in
+    let load_instr = Sil.Load {id= tmp_id_deref; e= lexp; typ; loc} in
     try instrs analysis_data (Instrs.singleton load_instr) result
     with e when Exception.exn_not_failure e ->
       IExn.reraise_if e ~f:(fun () -> fails_on_nil) ;

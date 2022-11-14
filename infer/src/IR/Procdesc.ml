@@ -558,6 +558,12 @@ let get_ret_var pdesc = Pvar.get_ret_pvar (get_proc_name pdesc)
 
 let get_start_node pdesc = pdesc.start_node
 
+(** We search all the procedure's nodes to find the exception sink. *)
+let get_exn_sink pdesc =
+  List.find (get_nodes pdesc) ~f:(fun node ->
+      Node.equal_nodekind (Node.get_kind node) Node.exn_sink_kind )
+
+
 (** Return [true] iff the procedure is defined, and not just declared *)
 let is_defined pdesc = pdesc.attributes.is_defined
 
@@ -589,6 +595,8 @@ let get_static_callees pdesc =
         match instr with
         | Sil.Call (_, Exp.Const (Const.Cfun callee_pn), _, _, _) ->
             Procname.Set.add callee_pn acc
+        | Sil.Call (_, Exp.Closure {name}, _, _, _) ->
+            Procname.Set.add name acc
         | _ ->
             acc )
   in
@@ -932,12 +940,21 @@ module SQLite = SqliteUtils.MarshalledNullableDataNOTForComparison (struct
 end)
 
 let load =
-  let load_statement =
-    ResultsDatabase.register_statement "SELECT cfg FROM procedures WHERE proc_uid = :k"
+  let load_statement db =
+    Database.register_statement db "SELECT cfg FROM procedures WHERE proc_uid = :k"
   in
+  let load_statement_adb = load_statement AnalysisDatabase in
+  let load_statement_cdb = load_statement CaptureDatabase in
   fun pname ->
-    ResultsDatabase.with_registered_statement load_statement ~f:(fun db stmt ->
-        Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (Procname.to_unique_id pname))
-        |> SqliteUtils.check_result_code db ~log:"load bind proc_uid" ;
-        SqliteUtils.result_single_column_option ~finalize:false ~log:"Procdesc.load" db stmt
-        |> Option.bind ~f:SQLite.deserialize )
+    let run_query stmt =
+      Database.with_registered_statement stmt ~f:(fun db stmt ->
+          Sqlite3.bind stmt 1 (Sqlite3.Data.TEXT (Procname.to_unique_id pname))
+          |> SqliteUtils.check_result_code db ~log:"load bind proc_uid" ;
+          SqliteUtils.result_single_column_option ~finalize:false ~log:"Procdesc.load" db stmt
+          |> Option.bind ~f:SQLite.deserialize )
+    in
+    (* Since the procedure table can be updated in the analysis phase,
+       we need to query both databases, analysisdb first *)
+    IOption.if_none_evalopt
+      ~f:(fun () -> run_query load_statement_cdb)
+      (run_query load_statement_adb)

@@ -339,8 +339,16 @@ module AddressAttributes = struct
     map_post_attrs astate ~f:(BaseAddressAttributes.java_resource_release address)
 
 
+  let csharp_resource_release address astate =
+    map_post_attrs astate ~f:(BaseAddressAttributes.csharp_resource_release address)
+
+
   let get_dynamic_type addr astate =
     BaseAddressAttributes.get_dynamic_type (astate.post :> base_domain).attrs addr
+
+
+  let get_dynamic_type_source_file addr astate =
+    BaseAddressAttributes.get_dynamic_type_source_file (astate.post :> base_domain).attrs addr
 
 
   let get_allocation addr astate =
@@ -369,6 +377,11 @@ module AddressAttributes = struct
 
   let add_dynamic_type typ address astate =
     map_post_attrs astate ~f:(BaseAddressAttributes.add_dynamic_type typ address)
+
+
+  let add_dynamic_type_source_file typ source_file address astate =
+    map_post_attrs astate
+      ~f:(BaseAddressAttributes.add_dynamic_type_source_file typ source_file address)
 
 
   let add_ref_counted address astate =
@@ -409,6 +422,10 @@ module AddressAttributes = struct
 
   let is_java_resource_released addr astate =
     BaseAddressAttributes.is_java_resource_released addr (astate.post :> base_domain).attrs
+
+
+  let is_csharp_resource_released addr astate =
+    BaseAddressAttributes.is_csharp_resource_released addr (astate.post :> base_domain).attrs
 
 
   let is_std_vector_reserved addr astate =
@@ -512,10 +529,12 @@ module Memory = struct
     if phys_equal new_post astate.post then astate else {astate with post= new_post}
 
 
-  let add_edge (addr, history) access new_addr_hist location astate =
+  let add_edge {PathContext.timestamp} (addr, history) access new_addr_hist location astate =
     map_post_heap astate ~f:(BaseMemory.add_edge addr access new_addr_hist)
     |> AddressAttributes.map_post_attrs
-         ~f:(BaseAddressAttributes.add_one addr (WrittenTo (Trace.Immediate {location; history})))
+         ~f:
+           (BaseAddressAttributes.add_one addr
+              (WrittenTo (timestamp, Trace.Immediate {location; history})) )
 
 
   let find_edge_opt address access astate =
@@ -540,6 +559,25 @@ module Memory = struct
                 (astate.pre :> base_domain).heap
               |> BaseMemory.register_address addr_dst
             else (astate.pre :> base_domain).heap
+          in
+          let astate =
+            (* This is the first time we are accessing addr_dst. Because it is accessed
+               via addr_src, it should be tainted the same as is addr_src. This is to be
+               consistent with how sources work: if addr_dst would have been accessed
+               before tainting addr_scr, then it would have been tainted as well *)
+            let taint_sources, taint_sanitizers =
+              AddressAttributes.get_taint_sources_and_sanitizers addr_src astate
+            in
+            let conditionally_add condition attr astate =
+              if condition then AddressAttributes.add_one addr_dst attr astate else astate
+            in
+            let open Attribute in
+            conditionally_add
+              (not (TaintedSet.is_empty taint_sources))
+              (Tainted taint_sources) astate
+            |> conditionally_add
+                 (not (TaintSanitizedSet.is_empty taint_sanitizers))
+                 (TaintSanitized taint_sanitizers)
           in
           ( { post= PostDomain.update astate.post ~heap:post_heap
             ; pre= PreDomain.update astate.pre ~heap:foot_heap
@@ -885,7 +923,7 @@ let check_retain_cycles ~dead_addresses tenv astate =
     | None ->
         None
     | Some attributes ->
-        Attributes.get_written_to attributes
+        Attributes.get_written_to attributes |> Option.map ~f:snd
   in
   let compare_traces trace1 trace2 =
     let loc1 = Trace.get_outer_location trace1 in
@@ -894,25 +932,23 @@ let check_retain_cycles ~dead_addresses tenv astate =
     if Int.equal compared_locs 0 then Trace.compare trace1 trace2 else compared_locs
   in
   (* remember explored adresses to avoid reexploring path without retain cycles *)
-  let checked = ref [] in
+  let checked = ref AbstractValue.Set.empty in
   let check_retain_cycle src_addr =
-    let rec contains_cycle decompiler assignment_traces seen addr cycle_addr =
+    let rec contains_cycle decompiler ~assignment_traces ~seen addr =
       (* [decompiler] is a decompiler filled during the look out for a cycle
          [assignment_traces] tracks the assignments met in the retain cycle
          [seen] tracks addresses met in the current path
          [addr] is the address to explore
       *)
-      if List.exists ~f:(AbstractValue.equal addr) !checked then Ok ()
+      if AbstractValue.Set.mem addr !checked then Ok ()
       else
         let value = Decompiler.find addr astate.decompiler in
         let is_known = not (DecompilerExpr.is_unknown value) in
-        let is_seen = List.exists ~f:(AbstractValue.equal addr) seen in
-        if
-          is_known && is_seen
-          && Option.value_map ~default:false
-               (AddressAttributes.find_opt addr astate)
-               ~f:Attributes.is_ref_counted
-        then
+        let is_seen = AbstractValue.Set.mem addr seen in
+        let is_ref_counted =
+          Option.exists ~f:Attributes.is_ref_counted (AddressAttributes.find_opt addr astate)
+        in
+        if is_known && is_seen && is_ref_counted then
           let assignment_traces = List.dedup_and_sort ~compare:compare_traces assignment_traces in
           match assignment_traces with
           | [] ->
@@ -922,11 +958,12 @@ let check_retain_cycles ~dead_addresses tenv astate =
               let path = Decompiler.find addr decompiler in
               Error (assignment_traces, value, path, location)
         else (
-          if (not is_known) && is_seen then
+          if is_seen && ((not is_known) || not is_ref_counted) then
             (* add the `UNKNOWN` address at which we have found a cycle to the [checked]
                list in case we would have a cycle of `UNKNOWN` addresses, to avoid
-               looping forever *)
-            checked := addr :: !checked ;
+               looping forever. Also add the not ref_counted addresses to checked, since
+               we could loop forever otherwise *)
+            checked := AbstractValue.Set.add addr !checked ;
           let res =
             match BaseMemory.find_opt addr (astate.post :> BaseDomain.t).heap with
             | None ->
@@ -954,15 +991,16 @@ let check_retain_cycles ~dead_addresses tenv astate =
                             Decompiler.add_access_source ~allow_cycle:true accessed_addr access
                               ~src:addr (astate.post :> base_domain).attrs decompiler
                           in
-                          contains_cycle decompiler assignment_traces (addr :: seen) accessed_addr
-                            cycle_addr
+                          let seen = AbstractValue.Set.add addr seen in
+                          contains_cycle decompiler ~assignment_traces ~seen accessed_addr
                         else Ok () )
           in
           (* all paths down [addr] have been explored *)
-          checked := addr :: !checked ;
+          checked := AbstractValue.Set.add addr !checked ;
           res )
     in
-    contains_cycle astate.decompiler [] [] src_addr None
+    let seen = AbstractValue.Set.empty in
+    contains_cycle astate.decompiler ~assignment_traces:[] ~seen src_addr
   in
   List.fold_result dead_addresses ~init:() ~f:(fun () addr ->
       match AddressAttributes.find_opt addr astate with
@@ -1028,12 +1066,6 @@ let get_unreachable_attributes {post} =
     (post :> BaseDomain.t).attrs []
 
 
-let get_reachable {pre; post} =
-  let pre_keep = BaseDomain.reachable_addresses (pre :> BaseDomain.t) in
-  let post_keep = BaseDomain.reachable_addresses (post :> BaseDomain.t) in
-  AbstractValue.Set.union pre_keep post_keep
-
-
 let should_havoc_if_unknown () =
   if Language.curr_language_is Java then `ShouldOnlyHavocResources else `ShouldHavoc
 
@@ -1086,10 +1118,12 @@ let set_post_edges addr edges astate =
 
 let find_post_cell_opt addr {post} = BaseDomain.find_cell_opt addr (post :> BaseDomain.t)
 
-let set_post_cell (addr, history) (edges, attr_set) location astate =
+let set_post_cell {PathContext.timestamp} (addr, history) (edges, attr_set) location astate =
   set_post_edges addr edges astate
   |> AddressAttributes.map_post_attrs ~f:(fun attrs ->
-         BaseAddressAttributes.add_one addr (WrittenTo (Trace.Immediate {location; history})) attrs
+         BaseAddressAttributes.add_one addr
+           (WrittenTo (timestamp, Trace.Immediate {location; history}))
+           attrs
          |> BaseAddressAttributes.add addr attr_set )
 
 
@@ -1207,7 +1241,65 @@ let get_stack_allocated {post} =
     (post :> BaseDomain.t).stack AbstractValue.Set.empty
 
 
+let check_new_eqs (eqs : Formula.new_eq list) =
+  let module V = struct
+    module K = struct
+      type t = AbstractValue.t option [@@deriving compare, equal]
+
+      let pp = Fmt.option ~none:(Fmt.any "0") AbstractValue.pp
+    end
+
+    include K
+    module Map = PrettyPrintable.MakePPMap (K)
+  end in
+  (* We build a more uniform representation of [new_eq]; [None] represents 0. *)
+  let eqs =
+    let f (e : Formula.new_eq) =
+      match e with Equal (a, b) -> (Some a, Some b) | EqZero a -> (Some a, None)
+    in
+    List.map ~f eqs
+  in
+  let values =
+    eqs |> List.concat_map ~f:(fun (a, b) -> [a; b]) |> List.dedup_and_sort ~compare:V.compare
+  in
+  (* We simulate left-to-right substitution. A pair [(a,b)] in [substs] means that [a] becomes [b]
+   * after substitution. *)
+  let substs =
+    let init = List.map ~f:(fun x -> (x, x)) values in
+    let apply_subst substs (a, b) =
+      List.map ~f:(function c, d when V.equal d a -> (c, b) | s -> s) substs
+    in
+    List.fold ~init ~f:apply_subst eqs
+  in
+  (* And then we treat equalities as equalities, using union-find to find a rep. *)
+  let cls =
+    List.fold ~init:V.Map.empty ~f:(fun m v -> V.Map.add v (Union_find.create v) m) values
+  in
+  List.iter ~f:(function a, b -> Union_find.union (V.Map.find a cls) (V.Map.find b cls)) eqs ;
+  (* Finally, we check that for each pair of values the two approaches agree. *)
+  let pairs = List.cartesian_product values values in
+  List.iter pairs ~f:(function a, b ->
+      let equal_in_subst =
+        let aa = List.Assoc.find_exn ~equal:V.equal substs a in
+        let bb = List.Assoc.find_exn ~equal:V.equal substs b in
+        V.equal aa bb
+      in
+      let equal_in_uf =
+        let aa = V.Map.find a cls in
+        let bb = V.Map.find b cls in
+        Union_find.same_class aa bb
+      in
+      if Bool.(equal_in_subst <> equal_in_uf) then (
+        F.fprintf F.str_formatter "@[<v>" ;
+        List.iter eqs ~f:(function x, y ->
+            F.fprintf F.str_formatter "@[%a -> %a@]@;" V.pp x V.pp y ) ;
+        F.fprintf F.str_formatter "@[See values %a %a: equal_in_subst=%b equal_in_uf=%b@]@;@]" V.pp
+          a V.pp b equal_in_subst equal_in_uf ;
+        L.die InternalError "%s" (F.flush_str_formatter ()) ) )
+
+
 let incorporate_new_eqs ~for_summary astate new_eqs =
+  if Config.pulse_sanity_checks then check_new_eqs new_eqs ;
   let stack_allocations = lazy (get_stack_allocated astate) in
   List.fold_until new_eqs ~init:(astate, None)
     ~finish:(fun astate_error -> Sat astate_error)
@@ -1285,6 +1377,13 @@ let canonicalize astate =
   {astate with pre; post}
 
 
+let topl_view : t -> PulseTopl.pulse_state = function
+  | {pre; post; path_condition} ->
+      let pulse_pre = (pre :> BaseDomain.t) in
+      let pulse_post = (post :> BaseDomain.t) in
+      {pulse_pre; pulse_post; path_condition}
+
+
 let filter_for_summary tenv proc_name astate0 =
   let open SatUnsat.Import in
   L.d_printfln "Canonicalizing...@\n" ;
@@ -1295,14 +1394,7 @@ let filter_for_summary tenv proc_name astate0 =
      to restore their initial values at the end of the function. Removing them altogether achieves
      this. *)
   let astate = restore_formals_for_summary astate_before_filter in
-  let astate =
-    { astate with
-      topl=
-        PulseTopl.filter_for_summary
-          ~get_dynamic_type:
-            (BaseAddressAttributes.get_dynamic_type (astate.post :> BaseDomain.t).attrs)
-          astate.path_condition astate.topl }
-  in
+  let astate = {astate with topl= PulseTopl.filter_for_summary (topl_view astate) astate.topl} in
   let astate, pre_live_addresses, post_live_addresses, dead_addresses =
     discard_unreachable_ ~for_summary:true astate
   in
@@ -1321,9 +1413,7 @@ let filter_for_summary tenv proc_name astate0 =
       astate.path_condition
   in
   let live_addresses = AbstractValue.Set.union live_addresses live_via_arithmetic in
-  ( { astate with
-      path_condition
-    ; topl= PulseTopl.simplify ~keep:live_addresses ~get_dynamic_type ~path_condition astate.topl }
+  ( {astate with path_condition; topl= PulseTopl.simplify (topl_view astate) astate.topl}
   , live_addresses
   , (* we could filter out the [live_addresses] if needed; right now they might overlap *)
     dead_addresses
@@ -1408,7 +1498,15 @@ module Summary = struct
             Ok (invalidate_locals proc_attrs.locals astate)
         | Error (unreachable_location, JavaResource class_name, trace) ->
             Error
-              (`ResourceLeak
+              (`JavaResourceLeak
+                ( astate
+                , astate_before_filter
+                , class_name
+                , trace
+                , Option.value unreachable_location ~default:location ) )
+        | Error (unreachable_location, CSharpResource class_name, trace) ->
+            Error
+              (`CSharpResourceLeak
                 ( astate
                 , astate_before_filter
                 , class_name
@@ -1463,23 +1561,15 @@ module Summary = struct
 end
 
 module Topl = struct
-  let small_step loc ~keep event astate =
-    { astate with
-      topl=
-        PulseTopl.small_step loc ~keep
-          ~get_dynamic_type:
-            (BaseAddressAttributes.get_dynamic_type (astate.post :> BaseDomain.t).attrs)
-          ~path_condition:astate.path_condition event astate.topl }
+  let small_step loc event astate =
+    {astate with topl= PulseTopl.small_step loc (topl_view astate) event astate.topl}
 
 
-  let large_step ~call_location ~callee_proc_name ~substitution ~keep ~path_condition
-      ~callee_summary astate =
+  let large_step ~call_location ~callee_proc_name ~substitution ~callee_summary astate =
     { astate with
       topl=
-        PulseTopl.large_step ~call_location ~callee_proc_name ~substitution ~keep
-          ~get_dynamic_type:
-            (BaseAddressAttributes.get_dynamic_type (astate.post :> BaseDomain.t).attrs)
-          ~path_condition ~callee_summary astate.topl }
+        PulseTopl.large_step ~call_location ~callee_proc_name ~substitution (topl_view astate)
+          ~callee_summary astate.topl }
 
 
   let get {topl} = topl

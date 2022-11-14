@@ -19,21 +19,25 @@ type error =
       ; must_be_valid: Trace.t * Invalidation.must_be_valid_reason option }
   | ReportableError of {astate: AbductiveDomain.t; diagnostic: Diagnostic.t}
   | ISLError of {astate: AbductiveDomain.t}
-  | Summary of error * AbductiveDomain.Summary.t
+  | WithSummary of error * AbductiveDomain.Summary.t
+
+let with_summary result =
+  PulseResult.map_error result ~f:(fun (error, summary) -> WithSummary (error, summary))
+
 
 let rec is_fatal = function
   | PotentialInvalidAccess _ | ISLError _ ->
       true
   | ReportableError {diagnostic} ->
       Diagnostic.aborts_execution diagnostic
-  | Summary (error, _) ->
+  | WithSummary (error, _) ->
       is_fatal error
 
 
 let rec astate_of_error = function
   | PotentialInvalidAccess {astate} | ReportableError {astate} | ISLError {astate} ->
       astate
-  | Summary (error, _) ->
+  | WithSummary (error, _) ->
       astate_of_error error
 
 
@@ -54,7 +58,8 @@ type abductive_summary_error =
 let ignore_leaks = function
   | Ok astate
   | Error (`MemoryLeak (astate, _, _, _, _))
-  | Error (`ResourceLeak (astate, _, _, _, _))
+  | Error (`JavaResourceLeak (astate, _, _, _, _))
+  | Error (`CSharpResourceLeak (astate, _, _, _, _))
   | Error (`RetainCycle (astate, _, _, _, _, _)) ->
       Ok astate
   | Error #abductive_summary_error as result ->
@@ -75,7 +80,7 @@ let of_abductive_result abductive_result =
 
 let of_abductive_summary_error = function
   | `PotentialInvalidAccessSummary (summary, astate, address, must_be_valid) ->
-      Summary (PotentialInvalidAccess {astate; address; must_be_valid}, summary)
+      (PotentialInvalidAccess {astate; address; must_be_valid}, summary)
 
 
 let of_abductive_summary_result abductive_summary_result =

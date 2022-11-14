@@ -312,6 +312,9 @@ module Reg = struct
     include Provide_pp (T)
   end
 
+  module Map = Map
+  module Tbl = Tbl
+
   let invariant x =
     let@ () = Invariant.invariant [%here] x [%sexp_of: t] in
     match x with Reg _ -> invariant x | _ -> assert false

@@ -52,7 +52,7 @@ type scheduler = File | Restart | SyntacticCallGraph [@@deriving equal]
 type pulse_taint_config =
   { sources: Pulse_config_t.matchers
   ; sanitizers: Pulse_config_t.matchers
-  ; propagaters: Pulse_config_t.matchers
+  ; propagators: Pulse_config_t.matchers
   ; sinks: Pulse_config_t.matchers
   ; policies: Pulse_config_t.taint_policies
   ; data_flow_kinds: string list }
@@ -360,10 +360,14 @@ let lib_dir = bin_dir ^/ Filename.parent_dir_name ^/ "lib"
 
 let etc_dir = bin_dir ^/ Filename.parent_dir_name ^/ "etc"
 
+let config_dir = bin_dir ^/ Filename.parent_dir_name ^/ "config"
+
 (** Path to the database dump with model summaries *)
 let biabduction_models_sql = lib_dir ^/ "models.sql"
 
 let biabduction_models_jar = lib_dir ^/ "java" ^/ "models.jar"
+
+let pulse_default_taint_config = config_dir ^/ "taint"
 
 (* Normalize the path *)
 
@@ -425,16 +429,18 @@ let implicit_sdk_root =
         maybe_root )
 
 
+(** whether the infer executable looks like we are just running infer unit tests *)
+let is_running_unit_test =
+  String.is_substring ~substring:"inline_test_runner" exe_basename
+  || String.is_substring ~substring:"inferunit" exe_basename
+  || String.equal "run.exe" exe_basename
+  || String.equal "run.bc" exe_basename
+
+
 let startup_action =
   let open CLOpt in
   if infer_is_javac then Javac
-  else if
-    !Sys.interactive
-    || String.is_substring ~substring:"inline_test_runner" exe_basename
-    || String.is_substring ~substring:"inferunit" exe_basename
-    || String.equal "run.exe" exe_basename
-    || String.equal "run.bc" exe_basename
-  then NoParse
+  else if !Sys.interactive || is_running_unit_test then NoParse
   else if infer_is_clang then NoParse
   else InferCommand
 
@@ -494,7 +500,7 @@ let () =
     match cmd with
     | Report ->
         `Add
-    | Analyze | AnalyzeJson | Capture | Compile | Debug | Explore | Help | ReportDiff | Run ->
+    | Analyze | Capture | Compile | Debug | Explore | Help | ReportDiff | Run ->
         `Reject
   in
   (* make sure we generate doc for all the commands we know about *)
@@ -855,7 +861,7 @@ and buck_mode =
   in
   CLOpt.mk_bool ~deprecated:["-flavors"; "-use-flavors"] ~long:"buck-clang"
     ~in_help:InferCommand.[(Capture, manual_buck)]
-    ~f:(set_mode `ClangFlavors)
+    ~f:(set_mode `Clang)
     "Buck integration for clang-based targets (C/C++/Objective-C/Objective-C++)."
   |> ignore ;
   CLOpt.mk_symbol_opt ~long:"buck-compilation-database" ~deprecated:["-use-compilation-database"]
@@ -907,13 +913,18 @@ and capture_block_list =
 
 
 and capture_textual =
-  CLOpt.mk_path_opt ~long:"capture-textual" ~meta:"path"
-    "Generate a SIL program from a textual representation given in a .sil file."
+  CLOpt.mk_path_list ~long:"capture-textual" ~meta:"path"
+    "Generate a SIL program from a textual representation given in .sil files."
+
+
+and capture_doli =
+  CLOpt.mk_path_opt ~long:"capture-doli" ~meta:"path"
+    "Generate models from a DOLI representation given a .doli file."
 
 
 and cfg_json =
   CLOpt.mk_path_opt ~long:"cfg-json"
-    ~in_help:InferCommand.[(AnalyzeJson, manual_generic)]
+    ~in_help:InferCommand.[(Capture, manual_generic)]
     ~meta:"file" "Path to CFG json file"
 
 
@@ -1223,7 +1234,7 @@ and ( biabduction_write_dotty
         match command with
         | Debug | Explore | Help ->
             None
-        | (Analyze | AnalyzeJson | Capture | Compile | Report | ReportDiff | Run) as command ->
+        | (Analyze | Capture | Compile | Report | ReportDiff | Run) as command ->
             Some (command, manual_generic) )
   in
   let biabduction_write_dotty =
@@ -1272,8 +1283,8 @@ and ( biabduction_write_dotty
   and print_types = CLOpt.mk_bool ~long:"print-types" ~default:false "Print types in symbolic heaps"
   and keep_going =
     CLOpt.mk_bool ~deprecated_no:["-no-failures-allowed"] ~long:"keep-going"
-      ~in_help:InferCommand.[(Analyze, manual_generic)]
-      "Keep going when the analysis encounters a failure"
+      ~in_help:InferCommand.[(Analyze, manual_generic); (Capture, manual_generic)]
+      "Keep going when the analysis or capture encounter a failure"
   and reports_include_ml_loc =
     CLOpt.mk_bool ~deprecated:["with_infer_src_loc"] ~long:"reports-include-ml-loc"
       "Include the location in the Infer source code from where reports are generated"
@@ -1458,8 +1469,9 @@ and dump_duplicate_symbols =
 
 
 and dump_textual =
-  CLOpt.mk_path_opt ~long:"dump-textual" ~meta:"path"
-    "Generate a SIL program from the captured target. The target has to be a single Java file."
+  CLOpt.mk_bool ~long:"dump-textual"
+    "Generate a SIL program from the captured target. A $(i,filename.sil) file is generated for \
+     each $(i,filename.java) file in the target."
 
 
 and dynamic_dispatch_json_file_path =
@@ -1542,6 +1554,15 @@ and file_renamings =
   CLOpt.mk_path_opt ~long:"file-renamings"
     ~in_help:InferCommand.[(ReportDiff, manual_generic)]
     "JSON with a list of file renamings to use while computing differential reports"
+
+
+and files_to_analyze_index =
+  CLOpt.mk_path_opt ~long:"files-to-analyze-index"
+    ~in_help:InferCommand.[(Analyze, manual_generic)]
+    ~meta:"file"
+    "File containing a list of source files where analysis should start from. When used, the set \
+     of files given to this argument must be a subset of that passed to $(b,--changed-files-index) \
+     (which must be specified)."
 
 
 and filter_paths =
@@ -1822,6 +1843,11 @@ and margin =
     "Set right margin for the pretty printing functions"
 
 
+and margin_html =
+  CLOpt.mk_int ~long:"margin-html" ~default:200 ~meta:"int"
+    "Set margin for the pretty printing in html"
+
+
 and mask_sajwa_exceptions =
   CLOpt.mk_bool ~long:"mask-sawja-exceptions" ~default:true
     ~in_help:InferCommand.[(Capture, manual_java)]
@@ -1859,8 +1885,8 @@ and merge =
     "Merge the captured results directories specified in the dependency file."
 
 
-and merge_infer_out =
-  CLOpt.mk_string_list ~long:"merge-infer-out"
+and merge_capture =
+  CLOpt.mk_string_list ~deprecated:["-merge-infer-out"] ~long:"merge-capture"
     ~in_help:InferCommand.[(Capture, manual_generic)]
     "Specifies an Infer results directory. The files and procedures captured in it will be merged \
      together into the results directory specified with $(b, -o). Relative paths are interpreted \
@@ -1873,6 +1899,13 @@ and merge_report =
     "Specifies an Infer results directory. The reports stored in JSON files in all specified \
      results directories will be merged together and deduplicated before being stored in the main \
      results directory."
+
+
+and merge_report_summaries =
+  CLOpt.mk_string_list ~long:"merge-report-summaries"
+    ~in_help:InferCommand.[(Report, manual_generic)]
+    "Specifies an Infer results directory. The report summaries in all specified results \
+     directories will be merged together and deduplicated before reporting is done."
 
 
 and method_decls_info =
@@ -2219,7 +2252,15 @@ and pulse_model_return_nonnull =
 and pulse_model_return_first_arg =
   CLOpt.mk_string_opt ~long:"pulse-model-return-first-arg"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
-    "Regex of methods that should be modelled as returning the first argument in Pulse"
+    "Regex of methods that should be modelled as returning the first argument in Pulse in terms of \
+     the source language semantics. Languages supported: Java, C, Objective-C"
+
+
+and pulse_model_return_this =
+  CLOpt.mk_string_opt ~long:"pulse-model-return-this"
+    ~in_help:InferCommand.[(Analyze, manual_generic)]
+    "Regex of methods that should be modelled as returning the `this` or `self` argument of an \
+     instance method in Pulse. Languages supported: Java, Objective-C"
 
 
 and pulse_model_skip_pattern =
@@ -2287,6 +2328,11 @@ and pulse_report_issues_for_tests =
     "Do not supress any of the issues found by Pulse."
 
 
+and pulse_sanity_checks =
+  CLOpt.mk_bool ~long:"pulse-sanity-checks" ~default:false
+    "Enable expensive internal checks/assertions."
+
+
 and pulse_skip_procedures =
   CLOpt.mk_string_opt ~long:"pulse-skip-procedures"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
@@ -2317,10 +2363,10 @@ and pulse_taint_sanitizers =
      the fields format documentation."
 
 
-and pulse_taint_propagaters =
-  CLOpt.mk_json ~long:"pulse-taint-propagaters"
+and pulse_taint_propagators =
+  CLOpt.mk_json ~long:"pulse-taint-propagators"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
-    "Quick way to specify simple propagaters as a JSON objects. See $(b,--pulse-taint-sources) for \
+    "Quick way to specify simple propagators as a JSON objects. See $(b,--pulse-taint-sources) for \
      the fields format documentation."
 
 
@@ -2351,14 +2397,16 @@ and pulse_taint_sources =
       ("Simple" by default).
   - "taint_target":
       where the taint should be applied in the procedure.
-      - "ReturnValue": (default for taint sources and propagaters)
+      - "ReturnValue": (default for taint sources and propagators)
       - "AllArguments": (default for taint sanitizers and sinks)
       - ["ArgumentPositions", [<int list>]]:
           argument positions given by index (zero-indexed)
       - ["AllArgumentsButPositions", [<int list>]]:
           all arguments except given indices (zero-indexed)
-      - ["ArgumentMatchingTypes", [<type list>]]:
+      - ["ArgumentsMatchingTypes", [<type list>]]:
           arguments with types containing supplied strings
+      - ["Fields", [<(string * taint_target) list>]]:
+          fields given by name in return value, arguments or other fields
     $(i,N.B.) for methods, index 0 is $(i,this)/$(i,self).
   - "match_objc_blocks": boolean, "false" by default
       "true" if only Objective-C blocks should be matched.|}
@@ -2375,9 +2423,13 @@ and pulse_taint_data_flow_kinds =
 and pulse_taint_config =
   CLOpt.mk_path_list ~long:"pulse-taint-config"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
-    "Path to a taint analysis configuration file. This file can define $(b,--pulse-taint-sources), \
-     $(b,--pulse-taint-sanitizers), $(b,--pulse-taint-sanitizers), $(b,--pulse-taint-sinks), \
-     $(b,--pulse-taint-policies), and $(b,--pulse-taint-data-flow-kinds)."
+    "Path to a taint analysis configuration file or a directory containing such files. This file \
+     can define $(b,--pulse-taint-sources), $(b,--pulse-taint-sanitizers), \
+     $(b,--pulse-taint-propagators), $(b,--pulse-taint-sinks), $(b,--pulse-taint-policies), and \
+     $(b,--pulse-taint-data-flow-kinds).\n\
+     If a path to a directory is given then the configuration files must have the `.json` \
+     extension. Any other file will be ignored. The subdirectories will be explored and must \
+     follow the same convention."
 
 
 and pulse_widen_threshold =
@@ -2620,6 +2672,13 @@ and scuba_tags =
      <name>=(<value>,<value>,<value>|NONE)"
 
 
+and shrink_analysis_db =
+  CLOpt.mk_bool ~long:"shrink-analysis-db"
+    ~in_help:InferCommand.[(Analyze, manual_generic)]
+    "After analysis, delete analysis summaries (but not report summaries) and vacuum analysis \
+     database."
+
+
 and simple_lineage_include_builtins =
   CLOpt.mk_bool ~long:"simple-lineage-include-builtins"
     ~in_help:InferCommand.[(Analyze, manual_simple_lineage)]
@@ -2840,6 +2899,12 @@ and subtype_multirange =
     "Use the multirange subtyping domain. Used in the Java frontend and in biabduction."
 
 
+and suffix_match_changed_files =
+  CLOpt.mk_bool ~long:"suffix-match-changed-files" ~default:false
+    "When computing the set of files to analyze using $(b,--changed-files-index), a file will be \
+     analyzed if a name in the changed files index is a suffix of its name."
+
+
 and summaries_caches_max_size =
   CLOpt.mk_int ~long:"summaries-caches-max-size" ~default:500
     "The maximum amount of elements the summaries LRU caches can hold"
@@ -2849,6 +2914,14 @@ and test_determinator =
   CLOpt.mk_bool ~long:"test-determinator" ~default:false
     "Run infer in Test Determinator mode. It is used together with the $(b,--modified-lines) and \
      $(b,--profiler-samples) flags, which specify the relevant arguments."
+
+
+and timeout =
+  CLOpt.mk_float_opt ~long:"timeout"
+    ?default:(if is_running_unit_test then None else Some 120.0)
+    ~in_help:[(Analyze, manual_generic); (Run, manual_generic)]
+    "Time after which any checker (except biabduction) should give up analysing the current \
+     function or method, in seconds"
 
 
 and topl_max_conjuncts =
@@ -2879,7 +2952,7 @@ and starvation_strict_mode =
 
 and tenv_json =
   CLOpt.mk_path_opt ~long:"tenv-json"
-    ~in_help:InferCommand.[(AnalyzeJson, manual_generic)]
+    ~in_help:InferCommand.[(Capture, manual_generic)]
     ~meta:"file" "Path to TEnv json file"
 
 
@@ -3148,7 +3221,7 @@ let post_parsing_initialization command_opt =
   F.set_margin !margin ;
   let set_gc_params () =
     let ctrl = Gc.get () in
-    let words_of_Mb nMb = nMb * 1024 * 1024 * 8 / Sys.word_size in
+    let words_of_Mb nMb = nMb * 1024 * 1024 * 8 / Sys.word_size_in_bits in
     let new_size nMb = max ctrl.minor_heap_size (words_of_Mb nMb) in
     (* increase the minor heap size *)
     let minor_heap_size = new_size 8 in
@@ -3178,7 +3251,7 @@ let post_parsing_initialization command_opt =
   | Linters ->
       disable_all_checkers () ;
       capture := false ;
-      enable_checker Linters
+      enable_checker Checker.Linters
   | Checkers ->
       () ) ;
   Option.value ~default:InferCommand.Run command_opt
@@ -3277,8 +3350,8 @@ and buck_mode : BuckMode.t option =
   match (!buck_mode, !buck_compilation_database_depth) with
   | `None, _ ->
       None
-  | `ClangFlavors, _ ->
-      Some ClangFlavors
+  | `Clang, _ ->
+      Some Clang
   | `ClangCompilationDB `NoDeps, _ ->
       Some (ClangCompilationDB NoDependencies)
   | `ClangCompilationDB `DepsTmp, None ->
@@ -3295,7 +3368,9 @@ and buck_targets_block_list = RevList.to_list !buck_targets_block_list
 
 and capture = !capture
 
-and capture_textual = !capture_textual
+and capture_textual = RevList.to_list !capture_textual
+
+and capture_doli = !capture_doli
 
 and capture_block_list = !capture_block_list
 
@@ -3468,6 +3543,8 @@ and fcp_syntax_only = !fcp_syntax_only
 
 and file_renamings = !file_renamings
 
+and files_to_analyze_index = !files_to_analyze_index
+
 and filter_paths = !filter_paths
 
 and filtering = !filtering
@@ -3578,6 +3655,8 @@ and load_average =
   match !load_average with None when !buck -> Some (float_of_int ncpu) | _ -> !load_average
 
 
+and margin_html = !margin_html
+
 and mask_sajwa_exceptions = !mask_sajwa_exceptions
 
 and max_nesting = !max_nesting
@@ -3588,9 +3667,11 @@ and memtrace_sampling_rate = Option.value_exn !memtrace_sampling_rate
 
 and merge = !merge
 
-and merge_infer_out = RevList.to_list !merge_infer_out
+and merge_capture = RevList.to_list !merge_capture
 
 and merge_report = RevList.to_list !merge_report
+
+and merge_report_summaries = RevList.to_list !merge_report_summaries
 
 and method_decls_info = !method_decls_info
 
@@ -3669,7 +3750,7 @@ and process_clang_ast = !process_clang_ast
 and progress_bar =
   if !progress_bar && not !quiet then
     match !progress_bar_style with
-    | `Auto when Unix.(isatty stdin && isatty stderr) ->
+    | `Auto when Unix.(isatty stdin && isatty stderr) && not (Utils.is_term_dumb ()) ->
         `MultiLine
     | `Auto ->
         `Plain
@@ -3715,6 +3796,8 @@ and pulse_model_release_pattern = Option.map ~f:Str.regexp !pulse_model_release_
 and pulse_model_returns_copy_pattern = Option.map ~f:Str.regexp !pulse_model_returns_copy_pattern
 
 and pulse_model_return_first_arg = Option.map ~f:Str.regexp !pulse_model_return_first_arg
+
+and pulse_model_return_this = Option.map ~f:Str.regexp !pulse_model_return_this
 
 and pulse_model_return_nonnull = Option.map ~f:Str.regexp !pulse_model_return_nonnull
 
@@ -3765,6 +3848,8 @@ and pulse_report_latent_issues = !pulse_report_latent_issues
 
 and pulse_report_issues_for_tests = !pulse_report_issues_for_tests
 
+and pulse_sanity_checks = !pulse_sanity_checks
+
 and pulse_scuba_logging = !pulse_scuba_logging
 
 and pulse_skip_procedures = Option.map ~f:Str.regexp !pulse_skip_procedures
@@ -3778,7 +3863,7 @@ and pulse_taint_config =
     in
     { sources= mk_matchers pulse_taint_sources
     ; sanitizers= mk_matchers pulse_taint_sanitizers
-    ; propagaters= mk_matchers pulse_taint_propagaters
+    ; propagators= mk_matchers pulse_taint_propagators
     ; sinks= mk_matchers pulse_taint_sinks
     ; policies=
         Pulse_config_j.taint_policies_of_string (Yojson.Basic.to_string !pulse_taint_policies)
@@ -3786,35 +3871,50 @@ and pulse_taint_config =
         Pulse_config_j.data_flow_kinds_of_string
           (Yojson.Basic.to_string !pulse_taint_data_flow_kinds) }
   in
-  List.fold (RevList.to_list !pulse_taint_config) ~init:base_taint_config
-    ~f:(fun taint_config filepath ->
-      let json_list =
-        match Utils.read_json_file filepath with
-        | Ok json ->
-            Yojson.Basic.Util.to_assoc json
-        | Error msg ->
-            L.die ExternalError "Could not read or parse Infer Pulse JSON config in %s:@\n%s@."
-              filepath msg
-      in
-      let combine_fields parser fieldname old_entries =
-        match List.find json_list ~f:(fun (key, _) -> String.equal fieldname key) with
-        | None ->
-            old_entries
-        | Some (_, taint_json) ->
-            let new_entries = parser (Yojson.Basic.to_string taint_json) in
-            new_entries @ old_entries
-      in
-      let combine_matchers = combine_fields Pulse_config_j.matchers_of_string in
-      { sources= combine_matchers "pulse-taint-sources" taint_config.sources
-      ; sanitizers= combine_matchers "pulse-taint-sanitizers" taint_config.sanitizers
-      ; propagaters= combine_matchers "pulse-taint-propagaters" taint_config.propagaters
-      ; sinks= combine_matchers "pulse-taint-sinks" taint_config.sinks
-      ; policies=
-          combine_fields Pulse_config_j.taint_policies_of_string "pulse-taint-policies"
-            taint_config.policies
-      ; data_flow_kinds=
-          combine_fields Pulse_config_j.data_flow_kinds_of_string "pulse-taint-data-flow-kinds"
-            taint_config.data_flow_kinds } )
+  let explore_file taint_config filepath =
+    let json_list =
+      match Utils.read_json_file filepath with
+      | Ok json ->
+          Yojson.Basic.Util.to_assoc json
+      | Error msg ->
+          L.die ExternalError "Could not read or parse Infer Pulse JSON config in %s:@\n%s@."
+            filepath msg
+    in
+    let combine_fields parser fieldname old_entries =
+      match List.find json_list ~f:(fun (key, _) -> String.equal fieldname key) with
+      | None ->
+          old_entries
+      | Some (_, taint_json) ->
+          let new_entries = parser (Yojson.Basic.to_string taint_json) in
+          new_entries @ old_entries
+    in
+    let combine_matchers = combine_fields Pulse_config_j.matchers_of_string in
+    { sources= combine_matchers "pulse-taint-sources" taint_config.sources
+    ; sanitizers= combine_matchers "pulse-taint-sanitizers" taint_config.sanitizers
+    ; propagators= combine_matchers "pulse-taint-propagators" taint_config.propagators
+    ; sinks= combine_matchers "pulse-taint-sinks" taint_config.sinks
+    ; policies=
+        combine_fields Pulse_config_j.taint_policies_of_string "pulse-taint-policies"
+          taint_config.policies
+    ; data_flow_kinds=
+        combine_fields Pulse_config_j.data_flow_kinds_of_string "pulse-taint-data-flow-kinds"
+          taint_config.data_flow_kinds }
+  in
+  List.fold (pulse_default_taint_config :: RevList.to_list !pulse_taint_config)
+    ~init:base_taint_config ~f:(fun taint_config path ->
+      match (Unix.stat path).st_kind with
+      | S_DIR ->
+          Utils.fold_files ~init:taint_config
+            ~f:(fun taint_config filepath ->
+              if Filename.check_suffix filepath "json" then explore_file taint_config filepath
+              else taint_config )
+            ~path
+      | S_REG ->
+          explore_file taint_config path
+      | _ ->
+          taint_config
+      | exception Unix.Unix_error (ENOENT, _, _) ->
+          taint_config )
 
 
 and pulse_widen_threshold = !pulse_widen_threshold
@@ -3897,6 +3997,8 @@ and select =
 
 and show_buckets = !print_buckets
 
+and shrink_analysis_db = !shrink_analysis_db
+
 and simple_lineage_include_builtins = !simple_lineage_include_builtins
 
 and simple_lineage_model_fields = !simple_lineage_model_fields
@@ -3969,6 +4071,8 @@ and starvation_whole_program = !starvation_whole_program
 
 and subtype_multirange = !subtype_multirange
 
+and suffix_match_changed_files = !suffix_match_changed_files
+
 and summaries_caches_max_size = !summaries_caches_max_size
 
 and suppress_lint_ignore_types = !suppress_lint_ignore_types
@@ -3987,13 +4091,29 @@ and testing_mode = !testing_mode
 
 and threadsafe_aliases = !threadsafe_aliases
 
+and timeout = !timeout
+
 and top_longest_proc_duration_size = !top_longest_proc_duration_size
 
 and topl_max_conjuncts = !topl_max_conjuncts
 
 and topl_max_disjuncts = !topl_max_disjuncts
 
-and topl_properties = RevList.to_list !topl_properties
+and topl_properties =
+  let parse topl_file =
+    let f ch =
+      let lexbuf = Lexing.from_channel ch in
+      try ToplParser.properties (ToplLexer.token ()) lexbuf
+      with ToplParser.Error ->
+        let Lexing.{pos_lnum; pos_bol; pos_cnum; _} = Lexing.lexeme_start_p lexbuf in
+        let col = pos_cnum - pos_bol + 1 in
+        L.die UserError "@[%s:%d:%d: topl parse error@]@\n@?" topl_file pos_lnum col
+    in
+    try In_channel.with_file topl_file ~f
+    with Sys_error msg -> L.die UserError "@[topl:%s: %s@]@\n@?" topl_file msg
+  in
+  List.concat_map ~f:parse (RevList.to_list !topl_properties)
+
 
 and trace_error = !trace_error
 
@@ -4081,12 +4201,6 @@ let clang_frontend_action_string =
   in
   String.concat ~sep:", " text
 
-
-(* Specify treatment of dynamic dispatch in Java code: false 'none' treats dynamic dispatch as
-   a call to unknown code and true triggers lazy dynamic dispatch. The latter mode follows the
-   JVM semantics and creates procedure descriptions during symbolic execution using the type
-   information found in the abstract state *)
-let dynamic_dispatch = is_checker_enabled Biabduction
 
 (** Check if a Java package is external to the repository *)
 let java_package_is_external package =

@@ -62,15 +62,20 @@ type flow_kind = TaintedFlow | FlowToSink | FlowFromSource [@@deriving equal]
 type t =
   | AccessToInvalidAddress of access_to_invalid_address
   | ConstRefableParameter of {param: Var.t; typ: Typ.t; location: Location.t}
+  | CSharpResourceLeak of
+      {class_name: CSharpClassName.t; allocation_trace: Trace.t; location: Location.t}
+  | ErlangError of ErlangError.t
+  | JavaResourceLeak of
+      {class_name: JavaClassName.t; allocation_trace: Trace.t; location: Location.t}
   | MemoryLeak of {allocator: Attribute.allocator; allocation_trace: Trace.t; location: Location.t}
+  | ReadonlySharedPtrParameter of
+      {param: Var.t; typ: Typ.t; location: Location.t; used_locations: Location.t list}
+  | ReadUninitializedValue of read_uninitialized_value
   | RetainCycle of
       { assignment_traces: Trace.t list
       ; value: DecompilerExpr.t
       ; path: DecompilerExpr.t
       ; location: Location.t }
-  | ErlangError of ErlangError.t
-  | ReadUninitializedValue of read_uninitialized_value
-  | ResourceLeak of {class_name: JavaClassName.t; allocation_trace: Trace.t; location: Location.t}
   | StackVariableAddressEscape of {variable: Var.t; history: ValueHistory.t; location: Location.t}
   | TaintFlow of
       { expr: DecompilerExpr.t
@@ -82,7 +87,7 @@ type t =
       { copied_into: PulseAttribute.CopiedInto.t
       ; typ: Typ.t
       ; location: Location.t (* the location to report the issue *)
-      ; copied_location: Location.t option
+      ; copied_location: (Procname.t * Location.t) option
             (* [copied_location] has a value when the copied location is different to where to
                report: e.g. this is the case for returning copied values. *)
       ; from: PulseAttribute.CopyOrigin.t }

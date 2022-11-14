@@ -35,8 +35,7 @@ int source_mod_ok() {
   return cpy.arr[0];
 }
 
-// FP is due to incorrect frontend translation of Arr's copy constructor.
-int source_mod_param_ok_FP(Arr source) {
+int source_mod_param_ok(Arr source) {
   auto cpy = source;
   source.arr[0] = 9; // source is modified, so copy is not unnecessary as we
                      // can't just add &
@@ -130,6 +129,10 @@ class Vec {
       vec.push_back(v.get(i));
   }
 
+  void setVec(std::vector<int> my_vec) { vec = std::move(my_vec); }
+
+  void intermediate_field_copy_ok() { setVec(vec); }
+
   int get(int i) const { return vec[i]; }
 
   void source_modified_via_unmodeled_ok() {
@@ -215,11 +218,11 @@ namespace ns {
 
 template <typename X>
 X creates_copy(X a) {
-  // ....
+  return X{a};
 }
 } // namespace ns
 
-int copy_via_model_bad(Arr arr) {
+void copy_via_model_bad(Arr arr) {
   auto cpy = ns::creates_copy(arr); // creates copy (via model)
 }
 
@@ -277,7 +280,7 @@ void source_dispatch_non_const_fcn_bad_FN(std::set<int> source) {
                             // actually change this*
 }
 
-int iterator_ptr_modified_ok(const std::vector<int>& numbers) {
+void iterator_ptr_modified_ok(const std::vector<int>& numbers) {
   auto lDataValues = numbers;
   std::sort(lDataValues.begin(), lDataValues.end());
 }
@@ -390,6 +393,12 @@ class WrapperArr {
     hidden_arr_.arr[0] = 9; // copy can be modified since it will have the
                             // ownership of the object.
   }
+
+  void copy_assignment_from_this_ok() {
+    Arr local_arr; // default constructor is called
+    local_arr = hidden_arr_; // copy assignment operator is called but it is
+                             // from a member field which cannot be moved.
+  }
 };
 
 namespace my_proj {
@@ -408,12 +417,18 @@ void unnecessary_copy_initializer_list(std::vector<int> c1,
   // for (const auto* c : { &c1, &c2 }) // use *c
 }
 
+class LockedPtr {};
+
 class MyValueOr {
   bool b;
   Arr& value;
   std::shared_ptr<Arr> shared_ptr;
+  LockedPtr lock();
+  LockedPtr rlock();
 
  public:
+  MyValueOr();
+
   Arr value_or(const Arr& default_value) const {
     if (b) {
       return value;
@@ -427,6 +442,27 @@ class MyValueOr {
   std::shared_ptr<Arr> cpy_shared_ptr() const { return shared_ptr; }
 
   Arr intentional_copy() const { return get_a_ref(); }
+
+  Arr intentional_cpy_under_lock() {
+    auto l = lock();
+    return value;
+  }
+
+  Arr intentional_cpy_under_rlock_ok() {
+    auto l = rlock();
+    auto result = value;
+    return result;
+  }
+
+  Arr no_cpy_NRVO() const {
+    Arr x;
+    return x;
+  }
+
+  void suppress_intentional_cpy_under_lock(Arr src) {
+    auto l = lock();
+    auto tgt = src;
+  }
 };
 
 void call_value_or_bad(const MyValueOr& c) {
@@ -449,3 +485,121 @@ void call_cpy_shared_ptr_ok(const MyValueOr& c) { auto g = c.cpy_shared_ptr(); }
 void call_intentional_copy_ok(const MyValueOr& c) {
   auto g = c.intentional_copy();
 }
+
+void call_intentional_cpy_under_lock_ok(MyValueOr c) {
+  auto g = c.intentional_cpy_under_lock();
+}
+
+void call_no_cpy_NRVO_ok(const MyValueOr& c) { auto g = c.no_cpy_NRVO(); }
+
+class ClassWithoutConstructDef {
+  int __internal_field;
+  std::vector<int> __internal_vec;
+
+ public:
+  ClassWithoutConstructDef(const ClassWithoutConstructDef& src);
+  int* get_field_ref() { return &__internal_field; }
+};
+void assign_value_unknown(int* ref, int v);
+
+void modify_by_unknown_ok(const ClassWithoutConstructDef& src) {
+  ClassWithoutConstructDef tgt = src;
+  assign_value_unknown(tgt.get_field_ref(), 42);
+}
+
+void call_unknown_constructor_twice_ok(const ClassWithoutConstructDef& src) {
+  ClassWithoutConstructDef tgt = src;
+  assign_value_unknown(tgt.get_field_ref(), 42);
+  ClassWithoutConstructDef dummy = tgt;
+  assign_value_unknown(dummy.get_field_ref(), 42);
+}
+
+#define LOCAL_MACRO(accessor) \
+  { auto cpy = (accessor); }
+
+void foo(std::vector<int> my_vec) { LOCAL_MACRO(my_vec); }
+
+class CopiedToField1_Bad_FN {
+  Arr field;
+
+ public:
+  CopiedToField1_Bad_FN(Arr a) : field(a) {}
+};
+
+class CopiedToField1_Ok {
+  Arr field;
+
+ public:
+  CopiedToField1_Ok(Arr a) : field(std::move(a)) {}
+};
+
+class CopiedToField2_Bad_FN {
+  Arr field;
+
+ public:
+  CopiedToField2_Bad_FN(Arr a) { field = a; }
+};
+
+class CopiedToField2_Ok {
+  Arr field;
+
+ public:
+  CopiedToField2_Ok(Arr a) { field = std::move(a); }
+};
+
+struct Arrs {
+  Arr a;
+  Arr b;
+};
+
+class CopiedToField3_Ok {
+  Arrs field1;
+  Arr field2;
+
+ public:
+  // It should not report unnecessary copy issue since the parameter cannot be
+  // moved.
+  CopiedToField3_Ok(Arrs as) {
+    field1 = as;
+    field2 = as.a;
+  }
+};
+
+class PassedToUnknown_Bad {
+  Arr field;
+
+  static void unknown(Arr a);
+
+ public:
+  PassedToUnknown_Bad(Arr a) { unknown(a); }
+};
+
+class PassedToUnknown_Ok {
+  Arr field;
+
+  static void unknown(Arr a);
+
+ public:
+  PassedToUnknown_Ok(Arr a) { unknown(std::move(a)); }
+};
+
+class PassedToUnknownRef_Bad {
+  Arr field;
+
+  static void unknown(const Arr& a);
+
+ public:
+  // Ideally, the parameter can be changed to const-ref, but this pattern is not
+  // common in practice. The test is just for showing checker's behavior.
+  PassedToUnknownRef_Bad(Arr a) { unknown(a); }
+};
+
+class CopiedToMultipleField_Bad_FN {
+  Arr field1;
+  Arr field2;
+
+ public:
+  // Ideally, the last copy can be avoided by std::move, but this pattern is not
+  // common in practice. The test is just for showing checker's behavior.
+  CopiedToMultipleField_Bad_FN(Arr a) : field1(a), field2(a) {}
+};

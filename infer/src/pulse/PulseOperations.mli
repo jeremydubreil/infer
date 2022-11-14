@@ -45,6 +45,9 @@ module ModeledField : sig
   (** Modeled field for resource release delegation *)
 end
 
+val conservatively_initialize_args : AbstractValue.t list -> t -> t
+(** Set all reachable values from the given list as initialized conservatively. *)
+
 val eval :
      PathContext.t
   -> access_mode
@@ -225,7 +228,13 @@ val java_resource_release : recursive:bool -> AbstractValue.t -> t -> t
 (** releases the resource of the argument, and recursively calls itself on the delegated resource if
     [recursive==true] *)
 
+val csharp_resource_release : recursive:bool -> AbstractValue.t -> t -> t
+(** releases the resource of the argument, and recursively calls itself on the delegated resource if
+    [recursive==true] *)
+
 val add_dynamic_type : Typ.t -> AbstractValue.t -> t -> t
+
+val add_dynamic_type_source_file : Typ.t -> SourceFile.t -> AbstractValue.t -> t -> t
 
 val add_ref_counted : AbstractValue.t -> t -> t
 

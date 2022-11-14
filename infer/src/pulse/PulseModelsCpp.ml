@@ -27,9 +27,10 @@ let delete_array deleted_arg : model =
 let new_ type_name : model =
  fun model_data astate ->
   let<++> astate =
-    (* Java and C++ [new] share the same builtin (note that ObjC gets its own [objc_alloc_no_fail]
+    (* Java, Hack and C++ [new] share the same builtin (note that ObjC gets its own [objc_alloc_no_fail]
        builtin for [\[Class new\]]) *)
-    if Procname.is_java @@ Procdesc.get_proc_name model_data.analysis_data.proc_desc then
+    let proc_name = Procdesc.get_proc_name model_data.analysis_data.proc_desc in
+    if Procname.is_java proc_name || Procname.is_csharp proc_name || Procname.is_hack proc_name then
       Basic.alloc_no_leak_not_null ~initialize:true (Some type_name) ~desc:"new" model_data astate
     else
       (* C++ *)
@@ -42,8 +43,9 @@ let new_ type_name : model =
 let new_array type_name : model =
  fun model_data astate ->
   let<++> astate =
-    (* Java and C++ [new\[\]] share the same builtin *)
-    if Procname.is_java @@ Procdesc.get_proc_name model_data.analysis_data.proc_desc then
+    (* Java, Hack and C++ [new\[\]] share the same builtin *)
+    let pdesc = Procdesc.get_proc_name model_data.analysis_data.proc_desc in
+    if Procname.is_java pdesc || Procname.is_hack pdesc then
       Basic.alloc_no_leak_not_null ~initialize:true (Some type_name) ~desc:"new[]" model_data astate
     else
       (* C++ *)
@@ -183,13 +185,13 @@ module AtomicInteger = struct
     load_instr "std::atomic<T>::operator_T()" this memory_ordering_opt
 
 
-  let store_backing_int path location this_address new_value astate =
+  let store_backing_int ({PathContext.timestamp} as path) location this_address new_value astate =
     let* astate, this =
       PulseOperations.eval_access path Read location this_address Dereference astate
     in
     let astate =
       AddressAttributes.add_one (fst this_address)
-        (WrittenTo (Trace.Immediate {location; history= ValueHistory.epoch}))
+        (WrittenTo (timestamp, Trace.Immediate {location; history= ValueHistory.epoch}))
         astate
     in
     let* astate, int_field =
@@ -379,25 +381,40 @@ module Vector = struct
           trace
 
 
-  let init_list_constructor this init_list : model =
+  let shallow_copy_init_list path location this init_list ~desc astate =
+    let event = Hist.call_event path location desc in
+    let* astate, init_copy = PulseOperations.shallow_copy path location init_list astate in
+    PulseOperations.write_deref_field path location ~ref:this GenericArrayBackedCollection.field
+      ~obj:(fst init_copy, Hist.add_event path event (snd init_copy))
+      astate
+
+
+  let init_list_constructor this init_list ~desc : model =
    fun {path; location} astate ->
-    let event = Hist.call_event path location "std::vector::vector()" in
-    let<*> astate, init_copy = PulseOperations.shallow_copy path location init_list astate in
-    let<+> astate =
-      PulseOperations.write_deref_field path location ~ref:this GenericArrayBackedCollection.field
-        ~obj:(fst init_copy, Hist.add_event path event (snd init_copy))
-        astate
+    (* missing a more precise model for std::initializer_list *)
+    let<**> astate =
+      GenericArrayBackedCollection.assign_size_constant path location this ~constant:IntLit.zero
+        ~desc astate
     in
+    let<+> astate = shallow_copy_init_list path location this init_list ~desc astate in
     astate
 
 
-  let init_copy_constructor this init_vector : model =
-   fun ({path; location} as model_data) astate ->
+  let init_copy_constructor this init_vector ~desc : model =
+   fun {path; location} astate ->
     let<*> astate, init_list =
       PulseOperations.eval_deref_access path Read location init_vector
         (FieldAccess GenericArrayBackedCollection.field) astate
     in
-    init_list_constructor this init_list model_data astate
+    let<*> astate, other_size =
+      GenericArrayBackedCollection.to_internal_size_deref path Read location init_vector astate
+    in
+    let<*> astate =
+      PulseOperations.write_deref_field path location ~ref:this
+        GenericArrayBackedCollection.size_field ~obj:other_size astate
+    in
+    let<+> astate = shallow_copy_init_list path location this init_list ~desc astate in
+    astate
 
 
   let invalidate_references vector_f vector : model =
@@ -482,30 +499,37 @@ module Vector = struct
     astate
 
 
-  let push_back vector : model =
+  let pop_back vector ~desc : model =
+   fun {path; location} astate ->
+    let<++> astate = GenericArrayBackedCollection.decrease_size path location vector ~desc astate in
+    astate
+
+
+  let push_back_common vector ~vector_f ~desc : model =
    fun {path; location; ret= ret_id, _} astate ->
+    let<**> astate = GenericArrayBackedCollection.increase_size path location vector ~desc astate in
     let<+> astate =
-      let hist = Hist.single_call path location "std::vector::push_back()" in
+      let hist = Hist.single_call path location desc in
       if AddressAttributes.is_std_vector_reserved (fst vector) astate then
         (* assume that any call to [push_back] is ok after one called [reserve] on the same vector
            (a perfect analysis would also make sure we don't exceed the reserved size) *)
         Ok astate
       else
-        (* simulate a re-allocation of the underlying array every time an element is added *)
-        reallocate_internal_array path hist vector PushBack location astate
+        match vector_f with
+        | None ->
+            Ok astate
+        | Some vector_f ->
+            (* simulate a re-allocation of the underlying array every time an element is added *)
+            reallocate_internal_array path hist vector vector_f location astate
     in
     PulseOperations.write_id ret_id
-      (fst vector, Hist.add_call path location "std::vector::push_back()" (snd vector))
+      (fst vector, Hist.add_call path location desc (snd vector))
       astate
 
 
-  let empty vector : model =
-   fun {path; location; ret= ret_id, _} astate ->
-    let crumb = Hist.call_event path location "std::vector::empty()" in
-    let<+> astate, (value_addr, value_hist) =
-      GenericArrayBackedCollection.eval_is_empty path location vector astate
-    in
-    PulseOperations.write_id ret_id (value_addr, Hist.add_event path crumb value_hist) astate
+  let push_back_cpp vector ~vector_f ~desc = push_back_common vector ~vector_f:(Some vector_f) ~desc
+
+  let push_back vector ~desc = push_back_common vector ~vector_f:None ~desc
 end
 
 let get_cpp_matchers config ~model =
@@ -598,12 +622,14 @@ let matchers : matcher list =
     <>$ capt_arg_payload $+? capt_arg_payload $--> AtomicInteger.operator_t
   ; -"std" &:: "make_pair" < capt_typ &+ capt_typ >$ capt_arg_payload $+ capt_arg_payload
     $+ capt_arg_payload $--> Pair.make_pair
+  ; -"std" &:: "vector" &:: "vector" $ capt_arg_payload
+    $--> GenericArrayBackedCollection.default_constructor ~desc:"std::vector::vector()"
   ; -"std" &:: "vector" &:: "vector" <>$ capt_arg_payload
     $+ capt_arg_payload_of_typ (-"std" &:: "initializer_list")
-    $+...$--> Vector.init_list_constructor
+    $+...$--> Vector.init_list_constructor ~desc:"std::vector::vector()"
   ; -"std" &:: "vector" &:: "vector" <>$ capt_arg_payload
     $+ capt_arg_payload_of_typ (-"std" &:: "vector")
-    $+...$--> Vector.init_copy_constructor
+    $+...$--> Vector.init_copy_constructor ~desc:"std::vector::vector()"
   ; -"std" &:: "vector" &:: "assign" <>$ capt_arg_payload
     $+...$--> Vector.invalidate_references Assign
   ; -"std" &:: "vector" &:: "at" <>$ capt_arg_payload $+ capt_arg_payload
@@ -615,7 +641,7 @@ let matchers : matcher list =
   ; -"std" &:: "vector" &:: "emplace" $ capt_arg_payload
     $+...$--> Vector.invalidate_references Emplace
   ; -"std" &:: "vector" &:: "emplace_back" $ capt_arg_payload
-    $+...$--> Vector.invalidate_references EmplaceBack
+    $+...$--> Vector.push_back_cpp ~vector_f:EmplaceBack ~desc:"std::vector::emplace_back()"
   ; -"std" &:: "vector" &:: "insert" <>$ capt_arg_payload
     $+...$--> Vector.invalidate_references Insert
   ; -"std" &:: "vector" &:: "operator=" <>$ capt_arg_payload
@@ -624,8 +650,14 @@ let matchers : matcher list =
     $--> Vector.at ~desc:"std::vector::at()"
   ; -"std" &:: "vector" &:: "shrink_to_fit" <>$ capt_arg_payload
     $--> Vector.invalidate_references ShrinkToFit
-  ; -"std" &:: "vector" &:: "push_back" <>$ capt_arg_payload $+...$--> Vector.push_back
-  ; -"std" &:: "vector" &:: "empty" <>$ capt_arg_payload $+...$--> Vector.empty
+  ; -"std" &:: "vector" &:: "push_back" <>$ capt_arg_payload
+    $+...$--> Vector.push_back_cpp ~vector_f:PushBack ~desc:"std::vector::push_back()"
+  ; -"std" &:: "vector" &:: "pop_back" <>$ capt_arg_payload
+    $+...$--> Vector.pop_back ~desc:"std::vector::pop_back()"
+  ; -"std" &:: "vector" &:: "empty" <>$ capt_arg_payload
+    $--> GenericArrayBackedCollection.empty ~desc:"std::vector::is_empty()"
+  ; -"std" &:: "vector" &:: "size" $ capt_arg_payload
+    $--> GenericArrayBackedCollection.size ~desc:"std::vector::size()"
   ; -"std" &:: "integral_constant" < any_typ &+ capt_int
     >::+ (fun _ name -> String.is_prefix ~prefix:"operator_" name)
     <>--> Basic.return_int ~desc:"std::integral_constant"

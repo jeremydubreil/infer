@@ -16,7 +16,7 @@ type detail_level = Verbose | Non_verbose | Simple | NameOnly
 let is_verbose v = match v with Verbose -> true | _ -> false
 
 module CSharp = struct
-  type kind = Non_Static | Static [@@deriving compare, equal, yojson_of]
+  type kind = Non_Static | Static [@@deriving compare, equal, yojson_of, sexp, hash]
 
   type t =
     { method_name: string
@@ -24,7 +24,7 @@ module CSharp = struct
     ; class_name: Typ.Name.t
     ; return_type: Typ.t option (* option because constructors have no return type *)
     ; kind: kind }
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let ensure_csharp_type t =
     if not (Typ.is_csharp_type t) then
@@ -107,7 +107,7 @@ module Java = struct
     | Non_Static
         (** in Java, procedures called with invokevirtual, invokespecial, and invokeinterface *)
     | Static  (** in Java, procedures called with invokestatic *)
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   (** Type of java procedure names. *)
   type t =
@@ -116,7 +116,7 @@ module Java = struct
     ; class_name: Typ.Name.t
     ; return_type: Typ.t option (* option because constructors have no return type *)
     ; kind: kind }
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let ensure_java_type t =
     if not (Typ.is_java_type t) then
@@ -226,6 +226,8 @@ module Java = struct
 
   let is_static {kind} = match kind with Static -> true | _ -> false
 
+  let is_instance x = not (is_static x)
+
   let is_lambda {method_name} = String.is_prefix ~prefix:"lambda$" method_name
 
   let is_generated {method_name} = String.is_prefix ~prefix:"$" method_name
@@ -289,7 +291,7 @@ module Parameter = struct
   (** Type for parameters in clang procnames, [Some name] means the parameter is of type pointer to
       struct, with [name] being the name of the struct, [None] means the parameter is of some other
       type. *)
-  type clang_parameter = Typ.Name.t option [@@deriving compare, equal, yojson_of]
+  type clang_parameter = Typ.Name.t option [@@deriving compare, equal, yojson_of, sexp, hash]
 
   (** Type for parameters in procnames, for java and clang. *)
   type t =
@@ -334,7 +336,7 @@ module ObjC_Cpp = struct
     | CPPDestructor of {mangled: string option}
     | ObjCClassMethod
     | ObjCInstanceMethod
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   type t =
     { class_name: Typ.Name.t
@@ -342,7 +344,7 @@ module ObjC_Cpp = struct
     ; method_name: string
     ; parameters: Parameter.clang_parameter list
     ; template_args: Typ.template_spec_info }
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let make class_name method_name kind template_args parameters =
     {class_name; method_name; kind; template_args; parameters}
@@ -452,7 +454,7 @@ module C = struct
     ; mangled: string option
     ; parameters: Parameter.clang_parameter list
     ; template_args: Typ.template_spec_info }
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let c name mangled parameters template_args =
     {name; mangled= Some mangled; parameters; template_args}
@@ -497,7 +499,7 @@ end
 
 module Erlang = struct
   type t = {module_name: string; function_name: string; arity: int}
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let pp_general arity_sep verbosity fmt {module_name; function_name; arity} =
     match verbosity with
@@ -554,10 +556,10 @@ module Block = struct
   type block_type =
     | InOuterScope of {outer_scope: block_type; block_index: int}
     | SurroundingProc of {class_name: Typ.name option; name: string}
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   type t = {block_type: block_type; parameters: Parameter.clang_parameter list}
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let make_surrounding class_name name parameters =
     {block_type= SurroundingProc {class_name; name}; parameters}
@@ -611,7 +613,7 @@ module Block = struct
 end
 
 module FunctionParameters = struct
-  type t = FunPtr of C.t | Block of Block.t [@@deriving compare, equal, yojson_of]
+  type t = FunPtr of C.t | Block of Block.t [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let pp verbose f = function
     | FunPtr c ->
@@ -621,7 +623,8 @@ module FunctionParameters = struct
 end
 
 module Hack = struct
-  type t = {class_name: string option; function_name: string} [@@deriving compare, equal, yojson_of]
+  type t = {class_name: string option; function_name: string}
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   let pp verbosity fmt t =
     match verbosity with
@@ -647,7 +650,7 @@ type t =
   | ObjC_Cpp of ObjC_Cpp.t
   | WithAliasingParameters of t * Mangled.t list list
   | WithFunctionParameters of t * FunctionParameters.t list
-[@@deriving compare, equal, yojson_of]
+[@@deriving compare, equal, yojson_of, sexp, hash]
 
 let rec is_c = function
   | C _ ->
@@ -792,6 +795,8 @@ let is_destructor t =
 
 let is_csharp t = match base_of t with CSharp _ -> true | _ -> false
 
+let is_hack t = match base_of t with Hack _ -> true | _ -> false
+
 let is_java t = match base_of t with Java _ -> true | _ -> false
 
 let as_java_exn ~explanation t =
@@ -809,6 +814,8 @@ let is_java_lift f t = match base_of t with Java java_pname -> f java_pname | _ 
 
 let is_java_static_method = is_java_lift Java.is_static
 
+let is_java_instance_method = is_java_lift Java.is_instance
+
 let is_java_access_method = is_java_lift Java.is_access_method
 
 let is_java_class_initializer = is_java_lift Java.is_class_initializer
@@ -817,14 +824,18 @@ let is_java_anonymous_inner_class_method = is_java_lift Java.is_anonymous_inner_
 
 let is_java_autogen_method = is_java_lift Java.is_autogen_method
 
-let rec is_objc_helper ~f = function
+let rec on_objc_helper ~f ~default = function
   | ObjC_Cpp objc_cpp_pname ->
       f objc_cpp_pname
   | WithAliasingParameters (base, _) | WithFunctionParameters (base, _) ->
-      is_objc_helper ~f base
+      on_objc_helper ~f ~default base
   | Block _ | C _ | CSharp _ | Erlang _ | Hack _ | Java _ | Linters_dummy_method ->
-      false
+      default
 
+
+let is_objc_helper ~f proc_name = on_objc_helper ~f ~default:false proc_name
+
+let get_objc_helper ~f proc_name = on_objc_helper ~f ~default:None proc_name
 
 let is_objc_method = is_objc_helper ~f:ObjC_Cpp.is_objc_method
 
@@ -840,6 +851,16 @@ let is_objc_init =
 
 let is_objc_instance_method =
   is_objc_helper ~f:(function {kind= ObjCInstanceMethod} -> true | _ -> false)
+
+
+let is_objc_class_method =
+  is_objc_helper ~f:(function {kind= ObjCClassMethod} -> true | _ -> false)
+
+
+let get_objc_class_name proc_name =
+  get_objc_helper proc_name ~f:(fun objc_cpp_pname ->
+      if ObjC_Cpp.is_objc_method objc_cpp_pname then Some (ObjC_Cpp.get_class_name objc_cpp_pname)
+      else None )
 
 
 let of_function_parameter = function
@@ -1039,6 +1060,22 @@ let rec is_static = function
       is_static base
   | WithFunctionParameters (base, _) ->
       is_static base
+
+
+let is_shared_ptr_observer =
+  let shared_ptr_matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::shared_ptr"] in
+  let observer_methods = ["get"; "operator*"; "operator->"; "operator[]"; "operator_bool"] in
+  let rec aux pname =
+    match pname with
+    | ObjC_Cpp {class_name= CppClass {name}; method_name} ->
+        QualifiedCppName.Match.match_qualifiers shared_ptr_matcher name
+        && List.mem observer_methods method_name ~equal:String.equal
+    | WithAliasingParameters (pname, _) | WithFunctionParameters (pname, _) ->
+        aux pname
+    | _ ->
+        false
+  in
+  fun pname -> aux pname
 
 
 let get_global_name_of_initializer t =

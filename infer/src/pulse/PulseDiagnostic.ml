@@ -115,15 +115,20 @@ let pp_flow_kind fmt flow_kind =
 type t =
   | AccessToInvalidAddress of access_to_invalid_address
   | ConstRefableParameter of {param: Var.t; typ: Typ.t; location: Location.t}
+  | CSharpResourceLeak of
+      {class_name: CSharpClassName.t; allocation_trace: Trace.t; location: Location.t}
+  | ErlangError of ErlangError.t
+  | JavaResourceLeak of
+      {class_name: JavaClassName.t; allocation_trace: Trace.t; location: Location.t}
   | MemoryLeak of {allocator: Attribute.allocator; allocation_trace: Trace.t; location: Location.t}
+  | ReadonlySharedPtrParameter of
+      {param: Var.t; typ: Typ.t; location: Location.t; used_locations: Location.t list}
+  | ReadUninitializedValue of read_uninitialized_value
   | RetainCycle of
       { assignment_traces: Trace.t list
       ; value: DecompilerExpr.t
       ; path: DecompilerExpr.t
       ; location: Location.t }
-  | ErlangError of ErlangError.t
-  | ReadUninitializedValue of read_uninitialized_value
-  | ResourceLeak of {class_name: JavaClassName.t; allocation_trace: Trace.t; location: Location.t}
   | StackVariableAddressEscape of {variable: Var.t; history: ValueHistory.t; location: Location.t}
   | TaintFlow of
       { expr: DecompilerExpr.t
@@ -135,7 +140,7 @@ type t =
       { copied_into: PulseAttribute.CopiedInto.t
       ; typ: Typ.t
       ; location: Location.t
-      ; copied_location: Location.t option
+      ; copied_location: (Procname.t * Location.t) option
       ; from: PulseAttribute.CopyOrigin.t }
 [@@deriving equal]
 
@@ -148,23 +153,32 @@ let pp fmt diagnostic =
   | ConstRefableParameter {param; typ; location} ->
       F.fprintf fmt "ConstRefableParameter {@[param=%a;@;typ=%a;@;location=%a@]}" Var.pp param
         (Typ.pp_full Pp.text) typ Location.pp location
+  | CSharpResourceLeak {class_name; allocation_trace; location} ->
+      F.fprintf fmt "ResourceLeak {@[class_name=%a;@;allocation_trace:%a;@;location:%a@]}"
+        CSharpClassName.pp class_name (Trace.pp ~pp_immediate) allocation_trace Location.pp location
+  | ErlangError erlang_error ->
+      ErlangError.pp fmt erlang_error
+  | JavaResourceLeak {class_name; allocation_trace; location} ->
+      F.fprintf fmt "ResourceLeak {@[class_name=%a;@;allocation_trace:%a;@;location:%a@]}"
+        JavaClassName.pp class_name (Trace.pp ~pp_immediate) allocation_trace Location.pp location
   | MemoryLeak {allocator; allocation_trace; location} ->
       F.fprintf fmt "MemoryLeak {@[allocator=%a;@;allocation_trace=%a;@;location=%a@]}"
         Attribute.pp_allocator allocator (Trace.pp ~pp_immediate) allocation_trace Location.pp
         location
+  | ReadonlySharedPtrParameter {param; typ; location; used_locations} ->
+      F.fprintf fmt
+        "ReadonlySharedPtrParameter {@[param=%a;@;typ=%a;@;location=%a;@;used_locations=%a@]}"
+        Var.pp param (Typ.pp_full Pp.text) typ Location.pp location
+        (IList.pp_print_list ~max:10 ~pp_sep:(fun f () -> F.pp_print_string f ",") Location.pp)
+        used_locations
+  | ReadUninitializedValue read_uninitialized_value ->
+      F.fprintf fmt "ReadUninitializedValue %a" pp_read_uninitialized_value read_uninitialized_value
   | RetainCycle {assignment_traces; value; path; location} ->
       F.fprintf fmt
         "RetainCycle {@[assignment_traces=[@[<v>%a@]];@;value=%a;@;path=%a;@;location=%a@]}"
         (Pp.seq ~sep:";@;" (Trace.pp ~pp_immediate))
         assignment_traces DecompilerExpr.pp_with_abstract_value value DecompilerExpr.pp path
         Location.pp location
-  | ErlangError erlang_error ->
-      ErlangError.pp fmt erlang_error
-  | ReadUninitializedValue read_uninitialized_value ->
-      F.fprintf fmt "ReadUninitializedValue %a" pp_read_uninitialized_value read_uninitialized_value
-  | ResourceLeak {class_name; allocation_trace; location} ->
-      F.fprintf fmt "ResourceLeak {@[class_name=%a;@;allocation_trace:%a;@;location:%a@]}"
-        JavaClassName.pp class_name (Trace.pp ~pp_immediate) allocation_trace Location.pp location
   | StackVariableAddressEscape {variable; history; location} ->
       F.fprintf fmt "StackVariableAddressEscape {@[variable=%a;@;history=%a;@;location:%a@]}" Var.pp
         variable ValueHistory.pp history Location.pp location
@@ -179,7 +193,7 @@ let pp fmt diagnostic =
       { copied_into: PulseAttribute.CopiedInto.t
       ; typ: Typ.t
       ; location: Location.t
-      ; copied_location: Location.t option
+      ; copied_location: (Procname.t * Location.t) option
       ; from: PulseAttribute.CopyOrigin.t } ->
       F.fprintf fmt
         "UnnecessaryCopy {@[copied_into=%a;@;typ=%a;@;location:%a;@;copied_location:%a@;from=%a@]}"
@@ -187,8 +201,8 @@ let pp fmt diagnostic =
         (fun fmt -> function
           | None ->
               F.pp_print_string fmt "none"
-          | Some location ->
-              Location.pp fmt location )
+          | Some (callee, location) ->
+              F.fprintf fmt "%a,%a" Procname.pp callee Location.pp location )
         copied_location PulseAttribute.CopyOrigin.pp from
 
 
@@ -196,22 +210,34 @@ let get_location = function
   | AccessToInvalidAddress {calling_context= []; access_trace}
   | ReadUninitializedValue {calling_context= []; trace= access_trace} ->
       Trace.get_outer_location access_trace
+  | ErlangError (Badarg {location; calling_context= []})
+  | ErlangError (Badkey {location; calling_context= []})
+  | ErlangError (Badmap {location; calling_context= []})
+  | ErlangError (Badmatch {location; calling_context= []})
+  | ErlangError (Badrecord {location; calling_context= []})
+  | ErlangError (Case_clause {location; calling_context= []})
+  | ErlangError (Function_clause {location; calling_context= []})
+  | ErlangError (If_clause {location; calling_context= []})
+  | ErlangError (Try_clause {location; calling_context= []}) ->
+      location
   | AccessToInvalidAddress {calling_context= (_, location) :: _}
+  | ErlangError (Badarg {calling_context= (_, location) :: _})
+  | ErlangError (Badkey {calling_context= (_, location) :: _})
+  | ErlangError (Badmap {calling_context= (_, location) :: _})
+  | ErlangError (Badmatch {calling_context= (_, location) :: _})
+  | ErlangError (Badrecord {calling_context= (_, location) :: _})
+  | ErlangError (Case_clause {calling_context= (_, location) :: _})
+  | ErlangError (Function_clause {calling_context= (_, location) :: _})
+  | ErlangError (If_clause {calling_context= (_, location) :: _})
+  | ErlangError (Try_clause {calling_context= (_, location) :: _})
   | ReadUninitializedValue {calling_context= (_, location) :: _} ->
       (* report at the call site that triggers the bug *) location
   | ConstRefableParameter {location}
+  | CSharpResourceLeak {location}
+  | JavaResourceLeak {location}
   | MemoryLeak {location}
-  | ResourceLeak {location}
+  | ReadonlySharedPtrParameter {location}
   | RetainCycle {location}
-  | ErlangError (Badarg {location})
-  | ErlangError (Badkey {location})
-  | ErlangError (Badmap {location})
-  | ErlangError (Badmatch {location})
-  | ErlangError (Badrecord {location})
-  | ErlangError (Case_clause {location})
-  | ErlangError (Function_clause {location})
-  | ErlangError (If_clause {location})
-  | ErlangError (Try_clause {location})
   | StackVariableAddressEscape {location}
   | TaintFlow {location}
   | UnnecessaryCopy {location} ->
@@ -243,8 +269,10 @@ let aborts_execution = function
          abort! *)
       true
   | ConstRefableParameter _
+  | CSharpResourceLeak _
+  | JavaResourceLeak _
   | MemoryLeak _
-  | ResourceLeak _
+  | ReadonlySharedPtrParameter _
   | RetainCycle _
   | StackVariableAddressEscape _
   | TaintFlow _
@@ -379,22 +407,7 @@ let get_message diagnostic =
          function on %a. This might result in an unnecessary copy at the callsite of this \
          function. Consider changing the type of this function parameter to `const &`."
         Var.pp param (Typ.pp_full Pp.text) typ Location.pp_line location
-  | MemoryLeak {allocator; location; allocation_trace} ->
-      let allocation_line =
-        let {Location.line; _} = Trace.get_outer_location allocation_trace in
-        line
-      in
-      let pp_allocation_trace fmt (trace : Trace.t) =
-        match trace with
-        | Immediate _ ->
-            F.fprintf fmt "by `%a` on line %d" Attribute.pp_allocator allocator allocation_line
-        | ViaCall {f; _} ->
-            F.fprintf fmt "by `%a`, indirectly via call to %a on line %d" Attribute.pp_allocator
-              allocator CallEvent.describe f allocation_line
-      in
-      F.asprintf "Memory dynamically allocated %a is not freed after the last access at %a"
-        pp_allocation_trace allocation_trace Location.pp location
-  | ResourceLeak {class_name; location; allocation_trace} ->
+  | CSharpResourceLeak {class_name; location; allocation_trace} ->
       (* NOTE: this is very similar to the MemoryLeak case *)
       let allocation_line =
         let {Location.line; _} = Trace.get_outer_location allocation_trace in
@@ -403,19 +416,14 @@ let get_message diagnostic =
       let pp_allocation_trace fmt (trace : Trace.t) =
         match trace with
         | Immediate _ ->
-            F.fprintf fmt "by constructor %a() on line %d" JavaClassName.pp class_name
+            F.fprintf fmt "by constructor %a() on line %d" CSharpClassName.pp class_name
               allocation_line
         | ViaCall {f; _} ->
             F.fprintf fmt "by constructor %a(), indirectly via call to %a on line %d"
-              JavaClassName.pp class_name CallEvent.describe f allocation_line
+              CSharpClassName.pp class_name CallEvent.describe f allocation_line
       in
       F.asprintf "Resource dynamically allocated %a is not closed after the last access at %a"
         pp_allocation_trace allocation_trace Location.pp location
-  | RetainCycle {location; value; path} ->
-      F.asprintf
-        "Memory managed via reference counting is locked in a retain cycle at %a: `%a` retains \
-         itself via `%a`"
-        Location.pp location DecompilerExpr.pp value DecompilerExpr.pp path
   | ErlangError (Badarg {calling_context= _; location}) ->
       F.asprintf "bad arg at %a" Location.pp location
   | ErlangError (Badkey {calling_context= _; location}) ->
@@ -434,6 +442,56 @@ let get_message diagnostic =
       F.asprintf "no true branch in if expression at %a" Location.pp location
   | ErlangError (Try_clause {calling_context= _; location}) ->
       F.asprintf "no matching branch in try at %a" Location.pp location
+  | JavaResourceLeak {class_name; location; allocation_trace} ->
+      (* NOTE: this is very similar to the MemoryLeak case *)
+      let allocation_line =
+        let {Location.line; _} = Trace.get_outer_location allocation_trace in
+        line
+      in
+      let pp_allocation_trace fmt (trace : Trace.t) =
+        match trace with
+        | Immediate _ ->
+            F.fprintf fmt "by constructor %a() on line %d" JavaClassName.pp class_name
+              allocation_line
+        | ViaCall {f; _} ->
+            F.fprintf fmt "by constructor %a(), indirectly via call to %a on line %d"
+              JavaClassName.pp class_name CallEvent.describe f allocation_line
+      in
+      F.asprintf "Resource dynamically allocated %a is not closed after the last access at %a"
+        pp_allocation_trace allocation_trace Location.pp location
+  | MemoryLeak {allocator; location; allocation_trace} ->
+      let allocation_line =
+        let {Location.line; _} = Trace.get_outer_location allocation_trace in
+        line
+      in
+      let pp_allocation_trace fmt (trace : Trace.t) =
+        match trace with
+        | Immediate _ ->
+            F.fprintf fmt "by `%a` on line %d" Attribute.pp_allocator allocator allocation_line
+        | ViaCall {f; _} ->
+            F.fprintf fmt "by `%a`, indirectly via call to %a on line %d" Attribute.pp_allocator
+              allocator CallEvent.describe f allocation_line
+      in
+      F.asprintf "Memory dynamically allocated %a is not freed after the last access at %a"
+        pp_allocation_trace allocation_trace Location.pp location
+  | ReadonlySharedPtrParameter {param; typ; location; used_locations} ->
+      let pp_used_locations f =
+        match used_locations with
+        | [] ->
+            ()
+        | _ :: _ ->
+            F.fprintf f " at %a"
+              (IList.pp_print_list ~max:3
+                 ~pp_sep:(fun f () -> F.pp_print_string f ", ")
+                 Location.pp_line )
+              used_locations
+      in
+      F.asprintf
+        "Function parameter `%a` with type `%a` is passed by-value but its lifetime is not \
+         extended inside the function on %a. This might result in an unnecessary copy at the \
+         callsite of this function. Consider passing a raw pointer instead and changing its usages \
+         if necessary%t."
+        Var.pp param (Typ.pp_full Pp.text) typ Location.pp_line location pp_used_locations
   | ReadUninitializedValue {calling_context; trace} ->
       let root_var =
         Trace.find_map trace ~f:(function VariableDeclared (pvar, _, _) -> Some pvar | _ -> None)
@@ -473,6 +531,11 @@ let get_message diagnostic =
             F.fprintf fmt " during the call to %a" CallEvent.describe f
       in
       F.asprintf "%t is read without initialization%t" pp_access_path pp_location
+  | RetainCycle {location; value; path} ->
+      F.asprintf
+        "Memory managed via reference counting is locked in a retain cycle at %a: `%a` retains \
+         itself via `%a`"
+        Location.pp location DecompilerExpr.pp value DecompilerExpr.pp path
   | StackVariableAddressEscape {variable; _} ->
       let pp_var f var =
         if Var.is_cpp_temporary var then F.pp_print_string f "C++ temporary"
@@ -483,11 +546,19 @@ let get_message diagnostic =
       (* TODO: say what line the source happened in the current function *)
       F.asprintf "`%a` is tainted by %a and flows to %a (%a)" DecompilerExpr.pp expr Taint.pp source
         Taint.pp sink pp_flow_kind flow_kind
-  | UnnecessaryCopy {copied_into; typ; location; copied_location; from} -> (
+  | UnnecessaryCopy {copied_into; typ; copied_location= Some (callee, {file; line})} ->
+      let open PulseAttribute in
+      F.asprintf
+        "the return value `%a` with type `%a` is not modified after it is copied in the callee \
+         `%a` at `%a:%d`. Please check if we can avoid the copy, e.g. by changing the return type \
+         of `%a` or by revising the function body of it."
+        CopiedInto.pp copied_into (Typ.pp_full Pp.text) typ Procname.pp callee SourceFile.pp file
+        line Procname.pp callee
+  | UnnecessaryCopy {copied_into; typ; location; copied_location= None; from} -> (
       let open PulseAttribute in
       let suppression_msg =
-        "If this copy was intentional, consider adding the word `copy` into the variable name to \
-         suppress this warning"
+        "If this copy was intentional, consider calling `folly::copy` to make it explicit and \
+         hence suppress the warning"
       in
       let suggestion_msg =
         match (from : CopyOrigin.t) with
@@ -496,18 +567,17 @@ let get_message diagnostic =
         | CopyAssignment ->
             "try getting a reference to it or move it if possible"
       in
-      let copied_location = Option.value copied_location ~default:location in
       match copied_into with
       | IntoVar {source_opt= None} ->
           F.asprintf
             "%a variable `%a` with type `%a` is not modified after it is copied on %a. To avoid \
              the copy, %s. %s."
             CopyOrigin.pp from CopiedInto.pp copied_into (Typ.pp_full Pp.text) typ Location.pp_line
-            copied_location suggestion_msg suppression_msg
-      | IntoVar {source_opt= Some pvar} ->
+            location suggestion_msg suppression_msg
+      | IntoVar {source_opt= Some source_expr} ->
           F.asprintf "variable `%a` with type `%a` is %a unnecessarily into an intermediate on %a."
-            Pvar.pp_value pvar (Typ.pp_full Pp.text) typ CopyOrigin.pp from Location.pp_line
-            copied_location
+            DecompilerExpr.pp_source_expr source_expr (Typ.pp_full Pp.text) typ CopyOrigin.pp from
+            Location.pp_line location
       | IntoField {field; source_opt} -> (
           let advice = "Rather than copying into the field, consider moving into it instead." in
           match source_opt with
@@ -556,14 +626,12 @@ let invalidation_titles (invalidation : Invalidation.t) =
       ( "source of the constant value part of the trace starts here"
       , "constant value dereference part of the trace starts here" )
   | CFree
-  | CustomFree _
   | CppDelete
   | CppDeleteArray
   | EndIterator
   | GoneOutOfScope _
   | OptionalEmpty
-  | StdVector _
-  | JavaIterator _ ->
+  | StdVector _ ->
       ( "invalidation part of the trace starts here"
       , "use-after-lifetime part of the trace starts here" )
 
@@ -604,30 +672,16 @@ let get_trace = function
   | ConstRefableParameter {param; location} ->
       let nesting = 0 in
       [Errlog.make_trace_element nesting location (F.asprintf "Parameter %a" Var.pp param) []]
-  | ResourceLeak {class_name; location; allocation_trace} ->
+  | CSharpResourceLeak {class_name; location; allocation_trace} ->
       (* NOTE: this is very similar to the MemoryLeak case *)
       let access_start_location = Trace.get_start_location allocation_trace in
       add_errlog_header ~nesting:0 ~title:"allocation part of the trace starts here"
         access_start_location
       @@ Trace.add_to_errlog ~nesting:1
            ~pp_immediate:(fun fmt ->
-             F.fprintf fmt "allocated by constructor %a() here" JavaClassName.pp class_name )
+             F.fprintf fmt "allocated by constructor %a() here" CSharpClassName.pp class_name )
            allocation_trace
       @@ [Errlog.make_trace_element 0 location "memory becomes unreachable here" []]
-  | MemoryLeak {allocator; location; allocation_trace} ->
-      let access_start_location = Trace.get_start_location allocation_trace in
-      add_errlog_header ~nesting:0 ~title:"allocation part of the trace starts here"
-        access_start_location
-      @@ Trace.add_to_errlog ~nesting:1
-           ~pp_immediate:(fun fmt ->
-             F.fprintf fmt "allocated by `%a` here" Attribute.pp_allocator allocator )
-           allocation_trace
-      @@ [Errlog.make_trace_element 0 location "memory becomes unreachable here" []]
-  | RetainCycle {assignment_traces; location} ->
-      let errlog = [Errlog.make_trace_element 0 location "retain cycle here" []] in
-      Trace.synchronous_add_to_errlog ~nesting:1
-        ~pp_immediate:(fun fmt -> F.fprintf fmt "assigned")
-        assignment_traces errlog
   | ErlangError (Badarg {calling_context; location}) ->
       get_trace_calling_context calling_context
       @@ [Errlog.make_trace_element 0 location "bad arg here" []]
@@ -655,12 +709,41 @@ let get_trace = function
   | ErlangError (Try_clause {calling_context; location}) ->
       get_trace_calling_context calling_context
       @@ [Errlog.make_trace_element 0 location "no matching branch in try here" []]
+  | JavaResourceLeak {class_name; location; allocation_trace} ->
+      (* NOTE: this is very similar to the MemoryLeak case *)
+      let access_start_location = Trace.get_start_location allocation_trace in
+      add_errlog_header ~nesting:0 ~title:"allocation part of the trace starts here"
+        access_start_location
+      @@ Trace.add_to_errlog ~nesting:1
+           ~pp_immediate:(fun fmt ->
+             F.fprintf fmt "allocated by constructor %a() here" JavaClassName.pp class_name )
+           allocation_trace
+      @@ [Errlog.make_trace_element 0 location "memory becomes unreachable here" []]
+  | MemoryLeak {allocator; location; allocation_trace} ->
+      let access_start_location = Trace.get_start_location allocation_trace in
+      add_errlog_header ~nesting:0 ~title:"allocation part of the trace starts here"
+        access_start_location
+      @@ Trace.add_to_errlog ~nesting:1
+           ~pp_immediate:(fun fmt ->
+             F.fprintf fmt "allocated by `%a` here" Attribute.pp_allocator allocator )
+           allocation_trace
+      @@ [Errlog.make_trace_element 0 location "memory becomes unreachable here" []]
+  | ReadonlySharedPtrParameter {param; location; used_locations} ->
+      let nesting = 0 in
+      Errlog.make_trace_element nesting location (F.asprintf "Parameter %a" Var.pp param) []
+      :: List.map used_locations ~f:(fun used_location ->
+             Errlog.make_trace_element nesting used_location "used" [] )
   | ReadUninitializedValue {calling_context; trace} ->
       get_trace_calling_context calling_context
       @@ Trace.add_to_errlog ~nesting:0
            ~pp_immediate:(fun fmt -> F.pp_print_string fmt "read to uninitialized value occurs here")
            trace
       @@ []
+  | RetainCycle {assignment_traces; location} ->
+      let errlog = [Errlog.make_trace_element 0 location "retain cycle here" []] in
+      Trace.synchronous_add_to_errlog ~nesting:1
+        ~pp_immediate:(fun fmt -> F.fprintf fmt "assigned")
+        assignment_traces errlog
   | StackVariableAddressEscape {history; location; _} ->
       ValueHistory.add_to_errlog ~nesting:0 history
       @@
@@ -683,7 +766,7 @@ let get_trace = function
       [ Errlog.make_trace_element nesting location
           (F.asprintf "%a here" PulseAttribute.CopyOrigin.pp from)
           [] ]
-  | UnnecessaryCopy {location; copied_location= Some copied_location; from} ->
+  | UnnecessaryCopy {location; copied_location= Some (_, copied_location); from} ->
       let nesting = 0 in
       [ Errlog.make_trace_element nesting location (F.asprintf "returned here") []
       ; Errlog.make_trace_element nesting copied_location
@@ -693,45 +776,12 @@ let get_trace = function
 
 let get_issue_type ~latent issue_type =
   match (issue_type, latent) with
-  | ConstRefableParameter _, false ->
-      IssueType.pulse_const_refable
-  | MemoryLeak {allocator}, false -> (
-    match allocator with
-    | CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _ ->
-        IssueType.pulse_memory_leak_c
-    | CppNew | CppNewArray ->
-        IssueType.pulse_memory_leak_cpp
-    | JavaResource _ | ObjCAlloc ->
-        L.die InternalError
-          "Memory leaks should not have a Java resource or Objective-C alloc as allocator" )
-  | ResourceLeak _, false ->
-      IssueType.pulse_resource_leak
-  | RetainCycle _, false ->
-      IssueType.retain_cycle
-  | StackVariableAddressEscape _, false ->
-      IssueType.stack_variable_address_escape
-  | UnnecessaryCopy {copied_location= Some _}, false ->
-      IssueType.unnecessary_copy_return_pulse
-  | UnnecessaryCopy {copied_into= IntoField _; from= CopyAssignment}, false ->
-      IssueType.unnecessary_copy_assignment_movable_pulse
-  | UnnecessaryCopy {copied_into= IntoField _; from= CopyCtor}, false ->
-      IssueType.unnecessary_copy_movable_pulse
-  | UnnecessaryCopy {copied_into= IntoVar {source_opt= None}; from= CopyCtor}, false ->
-      IssueType.unnecessary_copy_pulse
-  | UnnecessaryCopy {copied_into= IntoVar {source_opt= Some _}; from= CopyCtor}, false ->
-      IssueType.unnecessary_copy_intermediate_pulse
-  | UnnecessaryCopy {from= CopyAssignment}, false ->
-      IssueType.unnecessary_copy_assignment_pulse
-  | ( ( ConstRefableParameter _
-      | MemoryLeak _
-      | ResourceLeak _
-      | RetainCycle _
-      | StackVariableAddressEscape _
-      | UnnecessaryCopy _ )
-    , true ) ->
-      L.die InternalError "Issue type cannot be latent"
   | AccessToInvalidAddress {invalidation; must_be_valid_reason}, _ ->
       Invalidation.issue_type_of_cause ~latent invalidation must_be_valid_reason
+  | ConstRefableParameter _, false ->
+      IssueType.pulse_const_refable
+  | CSharpResourceLeak _, false | JavaResourceLeak _, false ->
+      IssueType.pulse_resource_leak
   | ErlangError (Badarg _), _ ->
       IssueType.bad_arg ~latent
   | ErlangError (Badkey _), _ ->
@@ -750,11 +800,49 @@ let get_issue_type ~latent issue_type =
       IssueType.no_true_branch_in_if ~latent
   | ErlangError (Try_clause _), _ ->
       IssueType.no_matching_branch_in_try ~latent
+  | MemoryLeak {allocator}, false -> (
+    match allocator with
+    | CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _ ->
+        IssueType.pulse_memory_leak_c
+    | CppNew | CppNewArray ->
+        IssueType.pulse_memory_leak_cpp
+    | JavaResource _ | CSharpResource _ | ObjCAlloc ->
+        L.die InternalError
+          "Memory leaks should not have a Java resource, C sharp, or Objective-C alloc as allocator"
+    )
+  | ReadonlySharedPtrParameter _, false ->
+      IssueType.readonly_shared_ptr_param
   | ReadUninitializedValue _, _ ->
       IssueType.uninitialized_value_pulse ~latent
+  | RetainCycle _, false ->
+      IssueType.retain_cycle
+  | StackVariableAddressEscape _, false ->
+      IssueType.stack_variable_address_escape
   | TaintFlow {flow_kind= TaintedFlow}, _ ->
       IssueType.taint_error
   | TaintFlow {flow_kind= FlowToSink}, _ ->
       IssueType.data_flow_to_sink
   | TaintFlow {flow_kind= FlowFromSource}, _ ->
       IssueType.sensitive_data_flow
+  | UnnecessaryCopy {copied_location= Some _}, false ->
+      IssueType.unnecessary_copy_return_pulse
+  | UnnecessaryCopy {copied_into= IntoField _; from= CopyAssignment}, false ->
+      IssueType.unnecessary_copy_assignment_movable_pulse
+  | UnnecessaryCopy {copied_into= IntoField _; from= CopyCtor}, false ->
+      IssueType.unnecessary_copy_movable_pulse
+  | UnnecessaryCopy {copied_into= IntoVar {source_opt= None}; from= CopyCtor}, false ->
+      IssueType.unnecessary_copy_pulse
+  | UnnecessaryCopy {copied_into= IntoVar {source_opt= Some _}; from= CopyCtor}, false ->
+      IssueType.unnecessary_copy_intermediate_pulse
+  | UnnecessaryCopy {from= CopyAssignment}, false ->
+      IssueType.unnecessary_copy_assignment_pulse
+  | ( ( ConstRefableParameter _
+      | CSharpResourceLeak _
+      | JavaResourceLeak _
+      | MemoryLeak _
+      | ReadonlySharedPtrParameter _
+      | RetainCycle _
+      | StackVariableAddressEscape _
+      | UnnecessaryCopy _ )
+    , true ) ->
+      L.die InternalError "Issue type cannot be latent"

@@ -33,6 +33,22 @@ public class NullPointerExceptions {
   class A {
     int x;
 
+    int thisNotNullOk() {
+      if (this == null) {
+        A a = null;
+        return a.x;
+      }
+      return 0;
+    }
+
+    int thisNotNullBad() {
+      if (this != null) {
+        A a = null;
+        return a.x;
+      }
+      return 0;
+    }
+
     public void method() {}
   }
 
@@ -670,8 +686,7 @@ public class NullPointerExceptions {
     void run(A a);
   }
 
-  // FN because incr_deref.run(a) results in an unknown call
-  void test_capture_alias_bad_FN() {
+  void test_capture_alias_bad() {
     A a = new A();
     a.x = 0;
     AFunction incr_deref =
