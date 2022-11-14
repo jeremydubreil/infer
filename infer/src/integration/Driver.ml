@@ -15,7 +15,7 @@ module F = Format
 type mode =
   | Analyze
   | Ant of {prog: string; args: string list}
-  | Buck2 of {build_cmd: string list}
+  | Buck2Clang of {build_cmd: string list}
   | BuckClangFlavor of {build_cmd: string list}
   | BuckCompilationDB of {deps: BuckMode.clang_compilation_db_deps; prog: string; args: string list}
   | BuckErlang of {prog: string; args: string list}
@@ -30,20 +30,22 @@ type mode =
   | NdkBuild of {build_cmd: string list}
   | Rebar3 of {args: string list}
   | Erlc of {args: string list}
-  | Hackc of {args: string list}
-  | Textual of {file: string}
+  | Hackc of {prog: string; args: string list}
+  | Textual of {files: string list}
   | XcodeBuild of {prog: string; args: string list}
   | XcodeXcpretty of {prog: string; args: string list}
 
 let is_analyze_mode = function Analyze -> true | _ -> false
+
+let is_compatible_with_textual_generation = function Javac _ -> true | _ -> false
 
 let pp_mode fmt = function
   | Analyze ->
       F.fprintf fmt "Analyze driver mode"
   | Ant {prog; args} ->
       F.fprintf fmt "Ant driver mode:@\nprog = '%s'@\nargs = %a" prog Pp.cli_args args
-  | Buck2 {build_cmd} ->
-      F.fprintf fmt "Buck2 driver mode: build_cmd = %a" Pp.cli_args build_cmd
+  | Buck2Clang {build_cmd} ->
+      F.fprintf fmt "Buck2/Clang driver mode: build_cmd = %a" Pp.cli_args build_cmd
   | BuckClangFlavor {build_cmd} ->
       F.fprintf fmt "BuckClangFlavor driver mode: build_cmd = %a" Pp.cli_args build_cmd
   | BuckCompilationDB {deps; prog; args} ->
@@ -73,10 +75,10 @@ let pp_mode fmt = function
       F.fprintf fmt "Rebar3 driver mode:@\nargs = %a" Pp.cli_args args
   | Erlc {args} ->
       F.fprintf fmt "Erlc driver mode:@\nargs = %a" Pp.cli_args args
-  | Hackc {args} ->
-      F.fprintf fmt "Hackc driver mode:@\nargs = %a" Pp.cli_args args
-  | Textual {file} ->
-      F.fprintf fmt "Textual capture mode:@\nfile = %s" file
+  | Hackc {prog; args} ->
+      F.fprintf fmt "Hackc driver mode:@\nprog = '%s'@\nargs = %a" prog Pp.cli_args args
+  | Textual {files} ->
+      F.fprintf fmt "Textual capture mode:@\nfiles = %a" Pp.cli_args files
   | XcodeBuild {prog; args} ->
       F.fprintf fmt "XcodeBuild driver mode:@\nprog = '%s'@\nargs = %a" prog Pp.cli_args args
   | XcodeXcpretty {prog; args} ->
@@ -129,9 +131,9 @@ let capture ~changed_files mode =
     | Ant {prog; args} ->
         L.progress "Capturing in ant mode...@." ;
         Ant.capture ~prog ~args
-    | Buck2 {build_cmd} ->
+    | Buck2Clang {build_cmd} ->
         L.progress "Capturing in buck2 mode...@." ;
-        Buck2.capture build_cmd
+        Buck2Clang.capture build_cmd
     | BuckClangFlavor {build_cmd} ->
         L.progress "Capturing in buck mode...@." ;
         BuckFlavors.capture build_cmd
@@ -177,11 +179,13 @@ let capture ~changed_files mode =
     | Erlc {args} ->
         L.progress "Capturing in erlc mode...@." ;
         Erlang.capture ~command:"erlc" ~args
-    | Hackc {args} ->
+    | Hackc {prog; args} ->
         L.progress "Capturing in hackc mode...@." ;
-        Hack.capture ~command:"hackc" ~args
-    | Textual {file} ->
-        TextualParser.capture file
+        Hack.capture ~prog ~args
+    | Textual {files} ->
+        L.progress "Capturing in textual mode...@." ;
+        let files = List.map files ~f:(fun x -> TextualParser.TextualFile.StandaloneFile x) in
+        TextualParser.capture files
     | XcodeBuild {prog; args} ->
         L.progress "Capturing in xcodebuild mode...@." ;
         XcodeBuild.capture ~prog ~args
@@ -267,7 +271,7 @@ let error_nothing_to_analyze mode =
 let analyze_and_report ~changed_files mode =
   let should_analyze, should_report =
     match (Config.command, mode) with
-    | _, BuckClangFlavor _ when not (Option.exists ~f:BuckMode.is_clang_flavors Config.buck_mode) ->
+    | _, BuckClangFlavor _ when not (Option.exists ~f:BuckMode.is_clang Config.buck_mode) ->
         (* In Buck mode when compilation db is not used, analysis is invoked from capture if buck flavors are not used *)
         (false, false)
     | _ when Config.infer_is_clang || Config.infer_is_javac ->
@@ -284,7 +288,7 @@ let analyze_and_report ~changed_files mode =
     | _ when Config.merge || not (List.is_empty Config.merge_capture) ->
         (* [--merge] overrides other behaviors *)
         true
-    | Analyze | Buck2 _ | BuckClangFlavor _ | BuckJavaFlavor _ | Gradle _ ->
+    | Analyze | Buck2Clang _ | BuckClangFlavor _ | BuckJavaFlavor _ | Gradle _ ->
         ResultsDir.RunState.get_merge_capture ()
     | _ ->
         false
@@ -378,21 +382,32 @@ let assert_supported_build_system build_system =
       Config.string_of_build_system build_system |> assert_supported_mode `Hack
   | BXcode ->
       Config.string_of_build_system build_system |> assert_supported_mode `Xcode
-  | BBuck2 | BBuck ->
+  | BBuck ->
       let analyzer, build_string =
         match Config.buck_mode with
         | None ->
             error_no_buck_mode_specified ()
-        | Some ClangV2 ->
-            (`Clang, "buck2")
-        | Some ClangFlavors ->
+        | Some Clang ->
             (`Clang, "buck with flavors")
         | Some (ClangCompilationDB _) ->
             (`Clang, "buck compilation database")
-        | Some Erlang ->
-            (`Erlang, Config.string_of_build_system build_system)
         | Some JavaFlavor ->
             (`Java, Config.string_of_build_system build_system)
+        | Some Erlang ->
+            L.die UserError "Unsupported buck2 integration."
+      in
+      assert_supported_mode analyzer build_string
+  | BBuck2 ->
+      let analyzer, build_string =
+        match Config.buck_mode with
+        | None ->
+            error_no_buck_mode_specified ()
+        | Some Clang ->
+            (`Clang, Config.string_of_build_system build_system)
+        | Some Erlang ->
+            (`Erlang, Config.string_of_build_system build_system)
+        | Some (JavaFlavor | ClangCompilationDB _) ->
+            L.die UserError "Unsupported buck2 integration."
       in
       assert_supported_mode analyzer build_string
 
@@ -401,14 +416,14 @@ let mode_of_build_command build_cmd (buck_mode : BuckMode.t option) =
   match build_cmd with
   | [] -> (
     match (Config.clang_compilation_dbs, Config.capture_textual) with
-    | _ :: _, Some _ ->
+    | _ :: _, _ :: _ ->
         L.die UserError "Both --clang-compilation-dbs and --capture-textual are set."
-    | _ :: _, None ->
+    | _ :: _, [] ->
         assert_supported_mode `Clang "clang compilation database" ;
         ClangCompilationDB {db_files= Config.clang_compilation_dbs}
-    | [], Some textual_sil_file ->
-        Textual {file= textual_sil_file}
-    | [], None -> (
+    | [], _ :: _ ->
+        Textual {files= Config.capture_textual}
+    | [], [] -> (
       match (Config.cfg_json, Config.tenv_json) with
       | Some cfg_json, Some tenv_json ->
           JsonSIL {cfg_json; tenv_json}
@@ -423,53 +438,59 @@ let mode_of_build_command build_cmd (buck_mode : BuckMode.t option) =
             Config.build_system_of_exe_name (Filename.basename prog)
       in
       assert_supported_build_system build_system ;
-      match ((build_system : Config.build_system), buck_mode) with
-      | BAnt, _ ->
+      match (build_system : Config.build_system) with
+      | BAnt ->
           Ant {prog; args}
-      | BBuck, None ->
-          error_no_buck_mode_specified ()
-      | BBuck, Some (ClangCompilationDB deps) ->
-          BuckCompilationDB {deps; prog; args= List.append args Config.buck_build_args}
-      | BBuck, Some ClangFlavors when Config.is_checker_enabled Linters ->
-          L.user_warning
-            "WARNING: the linters require --buck-compilation-database to be set.@ Alternatively, \
-             set --no-linters to disable them and this warning.@." ;
-          BuckClangFlavor {build_cmd}
-      | BBuck, Some Erlang ->
-          L.die UserError "Invalid buildsystem configuration.@."
-      | BBuck, Some JavaFlavor ->
-          BuckJavaFlavor {build_cmd}
-      | BBuck, Some ClangFlavors ->
-          BuckClangFlavor {build_cmd}
-      | BBuck, Some ClangV2 ->
-          L.die UserError "Invalid buildsystem configuration.@."
-      | BBuck2, Some Erlang ->
-          BuckErlang {prog; args}
-      | BBuck2, _ ->
-          Buck2 {build_cmd}
-      | BClang, _ ->
+      | BBuck -> (
+        match buck_mode with
+        | None ->
+            error_no_buck_mode_specified ()
+        | Some (ClangCompilationDB deps) ->
+            BuckCompilationDB {deps; prog; args= List.append args Config.buck_build_args}
+        | Some Clang when Config.is_checker_enabled Linters ->
+            L.user_warning
+              "WARNING: the linters require --buck-compilation-database to be set.@ Alternatively, \
+               set --no-linters to disable them and this warning.@." ;
+            BuckClangFlavor {build_cmd}
+        | Some JavaFlavor ->
+            BuckJavaFlavor {build_cmd}
+        | Some Clang ->
+            BuckClangFlavor {build_cmd}
+        | Some buck_mode ->
+            L.die UserError "%a not supported in buck1.@." BuckMode.pp buck_mode )
+      | BBuck2 -> (
+        match buck_mode with
+        | None ->
+            error_no_buck_mode_specified ()
+        | Some Erlang ->
+            BuckErlang {prog; args}
+        | Some Clang ->
+            Buck2Clang {build_cmd}
+        | Some buck_mode ->
+            L.die UserError "%a is not supported with buck2.@." BuckMode.pp buck_mode )
+      | BClang ->
           Clang {compiler= Clang.Clang; prog; args}
-      | BGradle, _ ->
+      | BGradle ->
           Gradle {prog; args}
-      | BJava, _ ->
+      | BJava ->
           Javac {compiler= Javac.Java; prog; args}
-      | BJavac, _ ->
+      | BJavac ->
           Javac {compiler= Javac.Javac; prog; args}
-      | BMake, _ ->
+      | BMake ->
           Clang {compiler= Clang.Make; prog; args}
-      | BMvn, _ ->
+      | BMvn ->
           Maven {prog; args}
-      | BNdk, _ ->
+      | BNdk ->
           NdkBuild {build_cmd}
-      | BRebar3, _ ->
+      | BRebar3 ->
           Rebar3 {args}
-      | BErlc, _ ->
+      | BErlc ->
           Erlc {args}
-      | BHackc, _ ->
-          Hackc {args}
-      | BXcode, _ when Config.xcpretty ->
+      | BHackc ->
+          Hackc {prog; args}
+      | BXcode when Config.xcpretty ->
           XcodeXcpretty {prog; args}
-      | BXcode, _ ->
+      | BXcode ->
           XcodeBuild {prog; args} )
 
 

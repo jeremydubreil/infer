@@ -7,6 +7,7 @@
 
 open! IStd
 open PulseBasicInterface
+module DecompilerExpr = PulseDecompilerExpr
 module BaseMemory = PulseBaseMemory
 
 type copy_spec_t =
@@ -17,7 +18,8 @@ type copy_spec_t =
             (* [copied_location] has a value when the copied location is different to where to
                report: e.g. this is the case for returning copied values. *)
       ; heap: BaseMemory.t
-      ; from: Attribute.CopyOrigin.t }
+      ; from: Attribute.CopyOrigin.t
+      ; timestamp: Timestamp.t }
   | Modified
 
 type parameter_spec_t =
@@ -29,7 +31,7 @@ include AbstractDomain.WithBottomTop
 val add_var :
      Var.t
   -> source_addr_opt:AbstractValue.t option
-  -> source_opt:Pvar.t option
+  -> source_opt:DecompilerExpr.source_expr option
   -> copy_spec_t
   -> t
   -> t
@@ -41,13 +43,14 @@ val add_parameter : Var.t -> parameter_spec_t -> t -> t
 val checked_via_dtor : Var.t -> t -> t
 
 val mark_copy_as_modified :
-     is_modified:(BaseMemory.t -> bool)
+     is_modified:(BaseMemory.t -> Timestamp.t -> bool)
   -> copied_into:Attribute.CopiedInto.t
   -> source_addr_opt:AbstractValue.t option
   -> t
   -> t
 
-val mark_parameter_as_modified : is_modified:(BaseMemory.t -> bool) -> var:Var.t -> t -> t
+val mark_parameter_as_modified :
+  is_modified:(BaseMemory.t -> Timestamp.t -> bool) -> var:Var.t -> t -> t
 
 val get_copied :
      t
@@ -67,3 +70,11 @@ val set_captured_variables : Exp.t -> t -> t
 val set_locked : t -> t
 
 val is_locked : t -> bool
+
+val set_load : Location.t -> Ident.t -> Var.t -> t -> t
+
+val get_loaded_locations : Var.t -> t -> Location.t list
+
+val set_passed_to : Location.t -> Exp.t -> (Exp.t * Typ.t) list -> t -> t
+
+val is_lifetime_extended : Var.t -> t -> bool

@@ -39,11 +39,19 @@ let report_unnecessary_copies proc_desc err_log non_disj_astate =
            ~latent:false proc_desc err_log diagnostic )
 
 
-let report_const_refable_parameters proc_desc err_log non_disj_astate =
+let report_unnecessary_parameter_copies proc_desc err_log non_disj_astate =
   PulseNonDisjunctiveDomain.get_const_refable_parameters non_disj_astate
   |> List.iter ~f:(fun (param, typ, location) ->
-         let diagnostic = Diagnostic.ConstRefableParameter {param; typ; location} in
-         PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic )
+         let diagnostic =
+           if Typ.is_shared_pointer typ then
+             if NonDisjDomain.is_lifetime_extended param non_disj_astate then None
+             else
+               let used_locations = NonDisjDomain.get_loaded_locations param non_disj_astate in
+               Some (Diagnostic.ReadonlySharedPtrParameter {param; typ; location; used_locations})
+           else Some (Diagnostic.ConstRefableParameter {param; typ; location})
+         in
+         Option.iter diagnostic ~f:(fun diagnostic ->
+             PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic ) )
 
 
 let heap_size () = (Gc.quick_stat ()).heap_words
@@ -227,7 +235,7 @@ module PulseTransferFunctions = struct
            L.d_printfln "Skipping indirect call %a@\n" Exp.pp call_exp ;
            let astate =
              let arg_values = List.map actuals ~f:(fun ((value, _), _) -> value) in
-             PulseCallOperations.conservatively_initialize_args arg_values astate
+             PulseOperations.conservatively_initialize_args arg_values astate
            in
            let<++> astate =
              PulseCallOperations.unknown_call path call_loc (SkippedUnknownCall call_exp)
@@ -317,10 +325,10 @@ module PulseTransferFunctions = struct
 
 
   let get_dynamic_type_name astate v =
-    match AbductiveDomain.AddressAttributes.get_dynamic_type v astate with
-    | Some {desc= Tstruct name} ->
-        Some name
-    | Some t ->
+    match AbductiveDomain.AddressAttributes.get_dynamic_type_source_file v astate with
+    | Some ({desc= Tstruct name}, source_file_opt) ->
+        Some (name, source_file_opt)
+    | Some (t, _) ->
         L.d_printfln "dynamic type %a of %a is not a Tstruct" (Typ.pp_full Pp.text) t
           AbstractValue.pp v ;
         None
@@ -329,20 +337,25 @@ module PulseTransferFunctions = struct
         None
 
 
-  let find_override tenv astate actuals proc_name =
+  let find_override tenv astate actuals proc_name proc_name_opt =
     let open IOption.Let_syntax in
     let* {ProcnameDispatcher.Call.FuncArg.arg_payload= receiver, _} =
       get_receiver proc_name actuals
     in
-    let* type_name = get_dynamic_type_name astate receiver in
-    Tenv.resolve_method
-      ~method_exists:(fun proc_name methods -> List.mem ~equal:Procname.equal methods proc_name)
-      tenv type_name proc_name
+    let* dynamic_type_name, source_file_opt = get_dynamic_type_name astate receiver in
+    let* type_name = Procname.get_class_type_name proc_name in
+    if Typ.Name.equal type_name dynamic_type_name then proc_name_opt
+    else
+      let method_exists proc_name methods = List.mem ~equal:Procname.equal methods proc_name in
+      (* if we have a source file then do the look up in the (local) tenv
+         for that source file instead of in the tenv for the current file *)
+      let tenv = Option.bind source_file_opt ~f:Tenv.load |> Option.value ~default:tenv in
+      Tenv.resolve_method ~method_exists tenv dynamic_type_name proc_name
 
 
   let resolve_virtual_call tenv astate actuals proc_name_opt =
     Option.map proc_name_opt ~f:(fun proc_name ->
-        match find_override tenv astate actuals proc_name with
+        match find_override tenv astate actuals proc_name proc_name_opt with
         | Some proc_name' ->
             L.d_printfln "Dynamic dispatch: %a resolved to %a" Procname.pp proc_name Procname.pp
               proc_name' ;
@@ -385,7 +398,7 @@ module PulseTransferFunctions = struct
               List.map func_args ~f:(fun {ProcnameDispatcher.Call.FuncArg.arg_payload= value, _} ->
                   value )
             in
-            PulseCallOperations.conservatively_initialize_args arg_values astate
+            PulseOperations.conservatively_initialize_args arg_values astate
           in
           ( model
               { analysis_data
@@ -541,9 +554,9 @@ module PulseTransferFunctions = struct
                   let astates : ExecutionDomain.t list option =
                     let open IOption.Let_syntax in
                     let* self_var = find_var_opt astate addr in
-                    let+ self_typ =
+                    let+ self_typ, _ =
                       let* attrs = AbductiveDomain.AddressAttributes.find_opt addr astate in
-                      Attributes.get_dynamic_type attrs
+                      Attributes.get_dynamic_type_source_file attrs
                     in
                     let ret_id = Ident.create_fresh Ident.knormal in
                     ret_vars := Var.of_id ret_id :: !ret_vars ;
@@ -756,6 +769,13 @@ module PulseTransferFunctions = struct
             | _ ->
                 [astate]
           in
+          let astate_n =
+            match rhs_exp with
+            | Lvar pvar ->
+                NonDisjDomain.set_load loc lhs_id (Var.of_pvar pvar) astate_n
+            | _ ->
+                astate_n
+          in
           (List.concat_map set_global_astates ~f:deref_rhs, path, astate_n)
       | Store {e1= lhs_exp; e2= rhs_exp; loc; typ} ->
           (* [*lhs_exp := rhs_exp] *)
@@ -823,6 +843,7 @@ module PulseTransferFunctions = struct
             PulseNonDisjunctiveOperations.add_copied_return path loc call_exp actuals astates
               astate_n
           in
+          let astate_n = NonDisjDomain.set_passed_to loc call_exp actuals astate_n in
           (astates, path, astate_n)
       | Prune (condition, loc, is_then_branch, if_kind) ->
           let prune_result = PulseOperations.prune path loc ~condition astate in
@@ -1000,7 +1021,7 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
           in
           report_topl_errors proc_desc err_log summary ;
           report_unnecessary_copies proc_desc err_log non_disj_astate ;
-          report_const_refable_parameters proc_desc err_log non_disj_astate ;
+          report_unnecessary_parameter_copies proc_desc err_log non_disj_astate ;
           summary
       | None ->
           []

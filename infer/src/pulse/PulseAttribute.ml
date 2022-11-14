@@ -105,15 +105,15 @@ module Attribute = struct
 
   module CopiedInto = struct
     type t =
-      | IntoVar of {copied_var: Var.t; source_opt: Pvar.t option}
+      | IntoVar of {copied_var: Var.t; source_opt: DecompilerExpr.source_expr option}
       | IntoField of {field: Fieldname.t; source_opt: DecompilerExpr.t option}
     [@@deriving compare, equal]
 
     let pp fmt = function
       | IntoVar {copied_var; source_opt= None} ->
           Var.pp fmt copied_var
-      | IntoVar {source_opt= Some pvar} ->
-          (Pvar.pp Pp.text) fmt pvar
+      | IntoVar {source_opt= Some source_expr} ->
+          DecompilerExpr.pp_source_expr fmt source_expr
       | IntoField {field} ->
           Fieldname.pp fmt field
   end
@@ -130,7 +130,7 @@ module Attribute = struct
         ; is_const_ref: bool
         ; from: CopyOrigin.t
         ; copied_location: Location.t }
-    | DynamicType of Typ.t
+    | DynamicType of Typ.t * SourceFile.t option
     | EndOfCollection
     | Invalid of Invalidation.t * Trace.t
     | ISLAbduced of Trace.t
@@ -155,7 +155,7 @@ module Attribute = struct
     | Uninitialized
     | UnknownEffect of CallEvent.t * ValueHistory.t
     | UnreachableAt of Location.t
-    | WrittenTo of Trace.t
+    | WrittenTo of Timestamp.t * Trace.t
   [@@deriving compare, equal, variants]
 
   type rank = int
@@ -258,8 +258,9 @@ module Attribute = struct
         F.fprintf f "CopiedReturn (%a%t by %a at %a)" AbstractValue.pp source
           (fun f -> if is_const_ref then F.pp_print_string f ":const&")
           CopyOrigin.pp from Location.pp copied_location
-    | DynamicType typ ->
-        F.fprintf f "DynamicType %a" (Typ.pp Pp.text) typ
+    | DynamicType (typ, source_file) ->
+        F.fprintf f "DynamicType %a, SourceFile %a" (Typ.pp Pp.text) typ (Pp.option SourceFile.pp)
+          source_file
     | EndOfCollection ->
         F.pp_print_string f "EndOfCollection"
     | Invalid (invalidation, trace) ->
@@ -304,11 +305,14 @@ module Attribute = struct
     | Uninitialized ->
         F.pp_print_string f "Uninitialized"
     | UnknownEffect (call, hist) ->
-        F.fprintf f "UnknownEffect(%a, %a)" CallEvent.pp call ValueHistory.pp hist
+        F.fprintf f "UnknownEffect(@[%a,@ %a)@]" CallEvent.pp call ValueHistory.pp hist
     | UnreachableAt location ->
         F.fprintf f "UnreachableAt(%a)" Location.pp location
-    | WrittenTo trace ->
-        F.fprintf f "WrittenTo %a" (Trace.pp ~pp_immediate:(pp_string_if_debug "mutation")) trace
+    | WrittenTo (timestamp, trace) ->
+        F.fprintf f "WrittenTo (%d, %a)"
+          (timestamp :> int)
+          (Trace.pp ~pp_immediate:(pp_string_if_debug "mutation"))
+          trace
 
 
   let is_suitable_for_pre = function
@@ -459,8 +463,8 @@ module Attribute = struct
         TaintSanitized (TaintSanitizedSet.map add_call_to_taint_sanitized taint_sanitized)
     | UnknownEffect (call, hist) ->
         UnknownEffect (call, add_call_to_history hist)
-    | WrittenTo trace ->
-        WrittenTo (add_call_to_trace trace)
+    | WrittenTo (_timestamp, trace) ->
+        WrittenTo (timestamp, add_call_to_trace trace)
     | CopiedInto _ | SourceOriginOfCopy _ ->
         L.die InternalError "Unexpected attribute %a in the summary of %a" pp attr Procname.pp
           proc_name
@@ -484,7 +488,7 @@ module Attribute = struct
 
   let alloc_free_match allocator (invalidation : (Invalidation.t * Trace.t) option) is_released =
     match (allocator, invalidation) with
-    | (CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _), Some ((CFree | CustomFree _), _)
+    | (CMalloc | CustomMalloc _ | CRealloc | CustomRealloc _), Some (CFree, _)
     | CppNew, Some (CppDelete, _)
     | CppNewArray, Some (CppDeleteArray, _)
     | ObjCAlloc, _ ->
@@ -642,8 +646,8 @@ module Attributes = struct
   let remove_must_be_valid = remove_by_rank Attribute.must_be_valid_rank
 
   let get_written_to =
-    get_by_rank Attribute.written_to_rank ~dest:(function [@warning "-8"] WrittenTo action ->
-        action )
+    get_by_rank Attribute.written_to_rank ~dest:(function [@warning "-8"]
+        | WrittenTo (timestamp, trace) -> (timestamp, trace) )
 
 
   let get_closure_proc_name =
@@ -716,8 +720,9 @@ module Attributes = struct
         | UnknownEffect (call, hist) -> (call, hist) )
 
 
-  let get_dynamic_type =
-    get_by_rank Attribute.dynamic_type_rank ~dest:(function [@warning "-8"] DynamicType typ -> typ)
+  let get_dynamic_type_source_file =
+    get_by_rank Attribute.dynamic_type_rank ~dest:(function [@warning "-8"]
+        | DynamicType (typ, source_file_opt) -> (typ, source_file_opt) )
 
 
   let get_must_be_initialized =

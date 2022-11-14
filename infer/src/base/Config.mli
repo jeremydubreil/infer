@@ -207,7 +207,9 @@ val capture : bool
 
 val capture_block_list : string option
 
-val capture_textual : string option
+val capture_textual : string list
+
+val capture_doli : string option
 
 val censor_report : ((bool * Str.regexp) * (bool * Str.regexp) * string) list
 
@@ -317,7 +319,7 @@ val dotty_cfg_libs : bool
 
 val dump_duplicate_symbols : bool
 
-val dump_textual : string option
+val dump_textual : bool
 
 val dynamic_dispatch_json_file_path : string option
 
@@ -442,6 +444,8 @@ val liveness_ignored_constant : string list
 
 val load_average : float option
 
+val margin_html : int
+
 val mask_sajwa_exceptions : bool
 
 val max_nesting : int option
@@ -565,6 +569,8 @@ val pulse_model_release_pattern : Str.regexp option
 val pulse_model_returns_copy_pattern : Str.regexp option
 
 val pulse_model_return_first_arg : Str.regexp option
+
+val pulse_model_return_this : Str.regexp option
 
 val pulse_model_return_nonnull : Str.regexp option
 
@@ -747,6 +753,8 @@ val starvation_strict_mode : bool
 val starvation_whole_program : bool
 
 val subtype_multirange : bool
+
+val suffix_match_changed_files : bool
 
 val summaries_caches_max_size : int [@@warning "-32"]
 

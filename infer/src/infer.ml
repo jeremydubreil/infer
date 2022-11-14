@@ -14,6 +14,8 @@ module Cmd = InferCommandImplementation
 
 let run driver_mode =
   let open Driver in
+  if Config.dump_textual && not (is_compatible_with_textual_generation driver_mode) then
+    L.die UserError "ERROR: Textual generation is only allowed in Java mode currently" ;
   run_prologue driver_mode ;
   let changed_files = SourceFile.read_config_files_to_analyze () in
   InferAnalyze.invalidate_changed_procedures changed_files ;
@@ -47,7 +49,7 @@ let setup () =
           (* In Buck mode, delete infer-out directories inside buck-out to start fresh and to
              avoid getting errors because some of their contents is missing (removed by
              [Driver.clean_results_dir ()]). *)
-          (buck && Option.exists buck_mode ~f:BuckMode.is_clang_flavors) || genrule_mode)
+          (buck && Option.exists buck_mode ~f:BuckMode.is_clang) || genrule_mode)
         || not
              ( Driver.is_analyze_mode driver_mode
              || Config.(
@@ -152,16 +154,12 @@ let () =
   ( match Config.command with
   | _ when Config.test_determinator && not Config.process_clang_ast ->
       TestDeterminator.compute_and_emit_test_to_run ()
-  | _ when Option.is_some Config.dump_textual -> (
-    match Lazy.force Driver.mode_from_command_line with
-    | Javac {compiler; prog; args} ->
-        Javac.capture compiler ~prog ~args
-    | _ ->
-        L.die UserError "ERROR: Textual generation is only allowed in Java mode currently" )
   | _ when Option.is_some Config.java_debug_source_file_info ->
       if Config.java_source_parser_experimental then
         JSourceLocations.debug_on_file (Option.value_exn Config.java_debug_source_file_info)
       else JSourceFileInfo.debug_on_file (Option.value_exn Config.java_debug_source_file_info)
+  | _ when Option.is_some Config.capture_doli ->
+      DoliParser.run (Option.value_exn Config.capture_doli)
   | Analyze ->
       run Driver.Analyze
   | Capture | Compile | Run ->

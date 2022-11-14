@@ -53,7 +53,7 @@ module OnDisk : sig
   val clear_cache : unit -> unit
   (** Remove all the elements from the cache of summaries *)
 
-  val get : Procname.t -> t option
+  val get : lazy_payloads:bool -> Procname.t -> t option
   (** Return the summary option for the procedure name *)
 
   val reset : Procdesc.t -> t
@@ -66,8 +66,8 @@ module OnDisk : sig
   (** Delete the .specs file corresponding to the procname and remove its summary from the Summary
       cache *)
 
-  val delete_all : filter:Filtering.procedures_filter -> unit -> unit
-  (** Similar to [delete], but delete all procedure summaries that pass [filter] *)
+  val delete_all : procedures:Procname.t list -> unit
+  (** Similar to [delete], but delete all summaries for a list of [procedures] *)
 
   val iter_specs : f:(t -> unit) -> unit
   (** Iterates over all stored summaries *)
@@ -84,4 +84,7 @@ module OnDisk : sig
   (** Iterates over all analysis artefacts listed above, for each procedure *)
 
   val get_model_proc_desc : Procname.t -> Procdesc.t option
+
+  val get_count : unit -> int
+  (** Counts the summaries currently stored on disk. *)
 end

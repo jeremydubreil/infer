@@ -853,6 +853,10 @@ let is_objc_instance_method =
   is_objc_helper ~f:(function {kind= ObjCInstanceMethod} -> true | _ -> false)
 
 
+let is_objc_class_method =
+  is_objc_helper ~f:(function {kind= ObjCClassMethod} -> true | _ -> false)
+
+
 let get_objc_class_name proc_name =
   get_objc_helper proc_name ~f:(fun objc_cpp_pname ->
       if ObjC_Cpp.is_objc_method objc_cpp_pname then Some (ObjC_Cpp.get_class_name objc_cpp_pname)
@@ -1056,6 +1060,22 @@ let rec is_static = function
       is_static base
   | WithFunctionParameters (base, _) ->
       is_static base
+
+
+let is_shared_ptr_observer =
+  let shared_ptr_matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::shared_ptr"] in
+  let observer_methods = ["get"; "operator*"; "operator->"; "operator[]"; "operator_bool"] in
+  let rec aux pname =
+    match pname with
+    | ObjC_Cpp {class_name= CppClass {name}; method_name} ->
+        QualifiedCppName.Match.match_qualifiers shared_ptr_matcher name
+        && List.mem observer_methods method_name ~equal:String.equal
+    | WithAliasingParameters (pname, _) | WithFunctionParameters (pname, _) ->
+        aux pname
+    | _ ->
+        false
+  in
+  fun pname -> aux pname
 
 
 let get_global_name_of_initializer t =

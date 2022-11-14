@@ -60,7 +60,7 @@ end
 
 module CopiedInto : sig
   type t =
-    | IntoVar of {copied_var: Var.t; source_opt: Pvar.t option}
+    | IntoVar of {copied_var: Var.t; source_opt: DecompilerExpr.source_expr option}
     | IntoField of {field: Fieldname.t; source_opt: DecompilerExpr.t option}
   [@@deriving compare, equal]
 
@@ -77,7 +77,7 @@ type t =
   | CopiedReturn of
       {source: AbstractValue.t; is_const_ref: bool; from: CopyOrigin.t; copied_location: Location.t}
       (** records the copied value for the return address *)
-  | DynamicType of Typ.t
+  | DynamicType of Typ.t * SourceFile.t option
   | EndOfCollection
   | Invalid of Invalidation.t * Trace.t
   | ISLAbduced of Trace.t  (** The allocation is abduced so as the analysis could run normally *)
@@ -104,7 +104,7 @@ type t =
   | UnreachableAt of Location.t
       (** temporary marker to remember where a variable became unreachable; helps with accurately
           reporting leaks *)
-  | WrittenTo of Trace.t
+  | WrittenTo of Timestamp.t * Trace.t
 [@@deriving compare]
 
 val pp : F.formatter -> t -> unit
@@ -141,7 +141,7 @@ module Attributes : sig
 
   val get_unknown_effect : t -> (CallEvent.t * ValueHistory.t) option
 
-  val get_dynamic_type : t -> Typ.t option
+  val get_dynamic_type_source_file : t -> (Typ.t * SourceFile.t option) option
 
   val is_java_resource_released : t -> bool
 
@@ -176,7 +176,7 @@ module Attributes : sig
 
   val get_must_not_be_tainted : t -> TaintSinkSet.t
 
-  val get_written_to : t -> Trace.t option
+  val get_written_to : t -> (Timestamp.t * Trace.t) option
 
   val is_always_reachable : t -> bool
 

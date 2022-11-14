@@ -14,7 +14,7 @@ open! IStd
 type mode =
   | Analyze
   | Ant of {prog: string; args: string list}
-  | Buck2 of {build_cmd: string list}
+  | Buck2Clang of {build_cmd: string list}
   | BuckClangFlavor of {build_cmd: string list}
   | BuckCompilationDB of {deps: BuckMode.clang_compilation_db_deps; prog: string; args: string list}
   | BuckErlang of {prog: string; args: string list}
@@ -29,12 +29,14 @@ type mode =
   | NdkBuild of {build_cmd: string list}
   | Rebar3 of {args: string list}
   | Erlc of {args: string list}
-  | Hackc of {args: string list}
-  | Textual of {file: string}
+  | Hackc of {prog: string; args: string list}
+  | Textual of {files: string list}
   | XcodeBuild of {prog: string; args: string list}
   | XcodeXcpretty of {prog: string; args: string list}
 
 val is_analyze_mode : mode -> bool
+
+val is_compatible_with_textual_generation : mode -> bool
 
 val mode_from_command_line : mode Lazy.t
 (** driver mode computed from the command-line arguments and settings in Config *)

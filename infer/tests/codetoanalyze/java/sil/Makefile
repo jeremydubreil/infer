@@ -25,13 +25,13 @@ $(CLASSES_DIR):
 	mkdir $@
 
 %.sil: %.java $(CLASSES_DIR) $(INFER_BIN)
-	$(INFER_BIN) -g capture -o "$(DUMP_DIR)/infer-out-$(basename $<)" --dump-textual "$@" -- javac -cp $(CLASSPATH) -d $(CLASSES_DIR) $<
+	$(INFER_BIN) -g capture -o "$(DUMP_DIR)/infer-out-$(basename $<)" --dump-textual -- javac -cp $(CLASSPATH) -d $(CLASSES_DIR) $<
 
 .PHONY: compile
 compile: $(SIL_FILES)
 
 %.log: %.sil $(INFER_BIN)
-	$(INFER_BIN) --quiet --no-progress-bar -o "$(CAPTURE_DIR)/infer-out-$(basename $<)" --capture-textual $< &> $@ || exit 0
+	$(INFER_BIN) --pulse-only --quiet --no-progress-bar -o "$(CAPTURE_DIR)/infer-out-$(basename $<)" --capture-textual $< &> $@ || exit 0
 
 issues.exp.test: $(LOG_FILES)
 	cat $^ | awk '{gsub("$(realpath $(shell pwd))", "");print}' > $@

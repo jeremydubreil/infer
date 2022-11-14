@@ -861,7 +861,7 @@ and buck_mode =
   in
   CLOpt.mk_bool ~deprecated:["-flavors"; "-use-flavors"] ~long:"buck-clang"
     ~in_help:InferCommand.[(Capture, manual_buck)]
-    ~f:(set_mode `ClangFlavors)
+    ~f:(set_mode `Clang)
     "Buck integration for clang-based targets (C/C++/Objective-C/Objective-C++)."
   |> ignore ;
   CLOpt.mk_symbol_opt ~long:"buck-compilation-database" ~deprecated:["-use-compilation-database"]
@@ -913,8 +913,13 @@ and capture_block_list =
 
 
 and capture_textual =
-  CLOpt.mk_path_opt ~long:"capture-textual" ~meta:"path"
-    "Generate a SIL program from a textual representation given in a .sil file."
+  CLOpt.mk_path_list ~long:"capture-textual" ~meta:"path"
+    "Generate a SIL program from a textual representation given in .sil files."
+
+
+and capture_doli =
+  CLOpt.mk_path_opt ~long:"capture-doli" ~meta:"path"
+    "Generate models from a DOLI representation given a .doli file."
 
 
 and cfg_json =
@@ -1278,8 +1283,8 @@ and ( biabduction_write_dotty
   and print_types = CLOpt.mk_bool ~long:"print-types" ~default:false "Print types in symbolic heaps"
   and keep_going =
     CLOpt.mk_bool ~deprecated_no:["-no-failures-allowed"] ~long:"keep-going"
-      ~in_help:InferCommand.[(Analyze, manual_generic)]
-      "Keep going when the analysis encounters a failure"
+      ~in_help:InferCommand.[(Analyze, manual_generic); (Capture, manual_generic)]
+      "Keep going when the analysis or capture encounter a failure"
   and reports_include_ml_loc =
     CLOpt.mk_bool ~deprecated:["with_infer_src_loc"] ~long:"reports-include-ml-loc"
       "Include the location in the Infer source code from where reports are generated"
@@ -1464,8 +1469,9 @@ and dump_duplicate_symbols =
 
 
 and dump_textual =
-  CLOpt.mk_path_opt ~long:"dump-textual" ~meta:"path"
-    "Generate a SIL program from the captured target. The target has to be a single Java file."
+  CLOpt.mk_bool ~long:"dump-textual"
+    "Generate a SIL program from the captured target. A $(i,filename.sil) file is generated for \
+     each $(i,filename.java) file in the target."
 
 
 and dynamic_dispatch_json_file_path =
@@ -1835,6 +1841,11 @@ and load_average =
 and margin =
   CLOpt.mk_int ~deprecated:["set_pp_margin"] ~long:"margin" ~default:100 ~meta:"int"
     "Set right margin for the pretty printing functions"
+
+
+and margin_html =
+  CLOpt.mk_int ~long:"margin-html" ~default:200 ~meta:"int"
+    "Set margin for the pretty printing in html"
 
 
 and mask_sajwa_exceptions =
@@ -2241,7 +2252,15 @@ and pulse_model_return_nonnull =
 and pulse_model_return_first_arg =
   CLOpt.mk_string_opt ~long:"pulse-model-return-first-arg"
     ~in_help:InferCommand.[(Analyze, manual_generic)]
-    "Regex of methods that should be modelled as returning the first argument in Pulse"
+    "Regex of methods that should be modelled as returning the first argument in Pulse in terms of \
+     the source language semantics. Languages supported: Java, C, Objective-C"
+
+
+and pulse_model_return_this =
+  CLOpt.mk_string_opt ~long:"pulse-model-return-this"
+    ~in_help:InferCommand.[(Analyze, manual_generic)]
+    "Regex of methods that should be modelled as returning the `this` or `self` argument of an \
+     instance method in Pulse. Languages supported: Java, Objective-C"
 
 
 and pulse_model_skip_pattern =
@@ -2384,7 +2403,7 @@ and pulse_taint_sources =
           argument positions given by index (zero-indexed)
       - ["AllArgumentsButPositions", [<int list>]]:
           all arguments except given indices (zero-indexed)
-      - ["ArgumentMatchingTypes", [<type list>]]:
+      - ["ArgumentsMatchingTypes", [<type list>]]:
           arguments with types containing supplied strings
       - ["Fields", [<(string * taint_target) list>]]:
           fields given by name in return value, arguments or other fields
@@ -2880,6 +2899,12 @@ and subtype_multirange =
     "Use the multirange subtyping domain. Used in the Java frontend and in biabduction."
 
 
+and suffix_match_changed_files =
+  CLOpt.mk_bool ~long:"suffix-match-changed-files" ~default:false
+    "When computing the set of files to analyze using $(b,--changed-files-index), a file will be \
+     analyzed if a name in the changed files index is a suffix of its name."
+
+
 and summaries_caches_max_size =
   CLOpt.mk_int ~long:"summaries-caches-max-size" ~default:500
     "The maximum amount of elements the summaries LRU caches can hold"
@@ -3325,8 +3350,8 @@ and buck_mode : BuckMode.t option =
   match (!buck_mode, !buck_compilation_database_depth) with
   | `None, _ ->
       None
-  | `ClangFlavors, _ ->
-      Some ClangFlavors
+  | `Clang, _ ->
+      Some Clang
   | `ClangCompilationDB `NoDeps, _ ->
       Some (ClangCompilationDB NoDependencies)
   | `ClangCompilationDB `DepsTmp, None ->
@@ -3343,7 +3368,9 @@ and buck_targets_block_list = RevList.to_list !buck_targets_block_list
 
 and capture = !capture
 
-and capture_textual = !capture_textual
+and capture_textual = RevList.to_list !capture_textual
+
+and capture_doli = !capture_doli
 
 and capture_block_list = !capture_block_list
 
@@ -3628,6 +3655,8 @@ and load_average =
   match !load_average with None when !buck -> Some (float_of_int ncpu) | _ -> !load_average
 
 
+and margin_html = !margin_html
+
 and mask_sajwa_exceptions = !mask_sajwa_exceptions
 
 and max_nesting = !max_nesting
@@ -3721,7 +3750,7 @@ and process_clang_ast = !process_clang_ast
 and progress_bar =
   if !progress_bar && not !quiet then
     match !progress_bar_style with
-    | `Auto when Unix.(isatty stdin && isatty stderr) ->
+    | `Auto when Unix.(isatty stdin && isatty stderr) && not (Utils.is_term_dumb ()) ->
         `MultiLine
     | `Auto ->
         `Plain
@@ -3767,6 +3796,8 @@ and pulse_model_release_pattern = Option.map ~f:Str.regexp !pulse_model_release_
 and pulse_model_returns_copy_pattern = Option.map ~f:Str.regexp !pulse_model_returns_copy_pattern
 
 and pulse_model_return_first_arg = Option.map ~f:Str.regexp !pulse_model_return_first_arg
+
+and pulse_model_return_this = Option.map ~f:Str.regexp !pulse_model_return_this
 
 and pulse_model_return_nonnull = Option.map ~f:Str.regexp !pulse_model_return_nonnull
 
@@ -4039,6 +4070,8 @@ and starvation_strict_mode = !starvation_strict_mode
 and starvation_whole_program = !starvation_whole_program
 
 and subtype_multirange = !subtype_multirange
+
+and suffix_match_changed_files = !suffix_match_changed_files
 
 and summaries_caches_max_size = !summaries_caches_max_size
 

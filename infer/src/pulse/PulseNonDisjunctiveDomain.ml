@@ -9,6 +9,7 @@ open! IStd
 module F = Format
 open PulseBasicInterface
 module BaseMemory = PulseBaseMemory
+module DecompilerExpr = PulseDecompilerExpr
 
 (** Unnecessary copies are tracked in two places:
 
@@ -47,7 +48,8 @@ type copy_spec_t =
       ; location: Location.t
       ; copied_location: (Procname.t * Location.t) option
       ; heap: BaseMemory.t
-      ; from: Attribute.CopyOrigin.t }
+      ; from: Attribute.CopyOrigin.t
+      ; timestamp: Timestamp.t }
   | Modified
 [@@deriving equal]
 
@@ -65,9 +67,10 @@ module CopySpec = MakeDomainFromTotalOrder (struct
 
 
   let pp fmt = function
-    | Copied {typ; heap; location; from} ->
-        Format.fprintf fmt "%a (value of type %a) at %a with heap= %a" Attribute.CopyOrigin.pp from
-          (Typ.pp Pp.text) typ Location.pp location BaseMemory.pp heap
+    | Copied {typ; heap; location; from; timestamp} ->
+        Format.fprintf fmt "@[%a (value of type %a) at %a@ with heap= %a@ (timestamp: %d)@]"
+          Attribute.CopyOrigin.pp from (Typ.pp Pp.text) typ Location.pp location BaseMemory.pp heap
+          (timestamp :> int)
     | Modified ->
         Format.fprintf fmt "modified"
 end)
@@ -105,8 +108,8 @@ module ParameterSpec = MakeDomainFromTotalOrder (struct
 
   let pp fmt = function
     | Unmodified {typ; heap; location} ->
-        Format.fprintf fmt "const refable (value of type %a) at %a with heap= %a" (Typ.pp Pp.text)
-          typ Location.pp location BaseMemory.pp heap
+        Format.fprintf fmt "@[const refable (value of type %a) at %a@ with heap= %a@]"
+          (Typ.pp Pp.text) typ Location.pp location BaseMemory.pp heap
     | Modified ->
         Format.fprintf fmt "modified"
 end)
@@ -119,32 +122,93 @@ end
 
 module DestructorChecked = AbstractDomain.FiniteSet (Var)
 
-module Captured = AbstractDomain.FiniteSet (struct
-  include Pvar
+module Captured = struct
+  include AbstractDomain.FiniteSet (struct
+    include Pvar
 
-  let pp = Pvar.pp Pp.text
-end)
+    let pp = Pvar.pp Pp.text
+  end)
+
+  let mem_var var x =
+    match (var : Var.t) with ProgramVar pvar -> mem pvar x | LogicalVar _ -> false
+end
 
 module CopyMap = AbstractDomain.Map (CopyVar) (CopySpec)
 module ParameterMap = AbstractDomain.Map (ParameterVar) (ParameterSpec)
 module Locked = AbstractDomain.BooleanOr
+
+module Loads = struct
+  module IdentToVars = AbstractDomain.FiniteMultiMap (Ident) (Var)
+  module LoadedVars = AbstractDomain.FiniteMultiMap (Var) (Location)
+  include AbstractDomain.PairWithBottom (IdentToVars) (LoadedVars)
+
+  let add loc ident var (ident_to_vars, loaded_vars) =
+    (IdentToVars.add ident var ident_to_vars, LoadedVars.add var loc loaded_vars)
+
+
+  let get_all ident (ident_to_vars, _) = IdentToVars.get_all ident ident_to_vars
+
+  let is_loaded var (_, loaded_vars) = LoadedVars.mem var loaded_vars
+
+  let get_loaded_locations var (_, loaded_vars) = LoadedVars.get_all var loaded_vars
+end
+
+module CalleeWithUnknown = struct
+  type t = V of {copy_tgt: Exp.t option; callee: Procname.t} | Unknown [@@deriving compare]
+
+  let pp_copy_tgt f copy_tgt = Option.iter copy_tgt ~f:(fun tgt -> F.fprintf f "(%a)" Exp.pp tgt)
+
+  let pp f = function
+    | V {copy_tgt; callee} ->
+        F.fprintf f "%a%a" Procname.pp callee pp_copy_tgt copy_tgt
+    | Unknown ->
+        F.pp_print_string f "unknown"
+
+
+  let is_copy_to_field_or_global = function
+    | V {copy_tgt= Some (Lindex _ | Lfield _); callee} ->
+        Procname.is_copy_assignment callee || Procname.is_copy_ctor callee
+    | V {copy_tgt= Some (Lvar pvar); callee} ->
+        Pvar.is_global pvar && Procname.is_copy_assignment callee
+    | V _ ->
+        false
+    | Unknown ->
+        true
+end
+
+module CalleeWithLoc = struct
+  type t = {callee: CalleeWithUnknown.t; loc: Location.t} [@@deriving compare]
+
+  let pp f {callee; loc} = F.fprintf f "%a at %a" CalleeWithUnknown.pp callee Location.pp loc
+
+  let is_copy_to_field_or_global {callee} = CalleeWithUnknown.is_copy_to_field_or_global callee
+end
+
+module PassedTo = struct
+  include AbstractDomain.FiniteMultiMap (Var) (CalleeWithLoc)
+
+  let is_copied_to_field_or_global var x =
+    List.exists (get_all var x) ~f:CalleeWithLoc.is_copy_to_field_or_global
+end
 
 type elt =
   { copy_map: CopyMap.t
   ; parameter_map: ParameterMap.t
   ; destructor_checked: DestructorChecked.t
   ; captured: Captured.t
-  ; locked: Locked.t }
+  ; locked: Locked.t
+  ; loads: Loads.t
+  ; passed_to: PassedTo.t }
 
 type t = V of elt | Top
 
 let pp f = function
-  | V {copy_map; parameter_map; destructor_checked; captured; locked} ->
+  | V {copy_map; parameter_map; destructor_checked; captured; locked; loads; passed_to} ->
       F.fprintf f
         "@[@[copy map: %a@],@ @[parameter map: %a@],@ @[destructor checked: %a@],@ @[captured: \
-         %a@],@ @[locked: %a@]@]"
+         %a@],@ @[locked: %a@],@ @[loads: %a@],@ @[passed to: %a@]@]"
         CopyMap.pp copy_map ParameterMap.pp parameter_map DestructorChecked.pp destructor_checked
-        Captured.pp captured Locked.pp locked
+        Captured.pp captured Locked.pp locked Loads.pp loads PassedTo.pp passed_to
   | Top ->
       AbstractDomain.TopLiftedUtils.pp_top f
 
@@ -161,6 +225,8 @@ let leq ~lhs ~rhs =
       && DestructorChecked.leq ~lhs:lhs.destructor_checked ~rhs:rhs.destructor_checked
       && Captured.leq ~lhs:lhs.captured ~rhs:rhs.captured
       && Locked.leq ~lhs:lhs.locked ~rhs:rhs.locked
+      && Loads.leq ~lhs:lhs.loads ~rhs:rhs.loads
+      && PassedTo.leq ~lhs:lhs.passed_to ~rhs:rhs.passed_to
 
 
 let join x y =
@@ -173,7 +239,9 @@ let join x y =
         ; parameter_map= ParameterMap.join x.parameter_map y.parameter_map
         ; destructor_checked= DestructorChecked.join x.destructor_checked y.destructor_checked
         ; captured= Captured.join x.captured y.captured
-        ; locked= Locked.join x.locked y.locked }
+        ; locked= Locked.join x.locked y.locked
+        ; loads= Loads.join x.loads y.loads
+        ; passed_to= PassedTo.join x.passed_to y.passed_to }
 
 
 let widen ~prev ~next ~num_iters =
@@ -189,7 +257,9 @@ let widen ~prev ~next ~num_iters =
             DestructorChecked.widen ~prev:prev.destructor_checked ~next:next.destructor_checked
               ~num_iters
         ; captured= Captured.widen ~prev:prev.captured ~next:next.captured ~num_iters
-        ; locked= Locked.widen ~prev:prev.locked ~next:next.locked ~num_iters }
+        ; locked= Locked.widen ~prev:prev.locked ~next:next.locked ~num_iters
+        ; loads= Loads.widen ~prev:prev.loads ~next:next.loads ~num_iters
+        ; passed_to= PassedTo.widen ~prev:prev.passed_to ~next:next.passed_to ~num_iters }
 
 
 let bottom =
@@ -198,17 +268,20 @@ let bottom =
     ; parameter_map= ParameterMap.empty
     ; destructor_checked= DestructorChecked.empty
     ; captured= Captured.empty
-    ; locked= Locked.bottom }
+    ; locked= Locked.bottom
+    ; loads= Loads.bottom
+    ; passed_to= PassedTo.bottom }
 
 
 let is_bottom = function
   | Top ->
       false
-  | V {copy_map; parameter_map; destructor_checked; captured; locked} ->
+  | V {copy_map; parameter_map; destructor_checked; captured; locked; loads; passed_to} ->
       CopyMap.is_bottom copy_map
       && ParameterMap.is_bottom parameter_map
       && DestructorChecked.is_bottom destructor_checked
-      && Captured.is_bottom captured && Locked.is_bottom locked
+      && Captured.is_bottom captured && Locked.is_bottom locked && Loads.is_bottom loads
+      && PassedTo.is_bottom passed_to
 
 
 let top = Top
@@ -221,7 +294,8 @@ let mark_copy_as_modified_elt ~is_modified ~copied_into ~source_addr_opt ({copy_
   let copy_var = CopyVar.{copied_into; source_addr_opt} in
   let copy_map =
     match CopyMap.find_opt copy_var copy_map with
-    | Some (Copied {heap= copy_heap}) when is_modified copy_heap ->
+    | Some (Copied {heap= copy_heap; timestamp= copy_timestamp})
+      when is_modified copy_heap copy_timestamp ->
         Logging.d_printfln_escaped "Copy/source modified!" ;
         CopyMap.add copy_var Modified copy_map
     | _ ->
@@ -237,7 +311,7 @@ let mark_copy_as_modified ~is_modified ~copied_into ~source_addr_opt =
 let mark_parameter_as_modified_elt ~is_modified ~var ({parameter_map} as astate) =
   let parameter_map =
     match ParameterMap.find_opt var parameter_map with
-    | Some (Unmodified {heap= copy_heap}) when is_modified copy_heap ->
+    | Some (Unmodified {heap= copy_heap}) when is_modified copy_heap Timestamp.t0 ->
         Logging.d_printfln_escaped "Parameter %a modified!" Var.pp var ;
         ParameterMap.add var Modified parameter_map
     | _ ->
@@ -289,14 +363,19 @@ let get_copied = function
 let get_const_refable_parameters = function
   | Top ->
       []
-  | V {parameter_map} ->
+  | V {parameter_map; captured; loads; passed_to} ->
       ParameterMap.fold
         (fun var (parameter_spec_t : ParameterSpec.t) acc ->
-          match parameter_spec_t with
-          | Modified ->
-              acc
-          | Unmodified {location; typ= copied_typ} ->
-              (var, copied_typ, location) :: acc )
+          if
+            (Loads.is_loaded var loads || Captured.mem_var var captured)
+            && not (PassedTo.is_copied_to_field_or_global var passed_to)
+          then
+            match parameter_spec_t with
+            | Modified ->
+                acc
+            | Unmodified {location; typ= copied_typ} ->
+                (var, copied_typ, location) :: acc
+          else acc )
         parameter_map []
 
 
@@ -352,3 +431,80 @@ let set_locked_elt astate = {astate with locked= true}
 let set_locked = map set_locked_elt
 
 let is_locked = function Top -> true | V {locked} -> locked
+
+let set_load_elt loc ident var astate = {astate with loads= Loads.add loc ident var astate.loads}
+
+let set_load loc ident var = map (set_load_elt loc ident var)
+
+let get_loaded_locations var = function
+  | Top ->
+      []
+  | V {loads} ->
+      Loads.get_loaded_locations var loads
+
+
+let is_captured var astate =
+  match ((var : Var.t), astate) with
+  | LogicalVar _, _ ->
+      false
+  | ProgramVar x, V {captured} ->
+      Captured.mem x captured
+  | ProgramVar _, Top ->
+      true
+
+
+let set_passed_to_elt loc call_exp actuals ({loads; passed_to} as astate) =
+  let new_callee =
+    match (call_exp : Exp.t) with
+    | Const (Cfun callee) | Closure {name= callee} ->
+        let copy_tgt =
+          match actuals with
+          | (tgt, _) :: _ when Procname.is_copy_ctor callee || Procname.is_copy_assignment callee ->
+              Some tgt
+          | _ ->
+              None
+        in
+        CalleeWithUnknown.V {copy_tgt; callee}
+    | _ ->
+        CalleeWithUnknown.Unknown
+  in
+  let vars =
+    List.fold actuals ~init:Var.Set.empty ~f:(fun acc (actual, _) ->
+        match (actual : Exp.t) with
+        | Var ident ->
+            List.fold (Loads.get_all ident loads) ~init:acc ~f:(fun acc var -> Var.Set.add var acc)
+        | _ ->
+            acc )
+  in
+  let passed_to =
+    Var.Set.fold (fun var acc -> PassedTo.add var {callee= new_callee; loc} acc) vars passed_to
+  in
+  {astate with passed_to}
+
+
+let set_passed_to loc call_exp actuals = map (set_passed_to_elt loc call_exp actuals)
+
+let get_passed_to var ~f = function
+  | Top ->
+      `Top
+  | V {passed_to} ->
+      let callees =
+        PassedTo.get_all var passed_to |> List.filter ~f:(fun {CalleeWithLoc.callee; _} -> f callee)
+      in
+      `PassedTo callees
+
+
+let is_lifetime_extended var astate =
+  is_captured var astate
+  ||
+  match
+    get_passed_to var astate ~f:(function
+      | CalleeWithUnknown.V {callee} ->
+          not (Procname.is_shared_ptr_observer callee)
+      | CalleeWithUnknown.Unknown ->
+          true )
+  with
+  | `Top ->
+      true
+  | `PassedTo callees ->
+      not (List.is_empty callees)

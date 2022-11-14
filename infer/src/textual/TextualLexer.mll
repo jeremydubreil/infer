@@ -24,13 +24,13 @@ let whitespace = [' ' '\t']
 let whitespaces = whitespace*
 let eol = whitespace*("\r")?"\n" (* end of line *)
 let eol_comment = "//" [^'\n']*
-let id = ['a'-'z' 'A'-'Z' '_' '$'] (['a'-'z' 'A'-'Z' '0'-'9' '_' '$'] | "::")* | "<init>"
+let id = ['a'-'z' 'A'-'Z' '_' '$'] (['a'-'z' 'A'-'Z' '0'-'9' '_' '$'] | "::")* 
 
 let binary_numeral_prefix = "0" ("b"|"B")
 let hex_numeral_prefix = "0" ("x"|"X")
 let numeral_prefix = ['0'-'9'] | binary_numeral_prefix | hex_numeral_prefix
 let numeral_digit = ['0'-'9' 'a'-'f' 'A'-'F' '_']
-let integer_literal = numeral_prefix numeral_digit* ['l' 'L']?
+let integer_literal = '-'? numeral_prefix numeral_digit* ['l' 'L']?
 
 let digits = ['0'-'9']+
 let float_type_suffix = ['f' 'F' 'd' 'D']
@@ -57,8 +57,6 @@ rule main = parse
         { COLON } 
   | ","
         { COMMA }
-  | "attribute"
-        { ATTRIBUTE }
   | "declare"
         { DECLARE }
   | "define"
@@ -67,6 +65,8 @@ rule main = parse
         { EXTENDS }
   | "."
         { DOT }
+  | "..."
+        { ELLIPSIS }
   | "="
         { EQ }
   | "false"
@@ -89,6 +89,8 @@ rule main = parse
         { LPAREN }
   | "load"
         { LOAD }
+  | "local"
+        { LOCALKEYWORD }
   | "["
         { LSBRACKET }
   | "null"
@@ -142,6 +144,8 @@ rule main = parse
         { STRING s }
   | eof
         { EOF }
+  | _
+        { ERROR (Lexing.lexeme lexbuf) }
 
 
 {

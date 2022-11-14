@@ -205,6 +205,7 @@ DIRECT_TESTS += \
   java_bufferoverrun \
   java_checkers \
   java_datalog \
+  java_dependencies \
   java_hoisting \
   java_hoistingExpensive \
   java_impurity \
@@ -225,6 +226,7 @@ DIRECT_TESTS += \
   java_starvation-dedup \
   java_starvation-whole-program \
   java_topl \
+  sil_doli \
   sil_parsing \
   sil_pulse \
 
@@ -352,6 +354,10 @@ byte: src_build_common
 check: src_build_common
 	$(QUIET)$(call silent_on_success,Building artifacts for tooling support,\
 	$(MAKE_SOURCE) check)
+
+.PHONY: watch
+watch: src_build_common
+	$(MAKE_SOURCE) watch
 
 # deadcode analysis: only do the deadcode detection on Facebook builds and if GNU sed is available
 .PHONY: real_deadcode
