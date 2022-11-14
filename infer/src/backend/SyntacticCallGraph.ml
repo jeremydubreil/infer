@@ -8,7 +8,8 @@ open! IStd
 module L = Logging
 
 let iter_captured_procs_and_callees f =
-  let db = ResultsDatabase.get_database () in
+  (* Only query the capturedb (this function is run before the analysis phase) *)
+  let db = Database.get_database CaptureDatabase in
   (* only load procedure info for those we have a CFG *)
   let stmt =
     Sqlite3.prepare db "SELECT proc_attributes, callees FROM procedures WHERE cfg IS NOT NULL"
@@ -92,7 +93,7 @@ let build_from_sources sources =
   L.progress
     "Built call graph in %a, from %d total procs, %d reachable defined procs and takes %d bytes@."
     Mtime.Span.pp (Mtime_clock.count time0) n_captured (CallGraph.n_procs g)
-    (Obj.(reachable_words (repr g)) * (Sys.word_size / 8)) ;
+    (Obj.(reachable_words (repr g)) * (Sys.word_size_in_bits / 8)) ;
   g
 
 

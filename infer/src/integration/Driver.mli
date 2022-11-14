@@ -13,9 +13,8 @@ open! IStd
 (** based on the build_system and options passed to infer, we run in different driver modes *)
 type mode =
   | Analyze
-  | AnalyzeJson
   | Ant of {prog: string; args: string list}
-  | Buck2 of {build_cmd: string list}
+  | Buck2Clang of {build_cmd: string list}
   | BuckClangFlavor of {build_cmd: string list}
   | BuckCompilationDB of {deps: BuckMode.clang_compilation_db_deps; prog: string; args: string list}
   | BuckErlang of {prog: string; args: string list}
@@ -25,16 +24,19 @@ type mode =
   | ClangCompilationDB of {db_files: [`Escaped of string | `Raw of string] list}
   | Gradle of {prog: string; args: string list}
   | Javac of {compiler: Javac.compiler; prog: string; args: string list}
+  | JsonSIL of {cfg_json: string; tenv_json: string}
   | Maven of {prog: string; args: string list}
   | NdkBuild of {build_cmd: string list}
   | Rebar3 of {args: string list}
   | Erlc of {args: string list}
-  | Hackc of {args: string list}
-  | Textual of {file: string}
+  | Hackc of {prog: string; args: string list}
+  | Textual of {files: string list}
   | XcodeBuild of {prog: string; args: string list}
   | XcodeXcpretty of {prog: string; args: string list}
 
 val is_analyze_mode : mode -> bool
+
+val is_compatible_with_textual_generation : mode -> bool
 
 val mode_from_command_line : mode Lazy.t
 (** driver mode computed from the command-line arguments and settings in Config *)
@@ -45,9 +47,10 @@ val run_prologue : mode -> unit
 val capture : changed_files:SourceFile.Set.t option -> mode -> unit
 (** run the capture for the given mode *)
 
-val analyze_and_report :
-  ?suppress_console_report:bool -> changed_files:SourceFile.Set.t option -> mode -> unit
+val analyze_and_report : changed_files:SourceFile.Set.t option -> mode -> unit
 (** run the analysis for the given mode *)
+
+val report : unit -> unit
 
 val run_epilogue : unit -> unit
 (** cleanup infer-out/ for Buck, generate stats, and generally post-process the results of a run *)

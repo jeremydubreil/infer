@@ -31,12 +31,36 @@ class Test {
   A mem_a;
 
   void unnecessary_copy_moveable_bad(A&& a) { mem_a = a; }
+
+  void intermediate_member_field_copy_bad() {
+    A a;
+    std::vector<A> singleton = {a};
+  }
 };
 
 int get_size(A a) { return a.vec.size(); }
 
-void unnecessary_intermetidate_copy(const A& my_a) {
+void unnecessary_intermediate_copy(const A& my_a) {
   // we are copying the argument my_a unnecessarily because get_size doesn't
   // have const A&
   get_size(my_a);
+}
+
+class MyValueOr {
+  bool b;
+  A& value;
+
+ public:
+  A value_or(const A& default_value) const {
+    if (b) {
+      return value;
+    } else {
+      return default_value;
+    }
+  }
+};
+
+void call_value_or_bad(const MyValueOr& c) {
+  const static A f{};
+  A g = c.value_or(f);
 }

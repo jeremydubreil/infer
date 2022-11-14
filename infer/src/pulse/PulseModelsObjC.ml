@@ -80,21 +80,18 @@ let insertion_into_collection_key_or_value (value, value_hist) ~value_kind ~desc
   astate
 
 
-let read_from_collection (key, key_hist) ~desc : model =
+let read_from_collection (key, _key_hist) ~desc : model =
  fun {path; location; ret= ret_id, _} astate ->
   let event = Hist.call_event path location desc in
+  let ret_val = AbstractValue.mk_fresh () in
   let astate_nil =
-    let ret_val = AbstractValue.mk_fresh () in
     let<**> astate = PulseArithmetic.prune_eq_zero key astate in
     let<++> astate = PulseArithmetic.and_eq_int ret_val IntLit.zero astate in
-    PulseOperations.write_id ret_id (ret_val, Hist.add_event path event key_hist) astate
+    PulseOperations.write_id ret_id (ret_val, Hist.single_event path event) astate
   in
   let astate_not_nil =
-    let<**> astate = PulseArithmetic.prune_positive key astate in
-    let<+> astate, (ret_val, hist) =
-      PulseOperations.eval_access path Read location (key, key_hist) Dereference astate
-    in
-    PulseOperations.write_id ret_id (ret_val, Hist.add_event path event hist) astate
+    let<++> astate = PulseArithmetic.prune_positive key astate in
+    PulseOperations.write_id ret_id (ret_val, Hist.single_event path event) astate
   in
   List.rev_append astate_nil astate_not_nil
 
@@ -204,6 +201,9 @@ let matchers : matcher list =
         let s = Procname.to_string proc_name in
         Str.string_match r s 0 )
   in
+  let class_match_prefix prefix (_tenv, proc_name) _ =
+    Procname.get_objc_class_name proc_name |> Option.exists ~f:(String.is_prefix ~prefix)
+  in
   let map_context_tenv f (x, _) = f x in
   [ -"dispatch_sync" <>$ any_arg $++$--> call
   ; +map_context_tenv (PatternMatch.ObjectiveC.implements "UITraitCollection")
@@ -221,7 +221,9 @@ let matchers : matcher list =
   ; +BuiltinDecl.(match_builtin __objc_get_ref_count) <>$ capt_arg_payload $--> get_ref_count
   ; +BuiltinDecl.(match_builtin __objc_set_ref_count)
     <>$ capt_arg_payload $+ capt_arg_payload $--> set_ref_count
-  ; -"NSObject" &:: "init" <>$ capt_arg_payload $--> Basic.id_first_arg ~desc:"NSObject.init"
+  ; +class_match_prefix "NS"
+    &:: "init" <>$ capt_arg_payload
+    $--> Basic.id_first_arg ~desc:"NSObject.init"
   ; +map_context_tenv (PatternMatch.ObjectiveC.implements "NSString")
     &:: "stringWithUTF8String:" <>$ capt_arg_payload $--> construct_string
   ; +map_context_tenv (PatternMatch.ObjectiveC.implements "NSString")
@@ -308,4 +310,6 @@ let matchers : matcher list =
   ; +map_context_tenv (PatternMatch.ObjectiveC.implements "NSArray")
     &:: "arrayWithObject:" <>$ capt_arg_payload
     $--> insertion_into_collection_key_or_value ~value_kind:`Value ~desc:"NSArray.arrayWithObject"
-  ]
+  ; +map_context_tenv (PatternMatch.ObjectiveC.implements "UIViewController")
+    &:: "initWithNibName:bundle:" <>$ capt_arg_payload
+    $+...$--> Basic.id_first_arg ~desc:"UIViewController.initWithNibName:bundle:" ]

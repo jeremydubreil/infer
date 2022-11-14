@@ -11,6 +11,9 @@ open! IStd
 val fold_folders : init:'acc -> f:('acc -> string -> 'acc) -> path:string -> 'acc
 (** recursively traverse a path for folders, returning results by a given fold function *)
 
+val fold_files : init:'acc -> f:('acc -> string -> 'acc) -> path:string -> 'acc
+(** recursively traverse a path for files, returning results by a given fold function *)
+
 val find_files : path:string -> extension:string -> string list
 (** recursively find all files in [path] with names ending in [extension] *)
 
@@ -163,3 +166,7 @@ val set_best_cpu_for : int -> unit
 
 val zip_fold_filenames : init:'a -> f:('a -> string -> 'a) -> zip_filename:string -> 'a
 (** fold over each filename in the given [zip_filename]. *)
+
+val is_term_dumb : unit -> bool
+(** Check if the terminal is "dumb" or otherwise has very limited functionality. For example, Emacs'
+    eshell reports itself as a dumb terminal. *)

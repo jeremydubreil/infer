@@ -284,7 +284,12 @@ let wrap_in_scuba_log ~label ~log fmt =
   F.kasprintf wrapper fmt
 
 
-let result fmt = log ~to_console:true result_file_fmts fmt
+let result_string ?(style = []) s =
+  log ~to_console:false result_file_fmts "%s" s ;
+  ANSITerminal.print_string style s
+
+
+let result ?style fmt = F.kasprintf (fun s -> result_string ?style s) fmt
 
 let environment_info fmt = log ~to_console:false environment_info_file_fmts fmt
 
@@ -366,11 +371,18 @@ let setup_log_file () =
            ============================================================"
 
 
+let add_init_printer fmt = format_of_string "%t" ^^ fmt
+
+let set_geometry f =
+  F.pp_set_geometry f ~max_indent:(Config.margin_html - 10) ~margin:Config.margin_html
+
+
 type delayed_prints = Buffer.t * F.formatter
 
 let new_delayed_prints () =
   let b = Buffer.create 16 in
   let f = F.formatter_of_buffer b in
+  set_geometry f ;
   (b, f)
 
 
@@ -421,7 +433,11 @@ let d_kprintf ?color k fmt =
 
 
 let d_kasprintf k fmt =
-  match get_f () with Some f -> F.kasprintf (fun s -> k f s) fmt | None -> d_iprintf fmt
+  match get_f () with
+  | Some f ->
+      F.kasprintf (fun s -> k f s) (add_init_printer fmt) set_geometry
+  | _ ->
+      d_iprintf fmt
 
 
 let d_printf ?color fmt = d_kprintf ?color ignore fmt

@@ -39,17 +39,25 @@ let report_unnecessary_copies proc_desc err_log non_disj_astate =
            ~latent:false proc_desc err_log diagnostic )
 
 
-let report_const_refable_parameters proc_desc err_log non_disj_astate =
+let report_unnecessary_parameter_copies proc_desc err_log non_disj_astate =
   PulseNonDisjunctiveDomain.get_const_refable_parameters non_disj_astate
   |> List.iter ~f:(fun (param, typ, location) ->
-         let diagnostic = Diagnostic.ConstRefableParameter {param; typ; location} in
-         PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic )
+         let diagnostic =
+           if Typ.is_shared_pointer typ then
+             if NonDisjDomain.is_lifetime_extended param non_disj_astate then None
+             else
+               let used_locations = NonDisjDomain.get_loaded_locations param non_disj_astate in
+               Some (Diagnostic.ReadonlySharedPtrParameter {param; typ; location; used_locations})
+           else Some (Diagnostic.ConstRefableParameter {param; typ; location})
+         in
+         Option.iter diagnostic ~f:(fun diagnostic ->
+             PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic ) )
 
 
 let heap_size () = (Gc.quick_stat ()).heap_words
 
 module PulseTransferFunctions = struct
-  module CFG = ProcCfg.Exceptional
+  module CFG = ProcCfg.ExceptionalNoSinkToExitEdge
   module DisjDomain = AbstractDomain.PairDisjunct (ExecutionDomain) (PathContext)
   module NonDisjDomain = NonDisjDomain
 
@@ -227,7 +235,7 @@ module PulseTransferFunctions = struct
            L.d_printfln "Skipping indirect call %a@\n" Exp.pp call_exp ;
            let astate =
              let arg_values = List.map actuals ~f:(fun ((value, _), _) -> value) in
-             PulseCallOperations.conservatively_initialize_args arg_values astate
+             PulseOperations.conservatively_initialize_args arg_values astate
            in
            let<++> astate =
              PulseCallOperations.unknown_call path call_loc (SkippedUnknownCall call_exp)
@@ -280,8 +288,7 @@ module PulseTransferFunctions = struct
     let do_astate astate =
       let return = Option.map ~f:fst (Stack.find_opt return astate) in
       let topl_event = PulseTopl.Call {return; arguments; procname} in
-      let keep = AbductiveDomain.get_reachable astate in
-      AbductiveDomain.Topl.small_step loc ~keep topl_event astate
+      AbductiveDomain.Topl.small_step loc topl_event astate
     in
     let do_one_exec_state (exec_state : ExecutionDomain.t) : ExecutionDomain.t =
       match exec_state with
@@ -304,20 +311,69 @@ module PulseTransferFunctions = struct
         (let** _astate, (aw_array, _history) = PulseOperations.eval path Read loc arr astate in
          let++ _astate, (aw_index, _history) = PulseOperations.eval path Read loc index astate in
          let topl_event = PulseTopl.ArrayWrite {aw_array; aw_index} in
-         let keep = AbductiveDomain.get_reachable astate in
-         AbductiveDomain.Topl.small_step loc ~keep topl_event astate )
+         AbductiveDomain.Topl.small_step loc topl_event astate )
         |> PulseOperationResult.sat_ok
         |> (* don't emit Topl event if evals fail *) Option.value ~default:astate
     | _ ->
         astate
 
 
+  (* assume that virtual calls are only made on instance methods where it makes sense, in which case
+     the receiver is always the first argument if present *)
+  let get_receiver _proc_name actuals =
+    match actuals with receiver :: _ -> Some receiver | _ -> None
+
+
+  let get_dynamic_type_name astate v =
+    match AbductiveDomain.AddressAttributes.get_dynamic_type_source_file v astate with
+    | Some ({desc= Tstruct name}, source_file_opt) ->
+        Some (name, source_file_opt)
+    | Some (t, _) ->
+        L.d_printfln "dynamic type %a of %a is not a Tstruct" (Typ.pp_full Pp.text) t
+          AbstractValue.pp v ;
+        None
+    | None ->
+        L.d_printfln "no dynamic type found for %a" AbstractValue.pp v ;
+        None
+
+
+  let find_override tenv astate actuals proc_name proc_name_opt =
+    let open IOption.Let_syntax in
+    let* {ProcnameDispatcher.Call.FuncArg.arg_payload= receiver, _} =
+      get_receiver proc_name actuals
+    in
+    let* dynamic_type_name, source_file_opt = get_dynamic_type_name astate receiver in
+    let* type_name = Procname.get_class_type_name proc_name in
+    if Typ.Name.equal type_name dynamic_type_name then proc_name_opt
+    else
+      let method_exists proc_name methods = List.mem ~equal:Procname.equal methods proc_name in
+      (* if we have a source file then do the look up in the (local) tenv
+         for that source file instead of in the tenv for the current file *)
+      let tenv = Option.bind source_file_opt ~f:Tenv.load |> Option.value ~default:tenv in
+      Tenv.resolve_method ~method_exists tenv dynamic_type_name proc_name
+
+
+  let resolve_virtual_call tenv astate actuals proc_name_opt =
+    Option.map proc_name_opt ~f:(fun proc_name ->
+        match find_override tenv astate actuals proc_name proc_name_opt with
+        | Some proc_name' ->
+            L.d_printfln "Dynamic dispatch: %a resolved to %a" Procname.pp proc_name Procname.pp
+              proc_name' ;
+            proc_name'
+        | None ->
+            proc_name )
+
+
   let rec dispatch_call_eval_args
       ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) path ret call_exp
       actuals func_args call_loc flags astate callee_pname =
+    let callee_pname =
+      if flags.CallFlags.cf_virtual then resolve_virtual_call tenv astate func_args callee_pname
+      else callee_pname
+    in
     let astate =
       match (callee_pname, func_args) with
-      | Some callee_pname, [{PulseAliasSpecialization.FuncArg.arg_payload= arg, _}]
+      | Some callee_pname, [{ProcnameDispatcher.Call.FuncArg.arg_payload= arg, _}]
         when Procname.is_std_move callee_pname ->
           AddressAttributes.add_one arg StdMoved astate
       | _, _ ->
@@ -342,7 +398,7 @@ module PulseTransferFunctions = struct
               List.map func_args ~f:(fun {ProcnameDispatcher.Call.FuncArg.arg_payload= value, _} ->
                   value )
             in
-            PulseCallOperations.conservatively_initialize_args arg_values astate
+            PulseOperations.conservatively_initialize_args arg_values astate
           in
           ( model
               { analysis_data
@@ -498,9 +554,9 @@ module PulseTransferFunctions = struct
                   let astates : ExecutionDomain.t list option =
                     let open IOption.Let_syntax in
                     let* self_var = find_var_opt astate addr in
-                    let+ self_typ =
+                    let+ self_typ, _ =
                       let* attrs = AbductiveDomain.AddressAttributes.find_opt addr astate in
-                      Attributes.get_dynamic_type attrs
+                      Attributes.get_dynamic_type_source_file attrs
                     in
                     let ret_id = Ident.create_fresh Ident.knormal in
                     ret_vars := Var.of_id ret_id :: !ret_vars ;
@@ -713,6 +769,13 @@ module PulseTransferFunctions = struct
             | _ ->
                 [astate]
           in
+          let astate_n =
+            match rhs_exp with
+            | Lvar pvar ->
+                NonDisjDomain.set_load loc lhs_id (Var.of_pvar pvar) astate_n
+            | _ ->
+                astate_n
+          in
           (List.concat_map set_global_astates ~f:deref_rhs, path, astate_n)
       | Store {e1= lhs_exp; e2= rhs_exp; loc; typ} ->
           (* [*lhs_exp := rhs_exp] *)
@@ -780,6 +843,7 @@ module PulseTransferFunctions = struct
             PulseNonDisjunctiveOperations.add_copied_return path loc call_exp actuals astates
               astate_n
           in
+          let astate_n = NonDisjDomain.set_passed_to loc call_exp actuals astate_n in
           (astates, path, astate_n)
       | Prune (condition, loc, is_then_branch, if_kind) ->
           let prune_result = PulseOperations.prune path loc ~condition astate in
@@ -836,7 +900,7 @@ module PulseTransferFunctions = struct
           "OOM danger: heap size is %d words, more than the specified threshold of %d words. \
            Aborting the analysis of the procedure %a to avoid running out of memory.@\n"
           heap_size max_heap_size Procname.pp pname ;
-        raise AboutToOOM
+        raise_notrace AboutToOOM
     | _ ->
         () ) ;
     let astates, path, astate_n =
@@ -867,7 +931,7 @@ let with_html_debug_node node ~desc ~f =
 let initial tenv proc_name proc_attrs =
   let initial_astate =
     AbductiveDomain.mk_initial tenv proc_name proc_attrs
-    |> PulseObjectiveCSummary.initial_with_positive_self proc_name proc_attrs
+    |> PulseSummary.initial_with_positive_self proc_name proc_attrs
     |> PulseTaintOperations.taint_initial tenv proc_name proc_attrs
   in
   [(ContinueProgram initial_astate, PathContext.initial)]
@@ -924,37 +988,75 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
       with_html_debug_node (Procdesc.get_start_node proc_desc) ~desc:"initial state creation"
         ~f:(fun () -> (initial_disjuncts, initial_non_disj))
     in
-    match DisjunctiveAnalyzer.compute_post analysis_data ~initial proc_desc with
-    | Some (posts, non_disj_astate) ->
-        with_html_debug_node (Procdesc.get_exit_node proc_desc) ~desc:"pulse summary creation"
-          ~f:(fun () ->
-            let exit_location = Procdesc.get_exit_node proc_desc |> Procdesc.Node.get_loc in
-            let posts, non_disj_astate =
-              (* Do final cleanup at the end of procdesc
-                 Forget path contexts on the way, we don't propagate them across functions *)
-              exit_function analysis_data exit_location posts non_disj_astate
-            in
-            let objc_nil_summary =
-              PulseObjectiveCSummary.mk_nil_messaging_summary tenv proc_name proc_attrs
-            in
-            let summary =
-              Option.to_list objc_nil_summary
-              @ PulseSummary.of_posts tenv proc_desc err_log exit_location posts
-            in
-            report_topl_errors proc_desc err_log summary ;
-            report_unnecessary_copies proc_desc err_log non_disj_astate ;
-            report_const_refable_parameters proc_desc err_log non_disj_astate ;
-            if Config.trace_topl then
-              L.debug Analysis Quiet "ToplTrace: dropped %d disjuncts in %a@\n"
-                !PulseTopl.Debug.dropped_disjuncts_count
-                Procname.pp_unique_id
-                (Procdesc.get_proc_name proc_desc) ;
-            if Config.pulse_scuba_logging then
-              ScubaLogging.log_count ~label:"pulse_summary" ~value:(List.length summary) ;
-            Stats.add_pulse_summaries_count (List.length summary) ;
-            Some summary )
-    | None ->
-        None )
+    let exit_summaries_opt, exn_sink_summaries_opt =
+      DisjunctiveAnalyzer.compute_post_including_exceptional analysis_data ~initial proc_desc
+    in
+    let process_postconditions node posts_opt ~convert_normal_to_exceptional =
+      match posts_opt with
+      | Some (posts, non_disj_astate) ->
+          let node_loc = Procdesc.Node.get_loc node in
+          let node_id = Procdesc.Node.get_id node in
+          let posts, non_disj_astate =
+            (* Do final cleanup at the end of procdesc
+               Forget path contexts on the way, we don't propagate them across functions *)
+            exit_function analysis_data node_loc posts non_disj_astate
+          in
+          let posts =
+            if convert_normal_to_exceptional then
+              List.map posts ~f:(fun edomain ->
+                  match edomain with ContinueProgram x -> ExceptionRaised x | _ -> edomain )
+            else posts
+          in
+          let summary = PulseSummary.of_posts tenv proc_desc err_log node_loc posts in
+          let is_exit_node =
+            Procdesc.Node.equal_id node_id (Procdesc.Node.get_id (Procdesc.get_exit_node proc_desc))
+          in
+          let summary =
+            if is_exit_node then
+              let objc_nil_summary =
+                PulseSummary.mk_objc_nil_messaging_summary tenv proc_name proc_attrs
+              in
+              Option.to_list objc_nil_summary @ summary
+            else summary
+          in
+          report_topl_errors proc_desc err_log summary ;
+          report_unnecessary_copies proc_desc err_log non_disj_astate ;
+          report_unnecessary_parameter_copies proc_desc err_log non_disj_astate ;
+          summary
+      | None ->
+          []
+    in
+    let report_on_and_return_summaries (summary : ExecutionDomain.summary list) :
+        ExecutionDomain.summary list option =
+      if Config.trace_topl then
+        L.debug Analysis Quiet "ToplTrace: dropped %d disjuncts in %a@\n"
+          !PulseTopl.Debug.dropped_disjuncts_count
+          Procname.pp_unique_id
+          (Procdesc.get_proc_name proc_desc) ;
+      if Config.pulse_scuba_logging then
+        ScubaLogging.log_count ~label:"pulse_summary" ~value:(List.length summary) ;
+      Stats.add_pulse_summaries_count (List.length summary) ;
+      Some summary
+    in
+    let exn_sink_node_opt = Procdesc.get_exn_sink proc_desc in
+    let summaries_at_exn_sink : ExecutionDomain.summary list =
+      (* We extract postconditions from the exceptions sink. *)
+      match exn_sink_node_opt with
+      | Some esink_node ->
+          with_html_debug_node esink_node ~desc:"pulse summary creation (for exception sink node)"
+            ~f:(fun () ->
+              process_postconditions esink_node exn_sink_summaries_opt
+                ~convert_normal_to_exceptional:true )
+      | None ->
+          []
+    in
+    let exit_node = Procdesc.get_exit_node proc_desc in
+    with_html_debug_node exit_node ~desc:"pulse summary creation" ~f:(fun () ->
+        let summaries_for_exit =
+          process_postconditions exit_node exit_summaries_opt ~convert_normal_to_exceptional:false
+        in
+        let exit_esink_summaries = summaries_for_exit @ summaries_at_exn_sink in
+        report_on_and_return_summaries exit_esink_summaries ) )
   else None
 
 

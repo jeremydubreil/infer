@@ -111,6 +111,9 @@ module Reg : sig
     val pp : t pp
   end
 
+  module Map : Map.S with type key := t
+  module Tbl : HashTable.S with type key := t
+
   val pp : t pp
 
   include Invariant.S with type t := t
@@ -246,3 +249,4 @@ val fold_regs : t -> 's -> f:(Reg.t -> 's -> 's) -> 's
 
 val is_true : t -> bool
 val is_false : t -> bool
+val typ_of : t -> Typ.t

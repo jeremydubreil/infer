@@ -207,7 +207,9 @@ val capture : bool
 
 val capture_block_list : string option
 
-val capture_textual : string option
+val capture_textual : string list
+
+val capture_doli : string option
 
 val censor_report : ((bool * Str.regexp) * (bool * Str.regexp) * string) list
 
@@ -317,7 +319,7 @@ val dotty_cfg_libs : bool
 
 val dump_duplicate_symbols : bool
 
-val dump_textual : string option
+val dump_textual : bool
 
 val dynamic_dispatch_json_file_path : string option
 
@@ -344,6 +346,8 @@ val fcp_apple_clang : string option
 val fcp_syntax_only : bool
 
 val file_renamings : string option
+
+val files_to_analyze_index : string option
 
 val filter_paths : bool
 
@@ -440,6 +444,8 @@ val liveness_ignored_constant : string list
 
 val load_average : float option
 
+val margin_html : int
+
 val mask_sajwa_exceptions : bool
 
 val max_nesting : int option
@@ -450,9 +456,11 @@ val memtrace_sampling_rate : float
 
 val merge : bool
 
-val merge_infer_out : string list
+val merge_capture : string list
 
 val merge_report : string list
+
+val merge_report_summaries : string list
 
 val method_decls_info : string option
 
@@ -562,6 +570,8 @@ val pulse_model_returns_copy_pattern : Str.regexp option
 
 val pulse_model_return_first_arg : Str.regexp option
 
+val pulse_model_return_this : Str.regexp option
+
 val pulse_model_return_nonnull : Str.regexp option
 
 val pulse_model_skip_pattern : Str.regexp option
@@ -584,6 +594,8 @@ val pulse_report_latent_issues : bool
 
 val pulse_report_issues_for_tests : bool
 
+val pulse_sanity_checks : bool
+
 val pulse_recency_limit : int
 
 val pulse_scuba_logging : bool
@@ -593,7 +605,7 @@ val pulse_skip_procedures : Str.regexp option
 type pulse_taint_config =
   { sources: Pulse_config_t.matchers
   ; sanitizers: Pulse_config_t.matchers
-  ; propagaters: Pulse_config_t.matchers
+  ; propagators: Pulse_config_t.matchers
   ; sinks: Pulse_config_t.matchers
   ; policies: Pulse_config_t.taint_policies
   ; data_flow_kinds: string list }
@@ -674,6 +686,8 @@ val select : [`All | `Select of int] option
 
 val show_buckets : bool
 
+val shrink_analysis_db : bool
+
 val simple_lineage_include_builtins : bool
 
 val simple_lineage_model_fields : bool
@@ -740,6 +754,8 @@ val starvation_whole_program : bool
 
 val subtype_multirange : bool
 
+val suffix_match_changed_files : bool
+
 val summaries_caches_max_size : int [@@warning "-32"]
 
 val suppress_lint_ignore_types : bool
@@ -754,13 +770,15 @@ val testing_mode : bool
 
 val threadsafe_aliases : Yojson.Basic.t
 
+val timeout : float option
+
 val top_longest_proc_duration_size : int option
 
 val topl_max_conjuncts : int
 
 val topl_max_disjuncts : int
 
-val topl_properties : string list
+val topl_properties : ToplAst.t list
 
 val trace_absarray : bool
 
@@ -795,8 +813,6 @@ val xcode_isysroot_suffix : string option
 val xcpretty : bool
 
 (** {2 Configuration values derived from command-line options} *)
-
-val dynamic_dispatch : bool
 
 val toplevel_results_dir : string
 (** In some integrations, eg Buck, infer subprocesses started by the build system (started by the

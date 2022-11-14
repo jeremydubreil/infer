@@ -244,7 +244,7 @@ OPTIONS
            issue was filtered.           See also infer-report(1) and infer-run(1).
 
        --cfg-json file
-           Path to CFG json file           See also infer-analyzejson(1).
+           Path to CFG json file           See also infer-capture(1).
 
        --changed-files-index file
            Specify the file containing the list of source files from which
@@ -373,9 +373,8 @@ OPTIONS
            Activates: Debug mode (also sets --debug-level 2,
            --developer-mode, --print-buckets, --print-types,
            --reports-include-ml-loc, --no-only-cheap-debug, --trace-error,
-           --write-html) (Conversely: --no-debug | -G)           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-report(1),
-           infer-reportdiff(1), and infer-run(1).
+           --write-html) (Conversely: --no-debug | -G)           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-report(1), infer-reportdiff(1), and infer-run(1).
 
        --debug-level level
            Debug level (sets --bo-debug level, --debug-level-analysis level,
@@ -383,27 +382,23 @@ OPTIONS
       - 0: only basic debugging enabled
              - 1: verbose debugging enabled
              - 2: very verbose debugging enabled
-           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-report(1),
-           infer-reportdiff(1), and infer-run(1).
+           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-report(1), infer-reportdiff(1), and infer-run(1).
 
        --debug-level-analysis int
            Debug level for the analysis. See --debug-level for accepted
-           values.           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-report(1),
-           infer-reportdiff(1), and infer-run(1).
+           values.           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-report(1), infer-reportdiff(1), and infer-run(1).
 
        --debug-level-capture int
            Debug level for the capture. See --debug-level for accepted
-           values.           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-report(1),
-           infer-reportdiff(1), and infer-run(1).
+           values.           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-report(1), infer-reportdiff(1), and infer-run(1).
 
        --debug-level-linters int
            Debug level for the linters. See --debug-level for accepted
-           values.           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-report(1),
-           infer-reportdiff(1), and infer-run(1).
+           values.           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-report(1), infer-reportdiff(1), and infer-run(1).
 
        --no-deduplicate
            Deactivates: Apply issue-specific deduplication during analysis
@@ -596,6 +591,7 @@ OPTIONS
              PRECONDITION_NOT_MET (enabled by default),
              PREMATURE_NIL_TERMINATION_ARGUMENT (enabled by default),
              PULSE_CONST_REFABLE (disabled by default),
+             PULSE_READONLY_SHARED_PTR_PARAM (disabled by default),
              PULSE_RESOURCE_LEAK (disabled by default),
              PULSE_UNINITIALIZED_VALUE (enabled by default),
              PULSE_UNINITIALIZED_VALUE_LATENT (disabled by default),
@@ -624,7 +620,7 @@ OPTIONS
              STRONG_DELEGATE_WARNING (enabled by default),
              STRONG_SELF_NOT_CHECKED (enabled by default),
              Symexec_memory_error (enabled by default),
-             TAINT_ERROR (disabled by default),
+             TAINT_ERROR (enabled by default),
              THREAD_SAFETY_VIOLATION (enabled by default),
              TOPL_ERROR (enabled by default),
              UNINITIALIZED_VALUE (enabled by default),
@@ -710,6 +706,12 @@ OPTIONS
            JSON with a list of file renamings to use while computing
            differential reports           See also infer-reportdiff(1).
 
+       --files-to-analyze-index file
+           File containing a list of source files where analysis should start
+           from. When used, the set of files given to this argument must be a
+           subset of that passed to --changed-files-index (which must be
+           specified).           See also infer-analyze(1).
+
        --no-filtering,-F
            Deactivates: Do not show the experimental and block listed issue
            types (Conversely: --filtering | -f)           See also infer-report(1).
@@ -765,9 +767,8 @@ OPTIONS
     See also infer-capture(1).
 
        --help
-           Show this manual           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-debug(1),
-           infer-explore(1), infer-help(1), infer-report(1),
+           Show this manual           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-debug(1), infer-explore(1), infer-help(1), infer-report(1),
            infer-reportdiff(1), and infer-run(1).
 
        --help-checker +checker-id
@@ -777,16 +778,14 @@ OPTIONS
        --help-format { auto | groff | pager | plain }
            Show this help in the specified format. auto sets the format to
            plain if the environment variable TERM is "dumb" or undefined, and
-           to pager otherwise.           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-debug(1),
-           infer-explore(1), infer-help(1), infer-report(1),
+           to pager otherwise.           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-debug(1), infer-explore(1), infer-help(1), infer-report(1),
            infer-reportdiff(1), and infer-run(1).
 
        --help-full
            Show this manual with all internal options in the INTERNAL OPTIONS
-           section           See also infer-analyze(1), infer-analyzejson(1),
-           infer-capture(1), infer-compile(1), infer-debug(1),
-           infer-explore(1), infer-help(1), infer-report(1),
+           section           See also infer-analyze(1), infer-capture(1), infer-compile(1),
+           infer-debug(1), infer-explore(1), infer-help(1), infer-report(1),
            infer-reportdiff(1), and infer-run(1).
 
        --help-issue-type +UNIQUE_ID
@@ -862,8 +861,8 @@ OPTIONS
     See also infer-analyze(1).
 
        --keep-going
-           Activates: Keep going when the analysis encounters a failure
-           (Conversely: --no-keep-going)           See also infer-analyze(1).
+           Activates: Keep going when the analysis or capture encounter a
+           failure (Conversely: --no-keep-going)           See also infer-analyze(1) and infer-capture(1).
 
        --kotlin-capture
            Activates: Enable Kotlin capture (experimental, do not use).
@@ -958,7 +957,7 @@ OPTIONS
            Activates: Merge the captured results directories specified in the
            dependency file. (Conversely: --no-merge)           See also infer-analyze(1).
 
-       --merge-infer-out +string
+       --merge-capture +string
            Specifies an Infer results directory. The files and procedures
            captured in it will be merged together into the results directory
            specified with -o. Relative paths are interpreted as relative to
@@ -969,6 +968,11 @@ OPTIONS
            files in all specified results directories will be merged together
            and deduplicated before being stored in the main results
            directory.           See also infer-report(1).
+
+       --merge-report-summaries +string
+           Specifies an Infer results directory. The report summaries in all
+           specified results directories will be merged together and
+           deduplicated before reporting is done.           See also infer-report(1).
 
        --no-parameter-not-null-checked
            Deactivates: checker parameter-not-null-checked: An
@@ -1121,11 +1125,17 @@ OPTIONS
 
        --pulse-model-return-first-arg string
            Regex of methods that should be modelled as returning the first
-           argument in Pulse           See also infer-analyze(1).
+           argument in Pulse in terms of the source language semantics.
+           Languages supported: Java, C, Objective-C           See also infer-analyze(1).
 
        --pulse-model-return-nonnull string
            Regex of methods that should be modelled as returning non-null in
            Pulse           See also infer-analyze(1).
+
+       --pulse-model-return-this string
+           Regex of methods that should be modelled as returning the `this`
+           or `self` argument of an instance method in Pulse. Languages
+           supported: Java, Objective-C           See also infer-analyze(1).
 
        --pulse-model-returns-copy-pattern string
            Regex of methods that should be modelled as creating copies in
@@ -1169,11 +1179,15 @@ OPTIONS
     See also infer-analyze(1).
 
        --pulse-taint-config +path
-           Path to a taint analysis configuration file. This file can define
-           --pulse-taint-sources, --pulse-taint-sanitizers,
-           --pulse-taint-sanitizers, --pulse-taint-sinks,
-           --pulse-taint-policies, and --pulse-taint-data-flow-kinds.       
-    See also infer-analyze(1).
+           Path to a taint analysis configuration file or a directory
+           containing such files. This file can define --pulse-taint-sources,
+           --pulse-taint-sanitizers, --pulse-taint-propagators,
+           --pulse-taint-sinks, --pulse-taint-policies, and
+           --pulse-taint-data-flow-kinds.           If a path to a directory is given then the configuration files
+           must have the `.json` extension. Any other file will be ignored.
+           The subdirectories will be explored and must follow the same
+           convention.
+           See also infer-analyze(1).
 
        --pulse-taint-data-flow-kinds json
            Specify which taint kinds should be used for data flow reporting
@@ -1201,8 +1215,8 @@ OPTIONS
            }
            See also infer-analyze(1).
 
-       --pulse-taint-propagaters json
-           Quick way to specify simple propagaters as a JSON objects. See
+       --pulse-taint-propagators json
+           Quick way to specify simple propagators as a JSON objects. See
            --pulse-taint-sources for the fields format documentation.       
     See also infer-analyze(1).
 
@@ -1239,14 +1253,17 @@ OPTIONS
              - "taint_target":
                  where the taint should be applied in the procedure.
                  - "ReturnValue": (default for taint sources and
-           propagaters)
+           propagators)
                  - "AllArguments": (default for taint sanitizers and sinks)
                  - ["ArgumentPositions", [<int list>]]:
                      argument positions given by index (zero-indexed)
                  - ["AllArgumentsButPositions", [<int list>]]:
                      all arguments except given indices (zero-indexed)
-                 - ["ArgumentMatchingTypes", [<type list>]]:
+                 - ["ArgumentsMatchingTypes", [<type list>]]:
                      arguments with types containing supplied strings
+                 - ["Fields", [<(string * taint_target) list>]]:
+                     fields given by name in return value, arguments or
+           other fields
                N.B. for methods, index 0 is this/self.
              - "match_objc_blocks": boolean, "false" by default
                  "true" if only Objective-C blocks should be matched.
@@ -1384,6 +1401,11 @@ OPTIONS
        --self-in-block-only
            Activates: Enable self-in-block and disable all other checkers
            (Conversely: --no-self-in-block-only)           See also infer-analyze(1).
+
+       --shrink-analysis-db
+           Activates: After analysis, delete analysis summaries (but not
+           report summaries) and vacuum analysis database. (Conversely:
+           --no-shrink-analysis-db)           See also infer-analyze(1).
 
        --simple-lineage
            Activates: checker simple-lineage: Computes a dataflow graph
@@ -1547,11 +1569,16 @@ OPTIONS
            (Conversely: --no-starvation-only)           See also infer-analyze(1).
 
        --tenv-json file
-           Path to TEnv json file           See also infer-analyzejson(1).
+           Path to TEnv json file           See also infer-capture(1).
 
        --threadsafe-aliases json
            Specify custom annotations that should be considered aliases of
            @ThreadSafe           See also infer-analyze(1).
+
+       --timeout float
+           Time after which any checker (except biabduction) should give up
+           analysing the current function or method, in seconds       
+    See also infer-analyze(1) and infer-run(1).
 
        --top-longest-proc-duration-size int
            Number of procedures for which we track longest analysis duration
@@ -1779,12 +1806,18 @@ INTERNAL OPTIONS
        --capture-block-list-reset
            Cancel the effect of --capture-block-list.
 
-       --capture-textual path
-           Generate a SIL program from a textual representation given in a
-           .sil file.
+       --capture-doli path
+           Generate models from a DOLI representation given a .doli file.
+
+       --capture-doli-reset
+           Cancel the effect of --capture-doli.
+
+       --capture-textual +path
+           Generate a SIL program from a textual representation given in .sil
+           files.
 
        --capture-textual-reset
-           Cancel the effect of --capture-textual.
+           Set --capture-textual to the empty list.
 
        --no-censor-report-reset
            Set --no-censor-report to the empty list.
@@ -2008,12 +2041,10 @@ INTERNAL OPTIONS
            Deactivates: Print the cfg of the code coming from the libraries
            (Conversely: --dotty-cfg-libs)
 
-       --dump-textual path
-           Generate a SIL program from the captured target. The target has to
-           be a single Java file.
-
-       --dump-textual-reset
-           Cancel the effect of --dump-textual.
+       --dump-textual
+           Activates: Generate a SIL program from the captured target. A
+           filename.sil file is generated for each filename.java file in the
+           target. (Conversely: --no-dump-textual)
 
        --dynamic-dispatch-json-file-path-reset
            Cancel the effect of --dynamic-dispatch-json-file-path.
@@ -2060,6 +2091,9 @@ INTERNAL OPTIONS
 
        --file-renamings-reset
            Cancel the effect of --file-renamings.
+
+       --files-to-analyze-index-reset
+           Cancel the effect of --files-to-analyze-index.
 
        --no-filter-paths
            Deactivates: Apply filters specified in --report_* options.
@@ -2175,6 +2209,9 @@ INTERNAL OPTIONS
        --margin int
            Set right margin for the pretty printing functions
 
+       --margin-html int
+           Set margin for the pretty printing in html
+
        --max-jobs-reset
            Cancel the effect of --max-jobs.
 
@@ -2184,11 +2221,14 @@ INTERNAL OPTIONS
        --memtrace-sampling-rate-reset
            Cancel the effect of --memtrace-sampling-rate.
 
-       --merge-infer-out-reset
-           Set --merge-infer-out to the empty list.
+       --merge-capture-reset
+           Set --merge-capture to the empty list.
 
        --merge-report-reset
            Set --merge-report to the empty list.
+
+       --merge-report-summaries-reset
+           Set --merge-report-summaries to the empty list.
 
        --method-decls-info method_decls_info.json
            Specifies the file containing the method declarations info (eg.
@@ -2371,6 +2411,9 @@ INTERNAL OPTIONS
        --pulse-model-return-nonnull-reset
            Cancel the effect of --pulse-model-return-nonnull.
 
+       --pulse-model-return-this-reset
+           Cancel the effect of --pulse-model-return-this.
+
        --pulse-model-returns-copy-pattern-reset
            Cancel the effect of --pulse-model-returns-copy-pattern.
 
@@ -2412,6 +2455,10 @@ INTERNAL OPTIONS
            Deactivates: Report latent issues instead of waiting for them to
            become manifest, when the latent issue itself is enabled.
            (Conversely: --pulse-report-latent-issues)
+
+       --pulse-sanity-checks
+           Activates: Enable expensive internal checks/assertions.
+           (Conversely: --no-pulse-sanity-checks)
 
        --pulse-scuba-logging
            Activates: Log unknown functions to scuba in pulse checkers; also
@@ -2502,6 +2549,11 @@ INTERNAL OPTIONS
        --simple-lineage-max-cfg-size-reset
            Cancel the effect of --simple-lineage-max-cfg-size.
 
+       --simple-shape
+           Activates: checker simple-shape: Computes simple shape
+           informations to be used in the Lineage analysis (Conversely:
+           --no-simple-shape)
+
        --siof-safe-methods-reset
            Set --siof-safe-methods to the empty list.
 
@@ -2555,6 +2607,12 @@ INTERNAL OPTIONS
            Deactivates: Use the multirange subtyping domain. Used in the Java
            frontend and in biabduction. (Conversely: --subtype-multirange)
 
+       --suffix-match-changed-files
+           Activates: When computing the set of files to analyze using
+           --changed-files-index, a file will be analyzed if a name in the
+           changed files index is a suffix of its name. (Conversely:
+           --no-suffix-match-changed-files)
+
        --summaries-caches-max-size int
            The maximum amount of elements the summaries LRU caches can hold
 
@@ -2576,6 +2634,9 @@ INTERNAL OPTIONS
        --testing-mode
            Activates: Mode for testing, where no headers are translated, and
            dot files are created (clang only) (Conversely: --no-testing-mode)
+
+       --timeout-reset
+           Cancel the effect of --timeout.
 
        --top-longest-proc-duration-size-reset
            Cancel the effect of --top-longest-proc-duration-size.
@@ -2713,9 +2774,9 @@ FILES
 
 
 SEE ALSO
-       infer-analyze(1), infer-analyzejson(1), infer-capture(1),
-       infer-compile(1), infer-debug(1), infer-explore(1), infer-help(1),
-       infer-report(1), infer-reportdiff(1), infer-run(1)
+       infer-analyze(1), infer-capture(1), infer-compile(1), infer-debug(1),
+       infer-explore(1), infer-help(1), infer-report(1), infer-reportdiff(1),
+       infer-run(1)
 
 
 

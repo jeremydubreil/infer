@@ -30,19 +30,28 @@ let should_process filename =
 
 
 let parse_translate_store result_dir =
+  let otp_modules_file = Filename.concat result_dir "otp_modules.list" in
+  let otp_modules =
+    match Utils.read_file otp_modules_file with
+    | Ok modules ->
+        String.Set.of_list modules
+    | Error err ->
+        L.die InternalError "Error while loading list of OTP modules from file %s: %s@."
+          otp_modules_file err
+  in
   let process_one_ast json =
     match ErlangJsonParser.to_module json with
     | None ->
         false
     | Some ast -> (
-        let env = ErlangEnvironment.initialize_environment ast in
+        let env = ErlangEnvironment.initialize_environment ast otp_modules in
         match ErlangAstValidator.validate env ast with
         | true ->
             ErlangScopes.annotate_scopes env ast ;
             ErlangTranslator.translate_module env ast ;
             true
         | false ->
-            L.debug Capture Verbose "Invalid AST@." ;
+            L.internal_error "Ignoring module %s due to invalid AST.@\n" env.current_module ;
             false )
   in
   let process_one_file json_file =
@@ -229,7 +238,7 @@ let simplify_targets targets =
 let run_buck ~command ~args =
   let args_file = Filename.temp_file ~in_dir:(ResultsDir.get_path Temporary) "buck" ".args" in
   Utils.with_file_out args_file ~f:(fun channel -> Out_channel.output_lines channel args) ;
-  Buck.wrap_buck_call ~label:"erlang" [command; "@" ^ args_file]
+  Buck.wrap_buck_call ~label:"erlang" V2 [command; "@" ^ args_file]
 
 
 let update_buck_targets ~command ~args =

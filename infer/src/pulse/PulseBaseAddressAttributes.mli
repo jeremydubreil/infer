@@ -30,6 +30,8 @@ val always_reachable : AbstractValue.t -> t -> t
 
 val java_resource_release : AbstractValue.t -> t -> t
 
+val csharp_resource_release : AbstractValue.t -> t -> t
+
 val fold : (AbstractValue.t -> Attributes.t -> 'a -> 'a) -> t -> 'a -> 'a
 
 val check_valid : AbstractValue.t -> t -> (unit, Invalidation.t * Trace.t) result
@@ -68,17 +70,23 @@ val get_must_be_initialized : AbstractValue.t -> t -> (Timestamp.t * Trace.t) op
 
 val add_dynamic_type : Typ.t -> AbstractValue.t -> t -> t
 
+val add_dynamic_type_source_file : Typ.t -> SourceFile.t -> AbstractValue.t -> t -> t
+
 val get_dynamic_type : t -> AbstractValue.t -> Typ.t option
+
+val get_dynamic_type_source_file : t -> AbstractValue.t -> (Typ.t * SourceFile.t option) option
 
 val add_ref_counted : AbstractValue.t -> t -> t
 
 val is_ref_counted : AbstractValue.t -> t -> bool
 
-val get_written_to : AbstractValue.t -> t -> Trace.t option
+val get_written_to : AbstractValue.t -> t -> (Timestamp.t * Trace.t) option
 
 val std_vector_reserve : AbstractValue.t -> t -> t
 
 val is_java_resource_released : AbstractValue.t -> t -> bool
+
+val is_csharp_resource_released : AbstractValue.t -> t -> bool
 
 val is_std_moved : AbstractValue.t -> t -> bool
 

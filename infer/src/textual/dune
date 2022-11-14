@@ -1,0 +1,27 @@
+; Copyright (c) Facebook, Inc. and its affiliates.
+;
+; This source code is licensed under the MIT license found in the
+; LICENSE file in the root directory of this source tree.
+
+(library
+ (name Textuallib)
+ (public_name infer.Textuallib)
+ (flags
+  (:standard -open Core -open IStdlib -open IStd -open IBase -open IR))
+ (libraries core zarith IStdlib IBase IR)
+ (preprocess
+  (pps ppx_compare ppx_hash ppx_show ppx_sexp_conv ppx_yojson_conv)))
+
+(ocamllex TextualLexer)
+
+(menhir
+ (modules TextualMenhir)
+ (flags --explain)
+ (infer false))
+
+(ocamllex doliLexer)
+
+(menhir
+ (modules doliFrameParser doliJavaMatch doliObjCMatch doliBody)
+ (merge_into doliCombined)
+ (flags --explain))

@@ -66,8 +66,13 @@ let command ~summary ?readme param =
            \"-\""
     and append_report =
       flag "append-report" no_arg ~doc:"append to report file"
+    and unbuffered =
+      flag "unbuffered" no_arg ~doc:"disable buffering of stdout and stderr"
     in
     Dbg.init ~colors ?margin ~config () ;
+    if unbuffered then (
+      Out_channel.set_buffered stdout false ;
+      Out_channel.set_buffered stderr false ) ;
     Option.iter ~f:(Report.init ~append:append_report) report
   in
   Llair.Loc.root := Some (Unix.realpath (Sys.getcwd ())) ;
@@ -102,6 +107,15 @@ let unmarshal file () =
   In_channel.with_open_bin file (fun ic : Llair.program ->
       Marshal.from_channel ic )
 
+let generate_llair llair_output program =
+  match llair_output with
+  | None -> ()
+  | Some "-" -> Format.printf "%a@." Llair.Program.pp program
+  | Some file ->
+      Out_channel.with_open_bin file (fun oc ->
+          let fs = Format.formatter_of_out_channel oc in
+          Format.fprintf fs "%a@." Llair.Program.pp program )
+
 let entry_points = Config.find_list "entry-points"
 
 let used_globals pgm entry_points preanalyze =
@@ -124,7 +138,10 @@ let used_globals pgm entry_points preanalyze =
       (Llair.Global.Set.of_iter
          (Iter.map ~f:(fun g -> g.name) (IArray.to_iter pgm.globals)) )
 
-type common = {goal_trace: string list option}
+type common =
+  { goal_trace: string list option
+  ; llair_output: string option
+  ; max_disjuncts: int }
 
 let common : common param =
   let%map_open goal_trace =
@@ -139,8 +156,21 @@ let common : common param =
          prioritizes trace progress. When an execution is found that \
          visits each function in order, terminate if \
          \"Stop.on_reached_goal\" is being traced."
+  and llair_output =
+    flag "llair-output" (optional string)
+      ~doc:
+        "<file> write generated textual LLAIR to <file>, or to standard \
+         output if \"-\""
+  and max_disjuncts =
+    flag "max-disjuncts"
+      (optional_with_default 3 int)
+      ~doc:
+        "<int> set an upper bound on the number of constant-return summary \
+         disjuncts in the distance heuristic pre-analysis.  If set to 0, \
+         disable constant propagation entirely; if set to a negative \
+         number, allow unboundedly-many disjuncts"
   in
-  {goal_trace}
+  {goal_trace; llair_output; max_disjuncts}
 
 let analyze =
   let%map_open loop_bound =
@@ -186,6 +216,9 @@ let analyze =
   and no_simplify_states =
     flag "no-simplify-states" no_arg
       ~doc:"do not simplify states during symbolic execution"
+  and no_strong_infer_frame =
+    flag "no-strong-infer-frame" no_arg
+      ~doc:"do not fallback to Z3 before failing infer_frame queries"
   and stats =
     flag "stats" no_arg ~doc:"output performance statistics to stderr"
   and dump_query =
@@ -194,10 +227,14 @@ let analyze =
   and dump_simplify =
     flag "dump-simplify" (optional int)
       ~doc:"<int> dump simplify query <int> and halt"
+  and dump_witness =
+    flag "dump-witness" (optional string)
+      ~doc:"<file> dump goal witness trace to <file>"
   in
-  fun {goal_trace} program () ->
+  fun common program () ->
     Timer.enabled := stats ;
     let pgm = program () in
+    generate_llair common.llair_output pgm ;
     let globals = used_globals pgm entry_points preanalyze_globals in
     let module Config = struct
       let loop_bound = if loop_bound < 0 then Int.max_int else loop_bound
@@ -226,11 +263,15 @@ let analyze =
     Llair.cct_schedule_points := cct_schedule_points ;
     Symbolic_heap.do_normalize := normalize_states ;
     Domain_sh.simplify_states := not no_simplify_states ;
+    Solver.strong_infer_frame := not no_strong_infer_frame ;
     Option.iter dump_query ~f:(fun n -> Solver.dump_query := n) ;
     Option.iter dump_simplify ~f:(fun n ->
         Symbolic_heap.Xsh.dump_simplify := n ) ;
+    History.dump_witness := dump_witness ;
+    Distances.max_disjuncts :=
+      if common.max_disjuncts < 0 then Int.max_int else common.max_disjuncts ;
     at_exit (fun () -> Report.coverage pgm) ;
-    ( match goal_trace with
+    ( match common.goal_trace with
     | None ->
         let module Analysis = Control.Make (Config) (Domain) (Queue) in
         Analysis.exec_pgm pgm
@@ -254,22 +295,43 @@ let analyze_cmd =
   in
   command ~summary ~readme param
 
-let disassemble =
-  let%map_open llair_output =
-    flag "llair-output" (optional string)
-      ~doc:
-        "<file> write generated textual LLAIR to <file>, or to standard \
-         output if omitted"
+let validate =
+  let%map_open jobs =
+    flag "jobs" ~aliases:["j"]
+      (optional_with_default 1 int)
+      ~doc:"<int> use the given number of parallel processes"
   in
-  fun program () ->
-    let pgm = program () in
-    ( match llair_output with
-    | None -> Format.printf "%a@." Llair.Program.pp pgm
-    | Some file ->
-        Out_channel.with_open_bin file (fun oc ->
-            let fs = Format.formatter_of_out_channel oc in
-            Format.fprintf fs "%a@." Llair.Program.pp pgm ) ) ;
+  fun history () ->
+    History.jobs := jobs ;
+    History.validate history Format.std_formatter ;
     Report.Ok
+
+let validate_cmd =
+  let summary = "validate goal trace witness" in
+  let readme () =
+    "The <input> file must have been produced by `sledge analyze \
+     -dump-witness`."
+  in
+  let unmarshal file =
+    In_channel.with_open_bin file (fun ic : History.t ->
+        Marshal.from_channel ic )
+  in
+  let param =
+    let open Command.Param in
+    anon ("<input>" %: string) >>| unmarshal |*> validate
+  in
+  command ~summary ~readme param
+
+let disassemble :
+    (common -> (unit -> Llair.program) -> unit -> Report.status) param =
+  Command.Param.return
+  @@ fun {llair_output} program () ->
+  let program = program () in
+  let llair_output =
+    match llair_output with None -> Some "-" | _ -> llair_output
+  in
+  generate_llair llair_output program ;
+  Report.Ok
 
 let disassemble_cmd =
   let summary = "print LLAIR code in textual form" in
@@ -279,7 +341,7 @@ let disassemble_cmd =
   in
   let param =
     let open Command.Param in
-    anon ("<input>" %: string) >>| unmarshal |*> disassemble
+    anon ("<input>" %: string) >>| unmarshal |*> (common |*> disassemble)
   in
   command ~summary ~readme param
 
@@ -309,13 +371,14 @@ let translate : (common -> string -> unit -> Llair.program) param =
         "do not internalize all functions except the entry points \
          specified in the config file"
   in
-  fun {goal_trace} bitcode_input () ->
+  fun {goal_trace; llair_output} bitcode_input () ->
     let preserve_fns = Option.value ~default:[] goal_trace in
     let program =
       Frontend.translate ~internalize:(not no_internalize) ~preserve_fns
         ~opt_level ~size_level bitcode_input ?dump_bitcode
     in
     Option.iter ~f:(marshal program) output ;
+    generate_llair llair_output program ;
     program
 
 let llvm_grp =
@@ -337,7 +400,7 @@ let llvm_grp =
       "translate LLVM bitcode to LLAIR and print in textual form"
     in
     let readme () = "The <input> file must be LLVM bitcode." in
-    let param = common |*> translate_input |*> disassemble in
+    let param = common |*> translate_input *|> disassemble in
     command ~summary ~readme param
   in
   let analyze_cmd =
@@ -377,12 +440,8 @@ let readme () =
 
 ;;
 Memtrace.trace_if_requested ()
-
 ;;
-if Version.debug then (
-  Printexc.record_backtrace true ;
-  Out_channel.set_buffered stderr false )
-
+if Version.debug then Printexc.record_backtrace true
 ;;
 Stdlib.Sys.catch_break true
 
@@ -392,5 +451,6 @@ Command.run ~version:Version.version ~build_info:Version.build_info
      [ ("buck", Sledge_buck.main ~command)
      ; ("llvm", llvm_grp)
      ; ("analyze", analyze_cmd)
+     ; ("validate", validate_cmd)
      ; ("disassemble", disassemble_cmd)
      ; ("smt", smt_cmd) ] )

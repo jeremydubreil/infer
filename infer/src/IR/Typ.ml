@@ -24,12 +24,12 @@ module IntegerWidths = struct
   end)
 
   let load_statement =
-    ResultsDatabase.register_statement
+    Database.register_statement CaptureDatabase
       "SELECT integer_type_widths FROM source_files WHERE source_file = :k"
 
 
   let load source =
-    ResultsDatabase.with_registered_statement load_statement ~f:(fun db load_stmt ->
+    Database.with_registered_statement load_statement ~f:(fun db load_stmt ->
         SourceFile.SQLite.serialize source
         |> Sqlite3.bind load_stmt 1
         |> SqliteUtils.check_result_code db ~log:"load bind source file" ;
@@ -54,7 +54,7 @@ type ikind =
   | IULongLong  (** [unsigned long long] (or [unsigned int64_] on Microsoft Visual C) *)
   | I128  (** [__int128_t] *)
   | IU128  (** [__uint128_t] *)
-[@@deriving compare, equal, yojson_of]
+[@@deriving compare, equal, yojson_of, sexp, hash]
 
 let ikind_to_string = function
   | IChar ->
@@ -128,7 +128,7 @@ let ikind_is_char = function IChar | ISChar | IUChar -> true | _ -> false
 
 (** Kinds of floating-point numbers *)
 type fkind = FFloat  (** [float] *) | FDouble  (** [double] *) | FLongDouble  (** [long double] *)
-[@@deriving compare, equal, yojson_of]
+[@@deriving compare, equal, yojson_of, sexp, hash]
 
 let fkind_to_string = function
   | FFloat ->
@@ -147,7 +147,7 @@ type ptr_kind =
   | Pk_objc_weak  (** Obj-C __weak pointer *)
   | Pk_objc_unsafe_unretained  (** Obj-C __unsafe_unretained pointer *)
   | Pk_objc_autoreleasing  (** Obj-C __autoreleasing pointer *)
-[@@deriving compare, equal, yojson_of]
+[@@deriving compare, equal, yojson_of, sexp, hash]
 
 let ptr_kind_string = function
   | Pk_lvalue_reference ->
@@ -169,7 +169,7 @@ module T = struct
      inconsistent for the same type depending on compilation units. *)
   type type_quals =
     {is_const: bool; is_restrict: bool; is_trivially_copyable: bool [@ignore]; is_volatile: bool}
-  [@@deriving compare, equal, yojson_of]
+  [@@deriving compare, equal, yojson_of, sexp, hash]
 
   (** types for sil (structured) expressions *)
   type t = {desc: desc; quals: type_quals}
@@ -192,9 +192,11 @@ module T = struct
         {name: QualifiedCppName.t; template_spec_info: template_spec_info; is_union: bool [@ignore]}
     | CSharpClass of CSharpClassName.t
     | ErlangType of ErlangTypeName.t
+    | HackClass of HackClassName.t
     | JavaClass of JavaClassName.t
     | ObjcClass of QualifiedCppName.t
     | ObjcProtocol of QualifiedCppName.t
+  [@@deriving hash, sexp]
 
   and template_arg = TType of t | TInt of int64 | TNull | TNullPtr | TOpaque
 
@@ -334,7 +336,7 @@ let get_ikind_opt {desc} = match desc with Tint ikind -> Some ikind | _ -> None
 (* TODO: size_t should be implementation-dependent. *)
 let size_t = IULong
 
-let escape pe = if Pp.equal_print_kind pe.Pp.kind Pp.HTML then Escape.escape_xml else ident
+let escape pe = if Pp.equal_print_kind pe.Pp.kind Pp.HTML then Escape.escape_xml else Fn.id
 
 (** Pretty print a type with all the details, using the C syntax. *)
 let rec pp_full pe f typ =
@@ -378,6 +380,8 @@ and pp_name_c_syntax pe f = function
       F.fprintf f "%a%a" QualifiedCppName.pp name (pp_template_spec_info pe) template_spec_info
   | ErlangType name ->
       ErlangTypeName.pp f name
+  | HackClass name ->
+      HackClassName.pp f name
   | JavaClass name ->
       JavaClassName.pp f name
   | CSharpClass name ->
@@ -417,7 +421,7 @@ let desc_to_string desc =
 
 
 module Name = struct
-  type t = name [@@deriving compare, equal, yojson_of]
+  type t = name [@@deriving compare, equal, yojson_of, sexp, hash]
 
   (* NOTE: When a same struct type is used in C/C++/ObjC/ObjC++, their struct types may different,
      eg [CStruct] in C, but [CppClass] in C++.  On the other hand, since [Fieldname.t] includes the
@@ -468,6 +472,12 @@ module Name = struct
         1
     | ObjcProtocol name1, ObjcProtocol name2 ->
         QualifiedCppName.compare_name name1 name2
+    | HackClass name1, HackClass name2 ->
+        HackClassName.compare name1 name2
+    | HackClass _, _ ->
+        -1
+    | _, HackClass _ ->
+        1
 
 
   let hash = Hashtbl.hash
@@ -478,7 +488,7 @@ module Name = struct
     | CppClass {name; template_spec_info} ->
         let template_suffix = F.asprintf "%a" (pp_template_spec_info Pp.text) template_spec_info in
         QualifiedCppName.append_template_args_to_last name ~args:template_suffix
-    | JavaClass _ | CSharpClass _ | ErlangType _ ->
+    | JavaClass _ | CSharpClass _ | ErlangType _ | HackClass _ ->
         QualifiedCppName.empty
 
 
@@ -487,7 +497,7 @@ module Name = struct
         name
     | CppClass {name} ->
         name
-    | JavaClass _ | CSharpClass _ | ErlangType _ ->
+    | JavaClass _ | CSharpClass _ | ErlangType _ | HackClass _ ->
         QualifiedCppName.empty
 
 
@@ -510,6 +520,8 @@ module Name = struct
         CSharpClassName.to_string name
     | ErlangType name ->
         ErlangTypeName.to_string name
+    | HackClass name ->
+        HackClassName.to_string name
 
 
   let pp fmt tname =
@@ -522,6 +534,8 @@ module Name = struct
           "class"
       | ErlangType _ ->
           "erlang"
+      | HackClass _ ->
+          "hack"
       | ObjcProtocol _ ->
           "protocol"
     in
@@ -669,7 +683,13 @@ module Name = struct
 
     let normalize t =
       match t with
-      | CStruct _ | CUnion _ | CppClass _ | ErlangType _ | ObjcClass _ | ObjcProtocol _ ->
+      | CStruct _
+      | CUnion _
+      | CppClass _
+      | ErlangType _
+      | HackClass _
+      | ObjcClass _
+      | ObjcProtocol _ ->
           t
       | JavaClass java_class_name ->
           let java_class_name' = JavaClassName.Normalizer.normalize java_class_name in
@@ -746,16 +766,24 @@ let is_pointer_to_objc_non_tagged_class typ =
 
 let is_pointer_to_void typ = match typ.desc with Tptr ({desc= Tvoid}, _) -> true | _ -> false
 
-let is_pointer_to_smart_pointer typ =
-  match typ.desc with
-  | Tptr ({desc= Tstruct (CppClass {name})}, _) -> (
-    match QualifiedCppName.to_list name with
-    | ["std"; "shared_ptr"] | ["std"; "unique_ptr"] ->
-        true
+let is_pointer_to_smart_pointer =
+  let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::shared_ptr"; "std::unique_ptr"] in
+  fun typ ->
+    match typ.desc with
+    | Tptr ({desc= Tstruct (CppClass {name})}, _) ->
+        QualifiedCppName.Match.match_qualifiers matcher name
     | _ ->
-        false )
-  | _ ->
-      false
+        false
+
+
+let is_shared_pointer =
+  let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::shared_ptr"] in
+  fun typ ->
+    match typ.desc with
+    | Tstruct (CppClass {name}) ->
+        QualifiedCppName.Match.match_qualifiers matcher name
+    | _ ->
+        false
 
 
 let is_void typ = match typ.desc with Tvoid -> true | _ -> false

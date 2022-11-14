@@ -106,7 +106,7 @@ module Closures = struct
                 astate_result )
 
 
-  let record {PathContext.timestamp; conditions} location pname captured astate =
+  let record ({PathContext.timestamp; conditions} as path) location pname captured astate =
     let captured_addresses =
       List.filter_map captured
         ~f:(fun (captured_as, (address_captured, trace_captured), typ, mode) ->
@@ -122,7 +122,7 @@ module Closures = struct
     in
     let fake_capture_edges = mk_capture_edges captured_addresses in
     let astate =
-      AbductiveDomain.set_post_cell closure_addr_hist
+      AbductiveDomain.set_post_cell path closure_addr_hist
         (fake_capture_edges, Attributes.singleton (Closure pname))
         location astate
     in
@@ -140,6 +140,13 @@ module ModeledField = struct
 
   let delegated_release = Fieldname.make pulse_model_type "__infer_model_delegated_release"
 end
+
+let conservatively_initialize_args arg_values ({AbductiveDomain.post} as astate) =
+  let reachable_values =
+    BaseDomain.reachable_addresses_from (Caml.List.to_seq arg_values) (post :> BaseDomain.t)
+  in
+  AbstractValue.Set.fold AbductiveDomain.initialize reachable_values astate
+
 
 let eval_access path ?must_be_valid_reason mode location addr_hist access astate =
   let+ astate = check_addr_access path ?must_be_valid_reason mode location addr_hist astate in
@@ -195,7 +202,13 @@ let eval path mode location exp0 astate =
               let++ astate, addr_trace = eval path Read capt_exp astate in
               (astate, (captured_as, addr_trace, typ, mode) :: rev_captured) )
         in
-        Closures.record path location name (List.rev rev_captured) astate
+        let astate, v_hist = Closures.record path location name (List.rev rev_captured) astate in
+        let astate =
+          conservatively_initialize_args
+            (List.rev_map rev_captured ~f:(fun (_, (addr, _), _, _) -> addr))
+            astate
+        in
+        (astate, v_hist)
     | Const (Cfun proc_name) ->
         (* function pointers are represented as closures with no captured variables *)
         Sat (Ok (Closures.record path location proc_name [] astate))
@@ -359,14 +372,14 @@ let havoc_id id loc_opt astate =
 
 let write_access path location addr_trace_ref access addr_trace_obj astate =
   check_addr_access path Write location addr_trace_ref astate
-  >>| Memory.add_edge addr_trace_ref access addr_trace_obj location
+  >>| Memory.add_edge path addr_trace_ref access addr_trace_obj location
 
 
 let write_access_biad_isl path location addr_trace_ref access addr_trace_obj astate =
   let astates = check_and_abduce_addr_access_isl path Write location addr_trace_ref astate in
   List.map astates ~f:(fun result ->
       let+ astate = result in
-      Memory.add_edge addr_trace_ref access addr_trace_obj location astate )
+      Memory.add_edge path addr_trace_ref access addr_trace_obj location astate )
 
 
 let write_deref path location ~ref:addr_trace_ref ~obj:addr_trace_obj astate =
@@ -430,7 +443,36 @@ let java_resource_release ~recursive address astate =
   loop AbstractValue.Set.empty address astate
 
 
+let csharp_resource_release ~recursive address astate =
+  let if_valid_access_then_eval addr access astate =
+    Option.map (Memory.find_edge_opt addr access astate) ~f:fst
+  in
+  let if_valid_field_then_load obj field astate =
+    let open IOption.Let_syntax in
+    let* field_addr = if_valid_access_then_eval obj (FieldAccess field) astate in
+    if_valid_access_then_eval field_addr Dereference astate
+  in
+  let rec loop seen obj astate =
+    if AbstractValue.Set.mem obj seen || AddressAttributes.is_csharp_resource_released obj astate
+    then astate
+    else
+      let astate = AddressAttributes.csharp_resource_release obj astate in
+      match if_valid_field_then_load obj ModeledField.delegated_release astate with
+      | Some delegation ->
+          (* beware: if the field is not valid, a regular call to CSharp.load_field will generate a
+             fresh abstract value and we will loop forever, even if we use the [seen] set *)
+          if recursive then loop (AbstractValue.Set.add obj seen) delegation astate else astate
+      | None ->
+          astate
+  in
+  loop AbstractValue.Set.empty address astate
+
+
 let add_dynamic_type typ address astate = AddressAttributes.add_dynamic_type typ address astate
+
+let add_dynamic_type_source_file typ source_file address astate =
+  AddressAttributes.add_dynamic_type_source_file typ source_file address astate
+
 
 let add_ref_counted address astate = AddressAttributes.add_ref_counted address astate
 
@@ -468,7 +510,7 @@ let record_invalidation ({PathContext.timestamp; conditions} as path) access_pat
           (Invalidated (cause, location, timestamp))
           hist_obj
       in
-      Memory.add_edge pointer access (addr_obj, hist') location astate
+      Memory.add_edge path pointer access (addr_obj, hist') location astate
   | UntraceableAccess ->
       astate
 
@@ -530,7 +572,7 @@ let shallow_copy ({PathContext.timestamp} as path) location addr_hist astate =
     (AbstractValue.mk_fresh (), ValueHistory.singleton (Assignment (location, timestamp)))
   in
   ( Option.value_map cell_opt ~default:astate ~f:(fun cell ->
-        AbductiveDomain.set_post_cell copy cell location astate )
+        AbductiveDomain.set_post_cell path copy cell location astate )
   , copy )
 
 
@@ -546,7 +588,7 @@ let check_address_escape escape_location proc_desc address history astate =
   in
   let check_address_of_cpp_temporary () =
     AddressAttributes.find_opt address astate
-    |> Option.fold_result ~init:() ~f:(fun () attrs ->
+    |> Option.value_map ~default:(Result.Ok ()) ~f:(fun attrs ->
            IContainer.iter_result ~fold:Attributes.fold attrs ~f:(fun attr ->
                match attr with
                | Attribute.AddressOfCppTemporary (variable, _)
@@ -613,7 +655,7 @@ let get_dynamic_type_unreachable_values vars astate =
     List.fold unreachable_addrs ~init:[] ~f:(fun res addr ->
         (let open IOption.Let_syntax in
         let* attrs = AbductiveDomain.AddressAttributes.find_opt addr astate in
-        let* typ = Attributes.get_dynamic_type attrs in
+        let* typ, _ = Attributes.get_dynamic_type_source_file attrs in
         let+ var = find_var_opt astate addr in
         (var, addr, typ) :: res)
         |> Option.value ~default:res )
@@ -627,11 +669,11 @@ exception NoLeak
 let filter_live_addresses ~is_dead_root potential_leak_addrs astate =
   (* stop as soon as we find out that all locations that could potentially cause a leak are still
      live *)
-  if AbstractValue.Set.is_empty potential_leak_addrs then raise NoLeak ;
+  if AbstractValue.Set.is_empty potential_leak_addrs then raise_notrace NoLeak ;
   let potential_leaks = ref potential_leak_addrs in
   let mark_reachable addr =
     potential_leaks := AbstractValue.Set.remove addr !potential_leaks ;
-    if AbstractValue.Set.is_empty !potential_leaks then raise NoLeak
+    if AbstractValue.Set.is_empty !potential_leaks then raise_notrace NoLeak
   in
   let pre = (astate.AbductiveDomain.pre :> BaseDomain.t) in
   let post = (astate.AbductiveDomain.post :> BaseDomain.t) in

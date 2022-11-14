@@ -161,7 +161,7 @@ let merge_per_file ~src ~dst =
 
 
 let load_statement =
-  ResultsDatabase.register_statement
+  Database.register_statement CaptureDatabase
     "SELECT type_environment FROM source_files WHERE source_file = :k"
 
 
@@ -182,7 +182,7 @@ let load_global () : t option =
 
 
 let load source =
-  ResultsDatabase.with_registered_statement load_statement ~f:(fun db load_stmt ->
+  Database.with_registered_statement load_statement ~f:(fun db load_stmt ->
       SourceFile.SQLite.serialize source
       |> Sqlite3.bind load_stmt 1
       |> SqliteUtils.check_result_code db ~log:"load bind source file" ;
@@ -229,12 +229,12 @@ let store_global tenv =
      frontend and backend run in the same process *)
   if Config.debug_level_capture > 0 then
     L.debug Capture Quiet "Tenv.store: global tenv has size %d bytes.@."
-      (Obj.(reachable_words (repr tenv)) * (Sys.word_size / 8)) ;
+      (Obj.(reachable_words (repr tenv)) * (Sys.word_size_in_bits / 8)) ;
   let tenv = Normalizer.normalize tenv in
   HashNormalizer.reset_all_normalizers () ;
   if Config.debug_level_capture > 0 then
     L.debug Capture Quiet "Tenv.store: canonicalized tenv has size %d bytes.@."
-      (Obj.(reachable_words (repr tenv)) * (Sys.word_size / 8)) ;
+      (Obj.(reachable_words (repr tenv)) * (Sys.word_size_in_bits / 8)) ;
   global_tenv := Some tenv ;
   store_to_filename tenv global_tenv_path
 
@@ -258,6 +258,9 @@ let resolve_method ~method_exists tenv class_name proc_name =
               L.die InternalError "attempting to call a method on an Erlang value"
           | CStruct _ | CUnion _ | CppClass _ ->
               (* multiple inheritance possible, search all supers *)
+              class_struct.supers
+          | HackClass _ ->
+              (* super-classes, super-interfaces, and traits are modelled via multiple inheritance *)
               class_struct.supers
           | JavaClass _ ->
               (* multiple inheritance not possible, but cannot distinguish interfaces from typename so search all *)

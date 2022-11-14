@@ -171,7 +171,10 @@ endif # BUILD_ERLANG_ANALYZERS
 
 ifeq ($(BUILD_PLATFORM)+$(BUILD_HACK_ANALYZERS),Linux+yes)
 ifneq ($(HACKC),no)
-DIRECT_TESTS += hack_capture
+DIRECT_TESTS += \
+  hack_capture \
+  hack_pulse \
+
 endif
 endif # BUILD_PLATFORM+BUILD_HACK_ANALYZERS
 
@@ -189,7 +192,7 @@ BUILD_SYSTEMS_TESTS += \
   javac \
   resource_leak_exception_lines \
   racerd_dedup \
-  merge-infer-out \
+  merge-capture \
 
 COST_TESTS += \
   java_hoistingExpensive \
@@ -202,6 +205,7 @@ DIRECT_TESTS += \
   java_bufferoverrun \
   java_checkers \
   java_datalog \
+  java_dependencies \
   java_hoisting \
   java_hoistingExpensive \
   java_impurity \
@@ -222,7 +226,9 @@ DIRECT_TESTS += \
   java_starvation-dedup \
   java_starvation-whole-program \
   java_topl \
+  sil_doli \
   sil_parsing \
+  sil_pulse \
 
 ifneq ($(KOTLINC), no)
 DIRECT_TESTS += \
@@ -262,7 +268,9 @@ ifneq ($(BUCK),no)
 BUILD_SYSTEMS_TESTS += buck_java_flavor
 endif
 ifneq ($(MVN),no)
-BUILD_SYSTEMS_TESTS += mvn
+BUILD_SYSTEMS_TESTS += \
+	mvn \
+	jar
 endif
 endif # BUILD_JAVA_ANALYZERS
 
@@ -346,6 +354,10 @@ byte: src_build_common
 check: src_build_common
 	$(QUIET)$(call silent_on_success,Building artifacts for tooling support,\
 	$(MAKE_SOURCE) check)
+
+.PHONY: watch
+watch: src_build_common
+	$(MAKE_SOURCE) watch
 
 # deadcode analysis: only do the deadcode detection on Facebook builds and if GNU sed is available
 .PHONY: real_deadcode
@@ -737,6 +749,8 @@ ifeq ($(BUILD_ERLANG_ANALYZERS),yes)
 endif
 	test -d      '$(DESTDIR)$(libdir)/infer/infer/annotations/' || \
 	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/annotations/'
+	test -d      '$(DESTDIR)$(libdir)/infer/infer/config/' || \
+	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/config/'
 	test -d      '$(DESTDIR)$(libdir)/infer/infer/lib/wrappers/' || \
 	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/lib/wrappers/'
 	test -d      '$(DESTDIR)$(libdir)/infer/infer/bin/' || \
@@ -774,6 +788,10 @@ ifeq ($(BUILD_JAVA_ANALYZERS),yes)
 	$(INSTALL_PROGRAM) -C      '$(LIB_DIR)'/wrappers/javac \
 	  '$(DESTDIR)$(libdir)'/infer/infer/lib/wrappers/
 endif
+	find infer/config/ -type d -print0 | xargs -0 -I \{\} \
+	  $(MKDIR_P) '$(DESTDIR)$(libdir)'/infer/\{\}
+	find infer/config/ -type f -print0 | xargs -0 -I \{\} \
+	  $(INSTALL_DATA) -C \{\} '$(DESTDIR)$(libdir)'/infer/\{\}
 ifeq ($(BUILD_ERLANG_ANALYZERS),yes)
 	$(INSTALL_PROGRAM) -C      '$(LIB_DIR)'/erlang/erlang.sh \
 	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/
@@ -951,7 +969,7 @@ ifeq ($(OPAM_PIN_OCAMLFORMAT),yes)
 	  $(OPAM) install ocamlformat --yes)
 endif
 	$(QUIET)$(call silent_on_success,installing $(OPAM_DEV_DEPS),\
-	  OPAMSWITCH=$(OPAMSWITCH); $(OPAM) install --yes --no-depext user-setup $(OPAM_DEV_DEPS))
+	  OPAMSWITCH=$(OPAMSWITCH); $(OPAM) install --yes --no-depexts user-setup $(OPAM_DEV_DEPS))
 	$(QUIET)if [ "$(PLATFORM)" = "Darwin" ] && [ x"$(GNU_SED)" = x"no" ]; then \
 	  echo '$(TERM_INFO)*** Installing GNU sed$(TERM_RESET)' >&2; \
 	  brew install gnu-sed; \

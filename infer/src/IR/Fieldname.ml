@@ -9,9 +9,9 @@ open! IStd
 module F = Format
 
 type 'typ_name t_ = {class_name: 'typ_name; field_name: string}
-[@@deriving compare, equal, yojson_of]
+[@@deriving compare, equal, yojson_of, sexp, hash]
 
-type t = Typ.Name.t t_ [@@deriving compare, equal, yojson_of]
+type t = Typ.Name.t t_ [@@deriving compare, equal, yojson_of, sexp, hash]
 
 let pp f fld = F.pp_print_string f fld.field_name
 
@@ -121,6 +121,8 @@ let to_simplified_string ({class_name; field_name} : t) =
         Some (CSharpClassName.classname name)
     | ErlangType _ ->
         None
+    | HackClass name ->
+        Some (HackClassName.classname name)
     | JavaClass name ->
         Some (JavaClassName.classname name)
   in

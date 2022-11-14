@@ -149,6 +149,8 @@ let allocate allocator address location memory =
 
 let java_resource_release address memory = add_one address Attribute.JavaResourceReleased memory
 
+let csharp_resource_release address memory = add_one address Attribute.CSharpResourceReleased memory
+
 let mark_as_end_of_collection address memory = add_one address Attribute.EndOfCollection memory
 
 let check_valid address attrs =
@@ -253,9 +255,19 @@ let get_written_to = get_attribute Attributes.get_written_to
 
 let get_returned_from_unknown = get_attribute Attributes.get_returned_from_unknown
 
-let add_dynamic_type typ address memory = add_one address (Attribute.DynamicType typ) memory
+let add_dynamic_type typ address memory = add_one address (Attribute.DynamicType (typ, None)) memory
 
-let get_dynamic_type attrs v = get_attribute Attributes.get_dynamic_type v attrs
+let add_dynamic_type_source_file typ source_file address memory =
+  add_one address (Attribute.DynamicType (typ, Some source_file)) memory
+
+
+let get_dynamic_type_source_file attrs v =
+  get_attribute Attributes.get_dynamic_type_source_file v attrs
+
+
+let get_dynamic_type attrs v =
+  match get_dynamic_type_source_file attrs v with Some (typ, _) -> Some typ | None -> None
+
 
 let add_ref_counted address memory = add_one address Attribute.RefCounted memory
 
@@ -277,6 +289,10 @@ let is_end_of_collection address attrs =
 
 let is_java_resource_released adress attrs =
   Graph.find_opt adress attrs |> Option.exists ~f:Attributes.is_java_resource_released
+
+
+let is_csharp_resource_released adress attrs =
+  Graph.find_opt adress attrs |> Option.exists ~f:Attributes.is_csharp_resource_released
 
 
 let is_std_moved address attrs =

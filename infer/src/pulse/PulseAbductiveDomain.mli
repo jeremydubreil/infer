@@ -94,7 +94,8 @@ module Memory : sig
   module Edges = BaseMemory.Edges
 
   val add_edge :
-       AbstractValue.t * ValueHistory.t
+       PathContext.t
+    -> AbstractValue.t * ValueHistory.t
     -> Access.t
     -> AbstractValue.t * ValueHistory.t
     -> Location.t
@@ -144,7 +145,13 @@ module AddressAttributes : sig
 
   val is_java_resource_released : AbstractValue.t -> t -> bool
 
+  val csharp_resource_release : AbstractValue.t -> t -> t
+
+  val is_csharp_resource_released : AbstractValue.t -> t -> bool
+
   val add_dynamic_type : Typ.t -> AbstractValue.t -> t -> t
+
+  val add_dynamic_type_source_file : Typ.t -> SourceFile.t -> AbstractValue.t -> t -> t
 
   val add_ref_counted : AbstractValue.t -> t -> t
 
@@ -155,6 +162,8 @@ module AddressAttributes : sig
   val remove_taint_attrs : AbstractValue.t -> t -> t
 
   val get_dynamic_type : AbstractValue.t -> t -> Typ.t option
+
+  val get_dynamic_type_source_file : AbstractValue.t -> t -> (Typ.t * SourceFile.t option) option
 
   val get_allocation : AbstractValue.t -> t -> (Attribute.allocator * Trace.t) option
 
@@ -226,9 +235,6 @@ val find_post_cell_opt : AbstractValue.t -> t -> BaseDomain.cell option
 val get_unreachable_attributes : t -> AbstractValue.t list
 (** collect the addresses that have attributes but are unreachable in the current post-condition *)
 
-val get_reachable : t -> AbstractValue.Set.t
-(** Return the addresses reachable from pre or post. *)
-
 val add_skipped_call : Procname.t -> Trace.t -> t -> t
 
 val add_skipped_calls : SkippedCalls.t -> t -> t
@@ -244,7 +250,8 @@ val map_decompiler : t -> f:(Decompiler.t -> Decompiler.t) -> t
 val set_post_edges : AbstractValue.t -> BaseMemory.Edges.t -> t -> t
 (** directly set the edges for the given address, bypassing abduction altogether *)
 
-val set_post_cell : AbstractValue.t * ValueHistory.t -> BaseDomain.cell -> Location.t -> t -> t
+val set_post_cell :
+  PathContext.t -> AbstractValue.t * ValueHistory.t -> BaseDomain.cell -> Location.t -> t -> t
 (** directly set the edges and attributes for the given address, bypassing abduction altogether *)
 
 val incorporate_new_eqs :
@@ -292,7 +299,8 @@ module Summary : sig
     -> Location.t
     -> t
     -> ( summary
-       , [> `ResourceLeak of summary * t * JavaClassName.t * Trace.t * Location.t
+       , [> `JavaResourceLeak of summary * t * JavaClassName.t * Trace.t * Location.t
+         | `CSharpResourceLeak of summary * t * CSharpClassName.t * Trace.t * Location.t
          | `RetainCycle of
            summary * t * Trace.t list * DecompilerExpr.t * DecompilerExpr.t * Location.t
          | `MemoryLeak of summary * t * Attribute.allocator * Trace.t * Location.t
@@ -336,14 +344,12 @@ module Summary : sig
 end
 
 module Topl : sig
-  val small_step : Location.t -> keep:AbstractValue.Set.t -> PulseTopl.event -> t -> t
+  val small_step : Location.t -> PulseTopl.event -> t -> t
 
   val large_step :
        call_location:Location.t
     -> callee_proc_name:Procname.t
     -> substitution:(AbstractValue.t * ValueHistory.t) AbstractValue.Map.t
-    -> keep:AbstractValue.Set.t
-    -> path_condition:Formula.t
     -> callee_summary:PulseTopl.state
     -> t
     -> t

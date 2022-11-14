@@ -10,6 +10,30 @@
 #include <memory>
 #include <string>
 #include <type_traits>
+class A {
+ public:
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wundefined-bool-conversion"
+  int this_notnull_ok() {
+    if (!this) {
+      int* q = nullptr;
+      return *q;
+    }
+    return 0;
+  }
+  int this_notnull_bad() {
+    if (this) {
+      int* q = nullptr;
+      return *q;
+    }
+    return 0;
+  }
+#pragma clang diagnostic pop
+
+  static int expect_notnull_ok(A* a) { return a->return_zero(); }
+  static int call_null_arg_bad() { return expect_notnull_ok(nullptr); }
+  int return_zero() { return 0; }
+};
 
 void assign_zero_ok() {
   int x[2];

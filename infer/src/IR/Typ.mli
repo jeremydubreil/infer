@@ -90,7 +90,7 @@ val is_trivially_copyable : type_quals -> bool
 val is_volatile : type_quals -> bool
 
 (** types for sil (structured) expressions *)
-type t = {desc: desc; quals: type_quals} [@@deriving compare, equal, yojson_of]
+type t = {desc: desc; quals: type_quals} [@@deriving compare, equal, yojson_of, sexp, hash]
 
 and desc =
   | Tint of ikind  (** integer type *)
@@ -112,6 +112,7 @@ and name =
   | CppClass of {name: QualifiedCppName.t; template_spec_info: template_spec_info; is_union: bool}
   | CSharpClass of CSharpClassName.t
   | ErlangType of ErlangTypeName.t
+  | HackClass of HackClassName.t
   | JavaClass of JavaClassName.t
   | ObjcClass of QualifiedCppName.t  (** ObjC class *)
   | ObjcProtocol of QualifiedCppName.t
@@ -156,7 +157,7 @@ val is_strong_pointer : t -> bool
 
 module Name : sig
   (** Named types. *)
-  type t = name [@@deriving compare, yojson_of]
+  type t = name [@@deriving compare, yojson_of, sexp, hash]
 
   val loose_compare : t -> t -> int
   (** Similar to compare, but addresses [CStruct x] and [CppClass x] as equal. *)
@@ -323,6 +324,8 @@ val is_pointer_to_cpp_class : t -> bool
 val is_pointer_to_objc_non_tagged_class : t -> bool
 
 val is_pointer_to_smart_pointer : t -> bool
+
+val is_shared_pointer : t -> bool
 
 val is_pointer_to_void : t -> bool
 

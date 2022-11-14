@@ -237,7 +237,7 @@ type t =
   | ObjC_Cpp of ObjC_Cpp.t
   | WithAliasingParameters of t * Mangled.t list list
   | WithFunctionParameters of t * FunctionParameters.t list
-[@@deriving compare, yojson_of]
+[@@deriving compare, yojson_of, sexp, hash]
 
 val base_of : t -> t
 (** if a procedure has been specialised, return the original one, otherwise itself *)
@@ -273,6 +273,8 @@ val is_destructor : t -> bool
 
 val is_java_static_method : t -> bool
 
+val is_java_instance_method : t -> bool
+
 val is_java_access_method : t -> bool
 
 val is_java_class_initializer : t -> bool
@@ -287,7 +289,15 @@ val is_objc_method : t -> bool
 val is_objc_instance_method : t -> bool
 (** Includes specialized objective-c instance methods*)
 
+val is_objc_class_method : t -> bool
+(** Includes specialized objective-c class methods*)
+
+val get_objc_class_name : t -> string option
+
 val is_std_move : t -> bool
+
+val is_shared_ptr_observer : t -> bool
+(** Check if it is C++ shared pointer observer, e.g. [std::shared_ptr::operator*] *)
 
 (** Hash tables with proc names as keys. *)
 module Hash : Caml.Hashtbl.S with type key = t
@@ -376,6 +386,9 @@ val is_constructor : t -> bool
 
 val is_csharp : t -> bool
 (** Check if this is a CSharp procedure name. *)
+
+val is_hack : t -> bool
+(** Check if this is a Hack procedure name. *)
 
 val is_java : t -> bool
 (** Check if this is a Java procedure name. *)
