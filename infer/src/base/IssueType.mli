@@ -149,6 +149,8 @@ val config_impact_analysis_strict : t
 
 val config_impact_analysis_strict_beta : t
 
+val pulse_config_usage : t
+
 val pulse_const_refable : t
 
 val constant_address_dereference : latent:bool -> t
@@ -335,6 +337,8 @@ val regex_op_on_ui_thread : t
 val resource_leak : t
 
 val retain_cycle : t
+
+val scope_leakage : t
 
 val sensitive_data_flow : t
 

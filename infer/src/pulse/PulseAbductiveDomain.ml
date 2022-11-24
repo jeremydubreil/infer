@@ -449,6 +449,14 @@ module AddressAttributes = struct
       ~f:(BaseAddressAttributes.add_copied_return addr ~source ~is_const_ref from location)
 
 
+  let get_config_usage addr astate =
+    BaseAddressAttributes.get_config_usage addr (astate.post :> base_domain).attrs
+
+
+  let get_const_string addr astate =
+    BaseAddressAttributes.get_const_string addr (astate.post :> base_domain).attrs
+
+
   let abduce_and_add value attrs astate =
     Attributes.fold attrs ~init:astate ~f:(fun astate attr ->
         let astate =
@@ -1024,6 +1032,13 @@ let discard_unreachable_ ~for_summary ({pre; post} as astate) =
     PreDomain.filter_addr ~f:(fun address -> AbstractValue.Set.mem address pre_addresses) pre
   in
   let post_addresses = BaseDomain.reachable_addresses (post :> BaseDomain.t) in
+  let post_addresses =
+    (* Also include post addresses reachable from pre addresses *)
+    BaseDomain.reachable_addresses_from
+      (AbstractValue.Set.to_seq pre_addresses)
+      (post :> BaseDomain.t)
+      ~already_visited:post_addresses
+  in
   let always_reachable_addresses = get_all_addrs_marked_as_always_reachable astate in
   let always_reachable_trans_closure =
     BaseDomain.reachable_addresses_from always_reachable_addresses

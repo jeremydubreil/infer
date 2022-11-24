@@ -37,13 +37,21 @@ let report ~is_suppressed ~latent proc_desc err_log diagnostic =
         | _ ->
             (None, None)
       in
+      let config_name =
+        match diagnostic with
+        | ConfigUsage {config} ->
+            Some (F.asprintf "%a" ConfigName.pp config)
+        | _ ->
+            None
+      in
       Jsonbug_t.
         { cost_polynomial= None
         ; cost_degree= None
         ; nullsafe_extra= None
         ; copy_type
         ; taint_source
-        ; taint_sink }
+        ; taint_sink
+        ; config_name }
     in
     Reporting.log_issue proc_desc err_log ~loc:(get_location diagnostic)
       ~ltr:(extra_trace @ get_trace diagnostic)
@@ -91,6 +99,7 @@ let is_constant_deref_without_invalidation (invalidation : Invalidation.t) acces
 
 let is_constant_deref_without_invalidation_diagnostic (diagnostic : Diagnostic.t) =
   match diagnostic with
+  | ConfigUsage _
   | ConstRefableParameter _
   | CSharpResourceLeak _
   | ErlangError _

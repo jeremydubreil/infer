@@ -468,6 +468,11 @@ let config_impact_analysis_strict_beta =
     ~user_documentation:[%blob "../../documentation/issues/CONFIG_IMPACT_STRICT_BETA.md"]
 
 
+let pulse_config_usage =
+  register ~enabled:false ~id:"CONFIG_USAGE" Info Pulse
+    ~user_documentation:[%blob "../../documentation/issues/CONFIG_USAGE.md"]
+
+
 let pulse_const_refable =
   register ~enabled:false ~id:"PULSE_CONST_REFABLE" Error Pulse ~hum:"Const Refable Parameter"
     ~user_documentation:[%blob "../../documentation/issues/PULSE_CONST_REFABLE.md"]
@@ -932,7 +937,7 @@ let pulse_memory_leak_cpp =
 
 
 let pulse_resource_leak =
-  register ~enabled:false ~id:"PULSE_RESOURCE_LEAK" Error Pulse
+  register ~enabled:true ~id:"PULSE_RESOURCE_LEAK" Error Pulse
     ~user_documentation:"See [RESOURCE_LEAK](#resource_leak)"
 
 
@@ -986,6 +991,11 @@ let resource_leak =
 let retain_cycle =
   register ~enabled:false ~id:"RETAIN_CYCLE" Error Pulse
     ~user_documentation:[%blob "../../documentation/issues/RETAIN_CYCLE.md"]
+
+
+let scope_leakage =
+  register ~enabled:true ~id:"SCOPE_LEAKAGE" Error ScopeLeakage
+    ~user_documentation:[%blob "../../documentation/issues/SCOPE_LEAKAGE.md"]
 
 
 let skip_function = register_hidden ~enabled:false ~id:"SKIP_FUNCTION" Info Biabduction

@@ -81,6 +81,7 @@ DIRECT_TESTS += \
 ifeq ($(IS_FACEBOOK_TREE),yes)
 DIRECT_TESTS += \
   c_fb-pulse \
+  cpp_fb-config-usage \
 
 endif
 
@@ -221,6 +222,7 @@ DIRECT_TESTS += \
   java_purity \
   java_quandary \
   java_racerd \
+  java_scopeleakage \
   java_sil \
   java_starvation \
   java_starvation-dedup \
@@ -359,13 +361,12 @@ check: src_build_common
 watch: src_build_common
 	$(MAKE_SOURCE) watch
 
-# deadcode analysis: only do the deadcode detection on Facebook builds and if GNU sed is available
 .PHONY: real_deadcode
 real_deadcode: src_build_common
-	$(QUIET)$(call silent_on_success,Building all OCaml code,\
-	$(MAKE_SOURCE) build_all)
 	$(QUIET)$(call silent_on_success,Testing there is no dead OCaml code,\
 	$(MAKE) -C $(SRC_DIR)/deadcode)
+
+# deadcode analysis: only do the deadcode detection on Facebook builds and if GNU sed is available
 
 .PHONY: deadcode
 deadcode:

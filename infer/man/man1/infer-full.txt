@@ -129,6 +129,20 @@ OPTIONS
            in infer-out/captured. (Conversely: --no-biabduction-write-dotty)       
     See also infer-analyze(1).
 
+       --no-bo-assume-void
+           Deactivates: Assume void type as a type of record fields not in
+           type environment. (Conversely: --bo-assume-void)           See also infer-analyze(1).
+
+       --no-bo-bottom-as-default
+           Deactivates: Use bottom as a default value instead of unknown.
+           (Conversely: --bo-bottom-as-default)           See also infer-analyze(1).
+
+       --bo-context-sensitive-allocsites
+           Activates: Assume that different calls to the same function
+           creating an allocsite results in different allocsites imported to
+           the caller. (Conversely: --no-bo-context-sensitive-allocsites)       
+    See also infer-analyze(1).
+
        --bo-debug int
            Debug level for buffer-overrun checker (0-4)           See also infer-analyze(1).
 
@@ -139,6 +153,11 @@ OPTIONS
        --bo-max-cfg-size int
            Larger CFGs than the max size are skipped in buffer overrun
            analysis.           See also infer-analyze(1).
+
+       --bo-sound-unknown-sets-join
+           Activates: Join with an unknown set always result in an unknown
+           set. When disabled, unknown set behaves as bot. (Conversely:
+           --no-bo-sound-unknown-sets-join)           See also infer-analyze(1).
 
        --bootclasspath string
            Specify the Java bootclasspath           See also infer-capture(1).
@@ -477,6 +496,7 @@ OPTIONS
              CONFIG_IMPACT (disabled by default),
              CONFIG_IMPACT_STRICT (disabled by default),
              CONFIG_IMPACT_STRICT_BETA (disabled by default),
+             CONFIG_USAGE (disabled by default),
              CONSTANT_ADDRESS_DEREFERENCE (disabled by default),
              CONSTANT_ADDRESS_DEREFERENCE_LATENT (disabled by default),
              CREATE_INTENT_FROM_URI (enabled by default),
@@ -592,7 +612,7 @@ OPTIONS
              PREMATURE_NIL_TERMINATION_ARGUMENT (enabled by default),
              PULSE_CONST_REFABLE (disabled by default),
              PULSE_READONLY_SHARED_PTR_PARAM (disabled by default),
-             PULSE_RESOURCE_LEAK (disabled by default),
+             PULSE_RESOURCE_LEAK (enabled by default),
              PULSE_UNINITIALIZED_VALUE (enabled by default),
              PULSE_UNINITIALIZED_VALUE_LATENT (disabled by default),
              PULSE_UNNECESSARY_COPY (disabled by default),
@@ -607,6 +627,7 @@ OPTIONS
              REGEX_OP_ON_UI_THREAD (enabled by default),
              RESOURCE_LEAK (enabled by default),
              RETAIN_CYCLE (disabled by default),
+             SCOPE_LEAKAGE (enabled by default),
              SENSITIVE_DATA_FLOW (disabled by default),
              SHELL_INJECTION (enabled by default),
              SHELL_INJECTION_RISK (enabled by default),
@@ -1084,8 +1105,22 @@ OPTIONS
            be used on pathologically large procedures to prevent too-big
            states from being produced.           See also infer-analyze(1).
 
+       --pulse-inline-global-init-func-pointer
+           Activates: Inline the initializer of global variables that are of
+           type function pointer in Pulse. (Conversely:
+           --no-pulse-inline-global-init-func-pointer)           See also infer-analyze(1).
+
        --pulse-max-cfg-size int
            Larger CFGs than the max size are skipped in Pulse.       
+    See also infer-analyze(1).
+
+       --pulse-max-disjuncts int
+           Stop exploring new paths after int disjunctions in the domain       
+    See also infer-analyze(1).
+
+       --pulse-max-heap int
+           Give up analysing a procedure if the number of words in the heap
+           exceeds this limit. Intended use: avoid OutOfMemory crashes.       
     See also infer-analyze(1).
 
        --pulse-model-abort +string
@@ -1153,9 +1188,18 @@ OPTIONS
        --pulse-models-for-erlang json
            Provide custom models for Erlang code using a DSL.           See also infer-analyze(1).
 
+       --no-pulse-nullsafe-report-npe
+           Deactivates: Report null dereference issues on files marked
+           @Nullsafe. (Conversely: --pulse-nullsafe-report-npe)       
+    See also infer-analyze(1).
+
        --pulse-only
            Activates: Enable pulse and disable all other checkers
            (Conversely: --no-pulse-only)           See also infer-analyze(1).
+
+       --pulse-recency-limit int
+           Maximum number of array elements and structure fields to keep
+           track of for a given address.           See also infer-analyze(1).
 
        --pulse-report-flows-from-taint-source procname
            Report data flows which originate at taint source procname       
@@ -1166,12 +1210,11 @@ OPTIONS
     See also infer-report(1).
 
        --pulse-report-ignore-unknown-java-methods-patterns +string
-           On Java, issues that are found on program paths that contain calls
-           to unknown methods (those without implementation) are not reported
-           unless all the unknown method names match this pattern. If the
-           empty list is provided with
-           --pulse-report-ignore-unknown-java-methods-patterns-reset, all
-           issues will be reported regardless the presence of unknown code       
+           On Java, do not report issues that are found on program paths that
+           contain calls to unknown methods (those without implementation)
+           unless a) this option isn't passed at all (the default, or with
+           --pulse-report-ignore-unknown-java-methods-patterns-reset), or b)
+           all the unknown method names match one of the provided patterns.       
     See also infer-analyze(1).
 
        --pulse-skip-procedures regex
@@ -1268,6 +1311,9 @@ OPTIONS
              - "match_objc_blocks": boolean, "false" by default
                  "true" if only Objective-C blocks should be matched.
            See also infer-analyze(1).
+
+       --pulse-widen-threshold int
+           Stop exploring new paths after int loop iterations           See also infer-analyze(1).
 
        --purity
            Activates: checker purity: Detects pure (side-effect-free)
@@ -1388,6 +1434,18 @@ OPTIONS
            duplicate work between different analysis processes and thus
            performs better in some circumstances
            See also infer-analyze(1).
+
+       --scope-leakage
+           Activates: checker scope-leakage: The Java/Kotlin checker takes
+           into account a set of "scope" annotations and a must-not-hold
+           relation over the scopes. The checker raises an alarm if there
+           exists a field access path from object A to object B, with
+           respective scopes SA and SB, such that must-not-hold(SA, SB).
+           (Conversely: --no-scope-leakage)           See also infer-analyze(1).
+
+       --scope-leakage-only
+           Activates: Enable scope-leakage and disable all other checkers
+           (Conversely: --no-scope-leakage-only)           See also infer-analyze(1).
 
        --select (N|all)
            Select option number N or all of them. If omitted, prompt for
@@ -2355,11 +2413,6 @@ INTERNAL OPTIONS
        --pulse-cut-to-one-path-procedures-pattern-reset
            Cancel the effect of --pulse-cut-to-one-path-procedures-pattern.
 
-       --pulse-inline-global-init-func-pointer
-           Activates: Inline the initializer of global variables that are of
-           type function pointer in Pulse. (Conversely:
-           --no-pulse-inline-global-init-func-pointer)
-
        --pulse-intraprocedural-only
            Activates: Disable inter-procedural analysis in Pulse. Used for
            experimentations only. (Conversely:
@@ -2373,13 +2426,6 @@ INTERNAL OPTIONS
        --pulse-manifest-emp
            Activates: [Pulse] manifest errors with postive heaps in pre. For
            experiments only. (Conversely: --no-pulse-manifest-emp)
-
-       --pulse-max-disjuncts int
-           Under-approximate after int disjunctions in the domain
-
-       --pulse-max-heap int
-           Give up analysing a procedure if the number of words in the heap
-           exceeds this limit. Intended use: avoid OutOfMemory crashes.
 
        --pulse-max-heap-reset
            Cancel the effect of --pulse-max-heap.
@@ -2423,19 +2469,11 @@ INTERNAL OPTIONS
        --pulse-model-transfer-ownership-reset
            Set --pulse-model-transfer-ownership to the empty list.
 
-       --no-pulse-nullsafe-report-npe
-           Deactivates: [Pulse] Suppress NPE reports on files marked
-           @Nullsafe. (Conversely: --pulse-nullsafe-report-npe)
-
        --pulse-prevent-non-disj-top
            Activates: Forcibly prevent non-disjunctive domain value from
            becoming top. Without this option, non-disjunctive domain value
            becomes top when all disjuncts are non-executable. (Conversely:
            --no-pulse-prevent-non-disj-top)
-
-       --pulse-recency-limit int
-           Maximum number of array elements and structure fields to keep
-           track of for a given array address.
 
        --pulse-report-flows-from-taint-source-reset
            Cancel the effect of --pulse-report-flows-from-taint-source.
@@ -2448,7 +2486,7 @@ INTERNAL OPTIONS
            empty list.
 
        --pulse-report-issues-for-tests
-           Activates: Do not supress any of the issues found by Pulse.
+           Activates: Do not suppress any of the issues found by Pulse.
            (Conversely: --no-pulse-report-issues-for-tests)
 
        --no-pulse-report-latent-issues
@@ -2469,9 +2507,6 @@ INTERNAL OPTIONS
 
        --pulse-taint-config-reset
            Set --pulse-taint-config to the empty list.
-
-       --pulse-widen-threshold int
-           Under-approximate after int loop iterations
 
        --pure-by-default
            Activates: [Purity]Consider unknown functions to be pure by
@@ -2530,6 +2565,39 @@ INTERNAL OPTIONS
            Activates: checker resource-leak-lab: Toy checker for the
            "resource leak" write-your-own-checker exercise. (Conversely:
            --no-resource-leak-lab)
+
+       --scope-leakage-config json
+           Specifies the annotation class, the set of scopes, and the
+           must-not-hold relation.               Here is an example of the intended JSON syntax:
+           {
+             "scope-leakage-config": {
+               "annot-classname" : "string",
+               "scopes": [
+                 {
+                   "classname": "Outer",
+                   "generators": [
+                     {
+                       "classname": "OuterScope",
+                       "methods": ["generate"]
+                     }
+                   ]
+                 },
+                 {
+                   "classname": "Inner",
+                   "generators": [
+                     {
+                       "classname": "InnerScope",
+                       "methods": ["getBox", "get"]
+                     }
+                   ]
+                 }
+               ],
+               "must-not-hold": [
+                 {"holds": "Outer", "held": "Inner"}
+               ]
+             }
+           }
+               
 
        --scuba-logging
            Activates: (direct) logging to scuba (Conversely:

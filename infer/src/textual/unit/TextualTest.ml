@@ -137,6 +137,14 @@ let%test_module "parsing" =
          #entry:
            n0 = 12
            n1 = -42
+           n2 = 1e1
+           n3 = 2.
+           n4 = 3.14
+           n5 = 6.022137e+23
+           n2 = -1e1
+           n3 = -2.
+           n4 = -3.14
+           n5 = -6.022137e+23
            ret n1
          }
          |}
@@ -151,6 +159,14 @@ let%test_module "parsing" =
           #entry:
               n0 = 12
               n1 = -42
+              n2 = 10.
+              n3 = 2.
+              n4 = 3.14
+              n5 = 6.022137e+23
+              n2 = -10.
+              n3 = -2.
+              n4 = -3.14
+              n5 = -6.022137e+23
               ret n1
 
         } |}]
@@ -373,4 +389,27 @@ let%test_module "out-of-ssa transformation" =
               jmp lab2
 
         } |}]
+  end )
+
+let%test_module "keywords as ident" =
+  ( module struct
+    let input_text =
+      {|
+          define f(declare: int) : int {
+            #type:
+                jmp type
+
+        } |}
+
+
+    let%expect_test _ =
+      let module_ = parse_module input_text |> TextualTransform.out_of_ssa in
+      F.printf "%a" Module.pp module_ ;
+      [%expect
+        {|
+          define f(declare: int) : int {
+            #type:
+                jmp type
+
+          } |}]
   end )
