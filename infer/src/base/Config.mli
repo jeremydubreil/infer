@@ -169,6 +169,14 @@ val bo_field_depth_limit : int option
 
 val bo_max_cfg_size : int
 
+val bo_sound_unknown_sets_join : bool
+
+val bo_bottom_as_default : bool
+
+val bo_context_sensitive_allocsites : bool
+
+val bo_assume_void : bool
+
 val bootclasspath : string option
 
 val buck : bool
@@ -542,10 +550,6 @@ val pulse_inline_global_init_func_pointer : bool
 
 val pulse_intraprocedural_only : bool
 
-val pulse_isl : bool
-
-val pulse_manifest_emp : bool
-
 val pulse_max_cfg_size : int
 
 val pulse_max_disjuncts : int
@@ -675,6 +679,8 @@ val results_dir : string
 val sarif : bool
 
 val scheduler : scheduler
+
+val scope_leakage_config : Yojson.Basic.t
 
 val scuba_logging : bool
 

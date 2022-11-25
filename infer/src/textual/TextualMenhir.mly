@@ -13,7 +13,6 @@
       let line = pos.Lexing.pos_lnum in
       let col = pos.Lexing.pos_cnum - pos.Lexing.pos_bol in
       Location.known ~line ~col
-
 %}
 
 %token AMPERSAND
@@ -56,7 +55,6 @@
 %token UNREACHABLE
 %token VOID
 
-%token <string> ERROR
 %token <string> IDENT
 %token <int> LOCAL
 %token <Z.t> INTEGER
@@ -93,28 +91,44 @@
 
 %%
 
+ident:
+  | DECLARE { "declare" }
+  | DEFINE { "define" }
+  | EXTENDS { "extends" }
+  | GLOBAL { "global" }
+  | JMP { "jmp" }
+  | LOAD { "load" }
+  | LOCALKEYWORD { "local" }
+  | PRUNE { "prune" }
+  | RET { "ret" }
+  | STORE { "store" }
+  | THROW { "throw" }
+  | TYPE { "type" }
+  | UNREACHABLE { "unreachable" }
+  | x=IDENT { x }
+
 main:
   | attrs=attribute* decls=declaration* EOF
     { (fun sourcefile -> { attrs; decls; sourcefile }) }
 
 pname:
-  | id=IDENT
+  | id=ident
     { { value=id; loc=location_of_pos $startpos(id) } }
 
 fname:
-  | id=IDENT
+  | id=ident
     { { value=id; loc=location_of_pos $startpos(id) } }
 
 nname:
-  | id=IDENT
+  | id=ident
     { { value=id; loc=location_of_pos $startpos(id) } }
 
 tname:
-  | id=IDENT
+  | id=ident
     { { value=id; loc=location_of_pos $startpos(id) } }
 
 vname:
-  | id=IDENT
+  | id=ident
     { { value=id; loc=location_of_pos $startpos(id) } }
 
 qualified_pname:
@@ -124,7 +138,7 @@ qualified_pname:
     { {enclosing_class=TopLevel; name} }
 
 attribute:
-  | DOT name=IDENT EQ value=STRING
+  | DOT name=ident EQ value=STRING
     { {name; values=[value]; loc=location_of_pos $startpos} }
 
 extends:
@@ -206,7 +220,7 @@ annots:
     { l }
 
 annot:
-  | DOT name=IDENT values=annot_value
+  | DOT name=ident values=annot_value
     { let loc = location_of_pos $startpos(name) in
       {name; values; loc} }
 

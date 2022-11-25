@@ -37,13 +37,21 @@ let report ~is_suppressed ~latent proc_desc err_log diagnostic =
         | _ ->
             (None, None)
       in
+      let config_name =
+        match diagnostic with
+        | ConfigUsage {config} ->
+            Some (F.asprintf "%a" ConfigName.pp config)
+        | _ ->
+            None
+      in
       Jsonbug_t.
         { cost_polynomial= None
         ; cost_degree= None
         ; nullsafe_extra= None
         ; copy_type
         ; taint_source
-        ; taint_sink }
+        ; taint_sink
+        ; config_name }
     in
     Reporting.log_issue proc_desc err_log ~loc:(get_location diagnostic)
       ~ltr:(extra_trace @ get_trace diagnostic)
@@ -91,6 +99,7 @@ let is_constant_deref_without_invalidation (invalidation : Invalidation.t) acces
 
 let is_constant_deref_without_invalidation_diagnostic (diagnostic : Diagnostic.t) =
   match diagnostic with
+  | ConfigUsage _
   | ConstRefableParameter _
   | CSharpResourceLeak _
   | ErlangError _
@@ -160,7 +169,7 @@ let summary_error_of_error tenv proc_desc location (error : AccessResult.error) 
   match error with
   | WithSummary (error, summary) ->
       Sat (error, summary)
-  | PotentialInvalidAccess {astate} | ReportableError {astate} | ISLError {astate} ->
+  | PotentialInvalidAccess {astate} | ReportableError {astate} ->
       summary_of_error_post tenv proc_desc location (fun summary -> (error, summary)) astate
 
 
@@ -190,8 +199,6 @@ let report_summary_error tenv proc_desc err_log ((access_error : AccessResult.er
              ; access_trace
              ; must_be_valid_reason= snd must_be_valid } ) ;
       Some (LatentInvalidAccess {astate= summary; address; must_be_valid; calling_context= []})
-  | ISLError _ ->
-      Some (ISLLatentMemoryError summary)
   | ReportableError {diagnostic} -> (
       let is_nullptr_dereference =
         match diagnostic with AccessToInvalidAddress _ -> true | _ -> false

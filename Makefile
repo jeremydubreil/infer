@@ -55,7 +55,6 @@ DIRECT_TESTS += \
   c_frontend \
   c_performance \
   c_pulse \
-  c_pulse-isl \
   c_purity \
   c_uninit \
   cpp_annotation-reachability \
@@ -71,7 +70,6 @@ DIRECT_TESTS += \
   cpp_pulse \
   cpp_pulse-11 \
   cpp_pulse-17 \
-  cpp_pulse-isl \
   cpp_quandary \
   cpp_racerd \
   cpp_siof \
@@ -81,6 +79,7 @@ DIRECT_TESTS += \
 ifeq ($(IS_FACEBOOK_TREE),yes)
 DIRECT_TESTS += \
   c_fb-pulse \
+  cpp_fb-config-usage \
 
 endif
 
@@ -217,10 +216,10 @@ DIRECT_TESTS += \
   java_performance \
   java_performance-exclusive \
   java_pulse \
-  java_pulse-isl \
   java_purity \
   java_quandary \
   java_racerd \
+  java_scopeleakage \
   java_sil \
   java_starvation \
   java_starvation-dedup \
@@ -241,10 +240,6 @@ DIRECT_TESTS += \
 
 endif
 endif
-
-# javac has trouble running in parallel on the same files
-direct_java_pulse-isl_test: direct_java_pulse_test
-direct_java_pulse-isl_replace: direct_java_pulse_replace
 
 ifeq ($(IS_FACEBOOK_TREE),yes)
 BUILD_SYSTEMS_TESTS += \
@@ -359,13 +354,12 @@ check: src_build_common
 watch: src_build_common
 	$(MAKE_SOURCE) watch
 
-# deadcode analysis: only do the deadcode detection on Facebook builds and if GNU sed is available
 .PHONY: real_deadcode
 real_deadcode: src_build_common
-	$(QUIET)$(call silent_on_success,Building all OCaml code,\
-	$(MAKE_SOURCE) build_all)
 	$(QUIET)$(call silent_on_success,Testing there is no dead OCaml code,\
 	$(MAKE) -C $(SRC_DIR)/deadcode)
+
+# deadcode analysis: only do the deadcode detection on Facebook builds and if GNU sed is available
 
 .PHONY: deadcode
 deadcode:

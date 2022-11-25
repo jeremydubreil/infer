@@ -8,6 +8,7 @@ open! IStd
 module F = Format
 module AbstractValue = PulseAbstractValue
 module CallEvent = PulseCallEvent
+module ConfigName = FbPulseConfigName
 module DecompilerExpr = PulseDecompilerExpr
 module Invalidation = PulseInvalidation
 module Taint = PulseTaint
@@ -73,6 +74,8 @@ type t =
   | Allocated of allocator * Trace.t
   | AlwaysReachable
   | Closure of Procname.t
+  | ConfigUsage of ConfigName.t
+  | ConstString of string
   | CopiedInto of CopiedInto.t  (** records the copied var/field for each source address *)
   | CopiedReturn of
       {source: AbstractValue.t; is_const_ref: bool; from: CopyOrigin.t; copied_location: Location.t}
@@ -80,7 +83,6 @@ type t =
   | DynamicType of Typ.t * SourceFile.t option
   | EndOfCollection
   | Invalid of Invalidation.t * Trace.t
-  | ISLAbduced of Trace.t  (** The allocation is abduced so as the analysis could run normally *)
   | MustBeInitialized of Timestamp.t * Trace.t
   | MustBeValid of Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option
   | MustNotBeTainted of TaintSinkSet.t
@@ -125,6 +127,10 @@ module Attributes : sig
 
   val get_closure_proc_name : t -> Procname.t option
 
+  val get_config_usage : t -> ConfigName.t option
+
+  val get_const_string : t -> string option
+
   val get_copied_into : t -> CopiedInto.t option
 
   val get_copied_return : t -> (AbstractValue.t * bool * CopyOrigin.t * Location.t) option
@@ -165,10 +171,6 @@ module Attributes : sig
 
   val remove_taint_sanitized : t -> t
 
-  val get_isl_abduced : t -> Trace.t option
-
-  val remove_isl_abduced : t -> t
-
   val get_must_be_valid :
     t -> (Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option) option
 
@@ -193,14 +195,6 @@ module Attributes : sig
   val get_must_be_initialized : t -> (Timestamp.t * Trace.t) option
 
   val get_unreachable_at : t -> Location.t option
-
-  val isl_subset : t -> t -> bool
-  (** check whether for each attr in the second list, there exists a corresponding attr in the first
-      according to {!Attributes.isl_equiv}. *)
-
-  val replace_isl_abduced : t -> t -> t
-  (** While applying a spec, replacing ISLAbduced by Allocated and Invalidation.Cfree by
-      Invalidation.delete, if applicable *)
 
   val add_call_and_subst :
        (AbstractValue.t -> AbstractValue.t)
