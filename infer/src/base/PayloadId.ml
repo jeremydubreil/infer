@@ -15,13 +15,13 @@ type t =
   | ConfigImpactAnalysis
   | Cost
   | DisjunctiveDemo
-  | DotnetResourceLeaks
   | LabResourceLeaks
   | LithoRequiredProps
   | Pulse
   | Purity
   | Quandary
   | RacerD
+  | ScopeLeakage
   | SIOF
   | SimpleLineage
   | SimpleShape

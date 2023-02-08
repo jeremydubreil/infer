@@ -24,12 +24,12 @@ std::function<void(void)> captured_shared_ptr_param_bad_FN(
   return [x]() {};
 }
 
-class SharedPtrField1_Bad_FN {
+class SharedPtrField1_Bad {
   std::shared_ptr<int> field;
 
  public:
   // x should be moved.
-  SharedPtrField1_Bad_FN(std::shared_ptr<int> x) { field = x; }
+  SharedPtrField1_Bad(std::shared_ptr<int> x) { field = x; }
 };
 
 int* global_ptr;
@@ -44,6 +44,6 @@ void copy_raw_ptr_to_global_bad(std::shared_ptr<int> x) {
 std::shared_ptr<int> global_shared_ptr;
 
 // x should be moved.
-void copy_shared_ptr_to_global_bad_FN(std::shared_ptr<int> x) {
+void copy_shared_ptr_to_global_bad(std::shared_ptr<int> x) {
   global_shared_ptr = x;
 }

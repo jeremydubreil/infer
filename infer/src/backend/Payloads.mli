@@ -9,13 +9,15 @@ open! IStd
 
 include sig
   (* ignore dead modules added by @@deriving fields *)
-  [@@@warning "-60"]
+  [@@@warning "-unused-module"]
 
   (** Analysis summaries for inter-procedural analyses.
 
       When retrieving already-computed summaries, each entry is lazily loaded from the analysis
       database to avoid loading and deserializing payloads unnecessarily, which can be overly
-      expensive and memory-hungry. *)
+      expensive and memory-hungry.
+
+      This type has to be in sync with PayloadId.t *)
   type t =
     { annot_map: AnnotationReachabilityDomain.t option Lazy.t
     ; biabduction: BiabductionSummary.t option Lazy.t
@@ -24,13 +26,13 @@ include sig
     ; config_impact_analysis: ConfigImpactAnalysis.Summary.t option Lazy.t
     ; cost: CostDomain.summary option Lazy.t
     ; disjunctive_demo: DisjunctiveDemo.domain option Lazy.t
-    ; dotnet_resource_leaks: ResourceLeakCSDomain.summary option Lazy.t
     ; lab_resource_leaks: ResourceLeakDomain.summary option Lazy.t
     ; litho_required_props: LithoDomain.summary option Lazy.t
     ; pulse: PulseSummary.t option Lazy.t
     ; purity: PurityDomain.summary option Lazy.t
     ; quandary: QuandarySummary.t option Lazy.t
     ; racerd: RacerDDomain.summary option Lazy.t
+    ; scope_leakage: ScopeLeakage.Summary.t option Lazy.t
     ; siof: SiofDomain.Summary.t option Lazy.t
     ; simple_lineage: SimpleLineage.Summary.t option Lazy.t
     ; simple_shape: SimpleShape.Summary.t option Lazy.t

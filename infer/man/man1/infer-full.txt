@@ -188,6 +188,12 @@ OPTIONS
            option. By default, all recursive dependencies are captured.       
     See also infer-capture(1).
 
+       --buck-dependency-depth int
+           Capture dependencies only if they are at most the depth provided,
+           or all transitive dependencies if depth is not provided (the
+           default). In particular, depth zero means capture exactly the
+           targets provided and nothing else.           See also infer-capture(1).
+
        --buck-erlang
            Activates: Buck integration for Erlang. (Conversely:
            --no-buck-erlang)           See also infer-capture(1).
@@ -196,12 +202,6 @@ OPTIONS
            Activates: Buck integration for Java which uses the buck flavor
            #infer-java-capture instead of genrules like buck-java.
            (Conversely: --no-buck-java-flavor)           See also infer-capture(1).
-
-       --buck-java-flavor-dependency-depth int
-           Capture dependencies only if they are at most the depth provided,
-           or all transitive dependencies if depth is not provided (the
-           default). In particular, depth zero means capture exactly the
-           targets provided and nothing else.           See also infer-capture(1).
 
        --buck-java-flavor-suppress-config
            Activates: Suppress setting buck config values for the infer
@@ -221,7 +221,10 @@ OPTIONS
 
        --buck-targets-block-list +regex
            Skip capture of buck targets matched by the specified regular
-           expression. Only valid for --buck-compilation-database.       
+           expression.           See also infer-capture(1) and infer-run(1).
+
+       --buck2-root dir
+           Specify the parent directory of buck-out (used only for buck2).       
     See also infer-capture(1) and infer-run(1).
 
        --bufferoverrun
@@ -427,9 +430,9 @@ OPTIONS
        --no-default-checkers
            Deactivates: Default checkers: --biabduction,
            --fragment-retains-view, --inefficient-keyset-iterator, --linters,
-           --liveness, --parameter-not-null-checked, --racerd,
-           --dotnet-resource-leak, --siof, --self-in-block, --starvation
-           (Conversely: --default-checkers)           See also infer-analyze(1).
+           --liveness, --parameter-not-null-checked, --racerd, --siof,
+           --self-in-block, --starvation (Conversely: --default-checkers)       
+    See also infer-analyze(1).
 
        --dependencies
            Activates: Translate all the dependencies during the capture. The
@@ -470,6 +473,8 @@ OPTIONS
              BAD_POINTER_COMPARISON (enabled by default),
              BAD_RECORD (enabled by default),
              BAD_RECORD_LATENT (disabled by default),
+             BAD_RETURN (enabled by default),
+             BAD_RETURN_LATENT (disabled by default),
              BIABDUCTION_ANALYSIS_STOPS (disabled by default),
              BIABDUCTION_MEMORY_LEAK (disabled by default),
              BIABDUCTION_RETAIN_CYCLE (enabled by default),
@@ -512,7 +517,6 @@ OPTIONS
              DIRECT_ATOMIC_PROPERTY_ACCESS (enabled by default),
              DISCOURAGED_WEAK_PROPERTY_CUSTOM_SETTER (enabled by default),
              DIVIDE_BY_ZERO (disabled by default),
-             DOTNET_RESOURCE_LEAK (enabled by default),
              DO_NOT_REPORT (enabled by default),
              EMPTY_VECTOR_ACCESS (enabled by default),
              ERADICATE_ANNOTATION_GRAPH (enabled by default),
@@ -617,9 +621,12 @@ OPTIONS
              PULSE_UNINITIALIZED_VALUE_LATENT (disabled by default),
              PULSE_UNNECESSARY_COPY (disabled by default),
              PULSE_UNNECESSARY_COPY_ASSIGNMENT (disabled by default),
+             PULSE_UNNECESSARY_COPY_ASSIGNMENT_CONST (disabled by default),
              PULSE_UNNECESSARY_COPY_ASSIGNMENT_MOVABLE (disabled by
            default),
              PULSE_UNNECESSARY_COPY_INTERMEDIATE (disabled by default),
+             PULSE_UNNECESSARY_COPY_INTERMEDIATE_CONST (disabled by
+           default),
              PULSE_UNNECESSARY_COPY_MOVABLE (disabled by default),
              PULSE_UNNECESSARY_COPY_RETURN (disabled by default),
              PURE_FUNCTION (enabled by default),
@@ -699,6 +706,12 @@ OPTIONS
            files usually come from a previous run with --debug.       
     See also infer-capture(1).
 
+       --erlang-check-return
+           Activates: Check whether the values returned by functions
+           correspond to what the function's spec promises. This check is
+           introduced at capture time. (Conversely: --no-erlang-check-return)       
+    See also infer-capture(1).
+
        --erlang-list-unfold-depth int
            Unfold Erlang lists up to depth int           See also infer-analyze(1).
 
@@ -744,9 +757,9 @@ OPTIONS
 
        --force-integration command
            Proceed as if the first argument after -- was command. Possible
-           values: ant, buck, buck2, gradle, gradlew, java, javac, cc, clang,
-           gcc, clang++, c++, g++, hackc, make, configure, cmake, waf, mvn,
-           mvnw, ndk-build, rebar3, erlc, xcodebuild.           See also infer-capture(1) and infer-run(1).
+           values: ant, buck, buck1, buck2, gradle, gradlew, java, javac, cc,
+           clang, gcc, clang++, c++, g++, hackc, make, configure, cmake, waf,
+           mvn, mvnw, ndk-build, rebar3, erlc, xcodebuild.           See also infer-capture(1) and infer-run(1).
 
        --no-fragment-retains-view
            Deactivates: checker fragment-retains-view: Detects when Android
@@ -1109,6 +1122,11 @@ OPTIONS
            Activates: Inline the initializer of global variables that are of
            type function pointer in Pulse. (Conversely:
            --no-pulse-inline-global-init-func-pointer)           See also infer-analyze(1).
+
+       --pulse-log-summary-count
+           Activates: Log the number of summaries for each analyzed procedure
+           in Pulse (Conversely: --no-pulse-log-summary-count)       
+    See also infer-analyze(1).
 
        --pulse-max-cfg-size int
            Larger CFGs than the max size are skipped in Pulse.       
@@ -1476,6 +1494,18 @@ OPTIONS
            in which distinct entities get assigned the same ID. (Conversely:
            --simple-lineage-dedup)           See also infer-analyze(1).
 
+       --simple-lineage-field-depth int
+           [EXPERIMENTAL] Maximal field depth sensitivity for lineage
+           analysis. 0 will make the analysis field insensitive.       
+    See also infer-analyze(1).
+
+       --simple-lineage-field-width int
+           [EXPERIMENTAL] Maximal width of structures for field sensitive
+           lineage analysis. Structure that have a higher number of fields
+           will be smashed into a single element. 0 will make the analysis
+           field insensitive. If not set, field width will be unlimited.       
+    See also infer-analyze(1).
+
        --simple-lineage-include-builtins
            Activates: Include call/return edges to/from procedures that model
            primitive Erlang operations, such as constructing a list.
@@ -1496,13 +1526,16 @@ OPTIONS
        --simple-lineage-max-cfg-size int
            If set, larger CFGs are skipped.           See also infer-analyze(1).
 
-       --simple-lineage-model-fields
-           Activates: [EXPERIMENTAL] Enable field-aware lineage analysis.
-           (Conversely: --no-simple-lineage-model-fields)           See also infer-analyze(1).
-
        --simple-lineage-only
            Activates: Enable simple-lineage and disable all other checkers
            (Conversely: --no-simple-lineage-only)           See also infer-analyze(1).
+
+       --simple-lineage-prevent-cycles
+           Activates: [EXPERIMENTAL] If set, SimpleLineage will stop
+           distinguishing the fields of a variable when it notices recursive
+           types (that is, a sub-field having the same type as one of its
+           "ancestors"). (Conversely: --no-simple-lineage-prevent-cycles)       
+    See also infer-analyze(1).
 
        --simple-lineage-seed int
            Set the random seed used for hashing. (Various entities that get
@@ -1848,14 +1881,17 @@ INTERNAL OPTIONS
        --buck-compilation-database-reset
            Cancel the effect of --buck-compilation-database.
 
-       --buck-java-flavor-dependency-depth-reset
-           Cancel the effect of --buck-java-flavor-dependency-depth.
+       --buck-dependency-depth-reset
+           Cancel the effect of --buck-dependency-depth.
 
        --buck-java-heap-size-gb-reset
            Cancel the effect of --buck-java-heap-size-gb.
 
        --buck-targets-block-list-reset
            Set --buck-targets-block-list to the empty list.
+
+       --buck2-root-reset
+           Cancel the effect of --buck2-root.
 
        --no-capture
            Deactivates: capture and translate source files into infer's
@@ -1864,11 +1900,12 @@ INTERNAL OPTIONS
        --capture-block-list-reset
            Cancel the effect of --capture-block-list.
 
-       --capture-doli path
-           Generate models from a DOLI representation given a .doli file.
+       --capture-doli +path
+           Generate a SIL program from doli representations given in .doli
+           files.
 
        --capture-doli-reset
-           Cancel the effect of --capture-doli.
+           Set --capture-doli to the empty list.
 
        --capture-textual +path
            Generate a SIL program from a textual representation given in .sil
@@ -2090,10 +2127,6 @@ INTERNAL OPTIONS
        --disjunctive-demo
            Activates: checker disjunctive-demo: Demo of the disjunctive
            domain, used for testing. (Conversely: --no-disjunctive-demo)
-
-       --no-dotnet-resource-leak
-           Deactivates: checker dotnet-resource-leak: "resource leak" checker
-           for .NET. (Conversely: --dotnet-resource-leak)
 
        --no-dotty-cfg-libs
            Deactivates: Print the cfg of the code coming from the libraries
@@ -2374,6 +2407,13 @@ INTERNAL OPTIONS
        --oom-threshold-reset
            Cancel the effect of --oom-threshold.
 
+       --parse-doli path
+           Perform parsing on given a .doli file -- no checks on textual, no
+           capture.
+
+       --parse-doli-reset
+           Cancel the effect of --parse-doli.
+
        --print-buckets
            Activates: Show the internal bucket of Infer reports in their
            textual description (Conversely: --no-print-buckets)
@@ -2604,6 +2644,9 @@ INTERNAL OPTIONS
 
        --select-reset
            Cancel the effect of --select.
+
+       --simple-lineage-field-width-reset
+           Cancel the effect of --simple-lineage-field-width.
 
        --simple-lineage-max-cfg-size-reset
            Cancel the effect of --simple-lineage-max-cfg-size.

@@ -37,6 +37,8 @@ module type S = sig
 
   val find_opt : key -> t -> value option
 
+  val iter : t -> f:(key * value -> unit) -> unit
+
   val fold : t -> init:'acc -> f:('acc -> key * value -> 'acc) -> 'acc
 
   val fold_map : t -> init:'acc -> f:('acc -> key -> value -> 'acc * value) -> 'acc * t
@@ -64,7 +66,7 @@ module Make
 
   (* suppress warnings about using {!List.Assoc.compare} since our own compare function also ignores
      that different representations of a [t] can have the same meaning *)
-  [@@@warning "-3"]
+  [@@@alert "-deprecated"]
 
   (** [new_] and [old] together represent the map. Keys may be present in both [old] and [new_], in
       which case bindings in [new_] take precendence.
@@ -82,7 +84,7 @@ module Make
     ; old: (key, value) List.Assoc.t  (** invariant: [List.length old ≤ Config.limit] *) }
   [@@deriving compare]
 
-  [@@@warning "+3"]
+  [@@@alert "+deprecated"]
 
   let equal = [%compare.equal: t]
 
@@ -151,6 +153,8 @@ module Make
 
 
   let fold map ~init ~f = Seq.fold_left f init (to_seq map)
+
+  let iter map ~f = fold map ~init:() ~f:(fun () x -> f x)
 
   let bindings map = to_seq map |> Caml.List.of_seq
 

@@ -9,6 +9,9 @@ open! IStd
 module L = Logging
 module F = Format
 module Hashtbl = Caml.Hashtbl
+module VarMap = Hashtbl.Make (Var)
+
+let pp_comma_sep fmt () = F.pp_print_string fmt ", "
 
 (* A module for parsing a JSON configuration into a custom data type. *)
 module AnalysisConfig : sig
@@ -46,8 +49,6 @@ end = struct
     {annotation_classname: string; scopes: scope list; must_not_hold_pairs: must_not_hold_pair list}
 
   let empty = {annotation_classname= ""; scopes= []; must_not_hold_pairs= []}
-
-  let pp_comma_sep fmt () = F.pp_print_string fmt ", "
 
   let pp_method fs methodname = F.fprintf fs {|"%s"|} methodname
 
@@ -90,7 +91,8 @@ end = struct
   (** Finds a named JSON node in a map and aborts with an informative message otherwise. *)
   let find_node map key node =
     try Hashtbl.find map key
-    with _ -> L.die UserError "Missing key \"%s\" in association node %a" key Yojson.Basic.pp node
+    with _ ->
+      L.die UserError "Missing key \"%s\" in association node %a!@\n" key Yojson.Basic.pp node
 
 
   (* Converts a JSON `Assoc into a Hashtbl. *)
@@ -106,7 +108,7 @@ end = struct
     | `List nodes ->
         List.map nodes ~f:Yojson.Basic.Util.to_string
     | _ ->
-        L.die UserError "Failed parsing a list of strings from %a" Yojson.Basic.pp node
+        L.die UserError "Failed parsing a list of strings from %a!@\n" Yojson.Basic.pp node
 
 
   (** node is a JSON entry of the form "classname" : string, "methods": [list of strings]. *)
@@ -118,7 +120,7 @@ end = struct
         let methods = json_list_to_string_list (find_node node_as_map "methods" node) in
         {classname; methods}
     | _ ->
-        L.die UserError "Failed parsing a classname+methods node from %a" Yojson.Basic.pp node
+        L.die UserError "Failed parsing a classname+methods node from %a!@\n" Yojson.Basic.pp node
 
 
   let parse_generators node =
@@ -126,8 +128,8 @@ end = struct
     | `List list_node ->
         List.map list_node ~f:parse_classname_methods
     | _ ->
-        L.die UserError "Failed parsing a list of classname+methods list from %a" Yojson.Basic.pp
-          node
+        L.die UserError "Failed parsing a list of classname+methods list from %a!@\n"
+          Yojson.Basic.pp node
 
 
   let parse_scope node =
@@ -139,10 +141,9 @@ end = struct
         { classname= Yojson.Basic.Util.to_string classname_node
         ; generators= parse_generators generators_node }
     | _ ->
-        L.die UserError "Failed parsing scope node from %a" Yojson.Basic.pp node
+        L.die UserError "Failed parsing scope node from %a!@\n" Yojson.Basic.pp node
 
 
-  (** node has the form "application-scope": string, "context-scope": string, "user-scope": string. *)
   let parse_scope_list node =
     match node with
     | `List node_list ->
@@ -159,7 +160,7 @@ end = struct
         let right_node = find_node node_as_map "held" node in
         {holder= Yojson.Basic.Util.to_string left_node; held= Yojson.Basic.Util.to_string right_node}
     | _ ->
-        L.die UserError "Failed parsing a must-not-hold pair from %a" Yojson.Basic.pp node
+        L.die UserError "Failed parsing a must-not-hold pair from %a!@\n" Yojson.Basic.pp node
 
 
   let parse_must_not_hold node =
@@ -167,7 +168,7 @@ end = struct
     | `List node_list ->
         List.map node_list ~f:parse_must_not_hold_pair
     | _ ->
-        L.die UserError "Failed parsing a must-not-hold pair from %a" Yojson.Basic.pp node
+        L.die UserError "Failed parsing a must-not-hold pair from %a!@\n" Yojson.Basic.pp node
 
 
   let parse node =
@@ -181,10 +182,11 @@ end = struct
         ; scopes= parse_scope_list scopes_node
         ; must_not_hold_pairs= parse_must_not_hold must_not_hold_node }
     | `List [] ->
-        L.debug Analysis Verbose "scope-leakage-config is empty!@" ;
+        L.debug Analysis Verbose "scope-leakage-config is empty!@\n" ;
         empty
     | _ ->
-        L.die UserError "Failed parsing a scope-leakage-config node from %a" Yojson.Basic.pp node
+        L.die UserError "Failed parsing a scope-leakage-config node from %a!@\n" Yojson.Basic.pp
+          node
 end
 
 (** Parse the configuration once and for all. *)
@@ -195,7 +197,7 @@ let config =
 
 (** A module for defining scopes and basic operations on scopes as well as extracting scopes from
     type annotations. *)
-module AbsScope : sig
+module Scope : sig
   type t
 
   val bottom : t
@@ -259,8 +261,11 @@ end = struct
 
 
   let must_not_hold s1 s2 =
-    List.exists must_not_hold_scopes ~f:(fun (holder, held) -> equal s1 holder && equal s2 held)
-    || equal s2 Top
+    if equal s1 Top then List.exists must_not_hold_scopes ~f:(fun (_, held) -> equal s2 held)
+    else if equal s2 Top then
+      List.exists must_not_hold_scopes ~f:(fun (holder, _) -> equal s1 holder)
+    else
+      List.exists must_not_hold_scopes ~f:(fun (holder, held) -> equal s1 holder && equal s2 held)
 
 
   (** Matches a parameter like "value = OuterScope.class" with the corresponding scope. *)
@@ -371,18 +376,6 @@ end = struct
   let of_generator_procname = of_generator_procname_with_config config
 end
 
-(** A mapping from pointer variables to scopes. *)
-module VarToScope = struct
-  include Hashtbl.Make (Var)
-
-  let find_or_bottom tbl k =
-    match find_opt tbl k with Some scope -> scope | None -> AbsScope.bottom
-
-
-  let join tbl k d =
-    match find_opt tbl k with Some d' -> replace tbl k (AbsScope.join d d') | None -> add tbl k d
-end
-
 (** A flow-insensitive alias analysis between local pointer variables. That is, only assignments
     between pointer variables are considered.
 
@@ -392,7 +385,7 @@ end
     requires maintaining size information. We skip that, since we expect the alias sets to be small
     in practice and not worth the additional time/space for maintaining size counters. *)
 module Aliasing = struct
-  include Hashtbl.Make (Var)
+  open VarMap
 
   (** Returns the representative of the given variable's alias set. *)
   let rec get_rep aliasing var =
@@ -406,8 +399,8 @@ module Aliasing = struct
     match instr with
     | Load {id= lvar; typ; e= Lvar rvar} when Typ.is_pointer typ ->
         Some (Var.of_id lvar, Var.of_pvar rvar)
-    | Store {e1= Lvar lvar; e2= Var rvar} ->
-        Some (Var.of_pvar lvar, Var.of_id rvar)
+    | Store {e1= Lvar lhs; e2= Var rhs} ->
+        Some (Var.of_pvar lhs, Var.of_id rhs)
     | _ ->
         None
 
@@ -430,58 +423,127 @@ module Aliasing = struct
     varToRep
 end
 
-(** Sets the scope of any given variable to the join of the scopes of all other members of its alias
-    set. *)
-let join_scopes_for_alias_sets aliasing scoping : unit =
-  (* Join all scopes into the representative of the alias set. *)
-  VarToScope.iter
-    (fun v rep ->
-      let v_scope = VarToScope.find_or_bottom scoping v in
-      VarToScope.join scoping rep v_scope )
-    aliasing ;
-  (* Now copy the representative's scope to all other members in its alias set.
-     filter_map_inplace is safe here, since we don't change the set of keys.
-  *)
-  VarToScope.filter_map_inplace
-    (fun v _ ->
-      let rep = Aliasing.get_rep aliasing v in
-      let rep_scope = VarToScope.find_or_bottom scoping rep in
-      Some rep_scope )
-    scoping
+(** A mapping from pointer variables to scopes. *)
+module VarToScope : sig
+  type t
+
+  val create : Var.t VarMap.t -> int -> t
+
+  val find_or_bottom : t -> Var.t -> Scope.t
+
+  val join : t -> Var.t -> Scope.t -> unit
+
+  val join_list : t -> (Var.t * Scope.t) list -> unit
+
+  val pp : F.formatter -> t -> unit
+end = struct
+  open VarMap
+
+  type t = {aliasing: Var.t VarMap.t; env: Scope.t VarMap.t}
+
+  let create aliasing size : t = {aliasing; env= VarMap.create size}
+
+  let find_or_bottom {aliasing; env} var =
+    let var = Aliasing.get_rep aliasing var in
+    find_opt env var |> Option.value ~default:Scope.bottom
 
 
-(** Local inference of scopes for left-hand side variables from individual instructions. *)
-let scope_of_instr tenv instr =
-  match (instr : Sil.instr) with
-  | Load {id= lvar; typ} when Typ.is_pointer typ ->
-      Some (Var.of_id lvar, AbsScope.of_type tenv typ)
-  | Store {e1= Lvar lvar; typ} when Typ.is_pointer typ ->
-      Some (Var.of_pvar lvar, AbsScope.of_type tenv typ)
-  | Sil.Call ((ret_id, ret_type), Const (Cfun callee_pname), _, _, _) ->
-      (* Check for a scope-generator procname and only if this fails check
-         the scope of the return type. *)
-      let ret_scope =
-        let gen_scope = AbsScope.of_generator_procname callee_pname in
-        if AbsScope.is_bottom gen_scope then AbsScope.of_type tenv ret_type else gen_scope
-      in
-      Some (Var.of_id ret_id, ret_scope)
-  | Sil.Call ((ret_id, ret_type), _, _, _, _) ->
-      Some (Var.of_id ret_id, AbsScope.of_type tenv ret_type)
-  | _ ->
+  let join abs var scope =
+    let var = Aliasing.get_rep abs.aliasing var in
+    let current_scope = find_or_bottom abs var in
+    let joined_scope = Scope.join scope current_scope in
+    if not (Scope.is_bottom joined_scope) (* Keep the mapping sparse. *) then
+      replace abs.env var joined_scope
+    else (* d' is bottom, meaning there is no key in the table. *)
+      ()
+
+
+  let join_list abs entries = List.iter entries ~f:(fun (var, scope) -> join abs var scope)
+
+  let pp fmt {env} =
+    let pp_pair fmt (fst, snd) = F.fprintf fmt "%a: %a" Var.pp fst Scope.pp snd in
+    let pp_sep fmt () = F.pp_print_string fmt ",@," in
+    F.fprintf fmt "@[<hv>[%a]@]" (F.pp_print_seq ~pp_sep pp_pair) (VarMap.to_seq env)
+end
+
+module Summary = VarToScope
+
+(* The variable to which we should assign a scope to in the given expression. *)
+let rec scope_target_var_of_expr (e : Exp.t) =
+  match e with
+  | Var id ->
+      Some (Var.of_id id)
+  | Lvar pvar ->
+      Some (Var.of_pvar pvar)
+  | Lfield (e, _, _) | Cast (_, e) | Exn e | Lindex (e, _) ->
+      scope_target_var_of_expr e
+  | Const _ | Closure _ | Sizeof _ | UnOp _ | BinOp _ ->
       None
 
 
-(** A local analysis that assigns a scope to each left-hand side variable. *)
-let locally_assign_scopes_to_vars proc_desc tenv =
-  let scope_of_instr_with_tenv = scope_of_instr tenv in
-  let result = VarToScope.create 100 in
+let apply_to_expr (e : Exp.t) scope =
+  scope_target_var_of_expr e |> Option.map ~f:(fun v -> (v, scope))
+
+
+let apply_summary procname analyze_dependency ret_exp args =
+  match analyze_dependency procname with
+  | Some (proc_desc, summary) ->
+      let all_formals =
+        (Procdesc.get_ret_var proc_desc, Procdesc.get_ret_type proc_desc)
+        :: Procdesc.get_pvar_formals proc_desc
+      in
+      let all_actuals = ret_exp :: args in
+      if equal_int (List.length all_formals) (List.length all_actuals) then
+        List.fold2_exn all_formals all_actuals ~init:[]
+          ~f:(fun updates (formal_pvar, _) (actual, _) ->
+            let formal_scope = VarToScope.find_or_bottom summary (Var.of_pvar formal_pvar) in
+            apply_to_expr actual formal_scope
+            |> Option.fold ~init:updates ~f:(fun accum exp_update -> exp_update :: accum) )
+      else (* TODO: handle vararg procedures. *)
+        []
+  | None ->
+      L.debug Analysis Verbose "@[<v2> ScopeLeakage: no summary found for procname `%a`@]@,"
+        Procname.pp procname ;
+      []
+
+
+(** Copied from SimpleShape.ml. I think this should be shared in, e.g., PatternMatch. *)
+let procname_of_exp (e : Exp.t) : Procname.t option =
+  match e with Closure {name} | Const (Cfun name) -> Some name | _ -> None
+
+
+(** Local inference of scopes for left-hand side variables from individual instructions. *)
+let exec_instr tenv analyze_dependency instr =
+  match (instr : Sil.instr) with
+  | Load {id; typ} when Typ.is_pointer typ ->
+      [(Var.of_id id, Scope.of_type tenv typ)]
+  | Store {e1= Lvar pvar; typ} when Typ.is_pointer typ ->
+      [(Var.of_pvar pvar, Scope.of_type tenv typ)]
+  (* Uncomment this case once the analysis handles scope joins more precisely,
+       otherwise we will consistently see instances of Top scope.
+     | Store {e1= Lfield (Var lvar, _, _); typ} when Typ.is_pointer typ ->
+         [(Var.of_id lvar, Scope.of_type tenv typ)] *)
+  | Sil.Call ((ret_id, ret_typ), call_exp, actuals, _, _) ->
+      procname_of_exp call_exp
+      |> Option.value_map ~default:[] ~f:(fun callee_pname ->
+             (* Check for a scope-generator procname and only if this fails check
+                the scope of the return type. *)
+             let gen_scope = Scope.of_generator_procname callee_pname in
+             if Scope.is_bottom gen_scope then
+               apply_summary callee_pname analyze_dependency (Exp.Var ret_id, ret_typ) actuals
+             else [(Var.of_id ret_id, gen_scope)] )
+  | _ ->
+      []
+
+
+(** A flow-insensitive analysis that assigns scopes to variables. *)
+let assign_scopes_to_vars proc_desc tenv analyze_dependency aliasing =
+  let exec_instr_in_context = exec_instr tenv analyze_dependency in
+  let result = VarToScope.create aliasing 100 in
   Procdesc.iter_instrs
     (fun _ instr ->
-      match scope_of_instr_with_tenv instr with
-      | Some (var, scope) ->
-          VarToScope.join result var scope
-      | None ->
-          () )
+      let entries = exec_instr_in_context instr in
+      VarToScope.join_list result entries )
     proc_desc ;
   result
 
@@ -491,21 +553,19 @@ let report_bad_field_assignments err_log proc_desc scoping =
   Procdesc.iter_instrs
     (fun _ instr ->
       match instr with
-      | Store {e1= Lfield (Var lpvar, fldname, lvar_type); e2= Var rvar; loc; typ}
-        when Typ.is_pointer typ ->
+      | Store {e1= Lfield (Var lpvar, fldname, _); e2= Var rvar; loc; typ} when Typ.is_pointer typ
+        ->
           let lvar = Var.of_id lpvar in
           let lvar_scope = VarToScope.find_or_bottom scoping lvar in
           let rvar_scope = VarToScope.find_or_bottom scoping (Var.of_id rvar) in
-          if AbsScope.must_not_hold lvar_scope rvar_scope then
-            let ltr = [Errlog.make_trace_element 0 loc "storage of user-scoped field" []] in
-            let lvar_type_str = PatternMatch.get_type_name lvar_type in
+          if Scope.must_not_hold lvar_scope rvar_scope then
+            let ltr = [Errlog.make_trace_element 0 loc "assignment of scoped object" []] in
             let description =
               Format.asprintf
-                "Assignee of field %s.%s has scope %a and should not be assigned an object of \
-                 scope %a!"
-                lvar_type_str
+                "Field `%s` is declared in an object of scope `%a` and should not be assigned an \
+                 object of scope `%a`"
                 (Fieldname.get_field_name fldname)
-                AbsScope.pp lvar_scope AbsScope.pp rvar_scope
+                Scope.pp lvar_scope Scope.pp rvar_scope
             in
             Reporting.log_issue proc_desc err_log ~loc ~ltr ScopeLeakage IssueType.scope_leakage
               description
@@ -514,12 +574,30 @@ let report_bad_field_assignments err_log proc_desc scoping =
     proc_desc
 
 
+let _pp_vars fs vars = F.pp_print_list ~pp_sep:pp_comma_sep (Pvar.pp Pp.text) fs vars
+
+(** Retain only entries for the (pointer-typed) procedure's parameter variables and the return
+    variable. *)
+let to_summary proc_desc scoping =
+  let ret_pvar_typ = (Procdesc.get_ret_var proc_desc, Procdesc.get_ret_type proc_desc) in
+  let summary_vars = ret_pvar_typ :: Procdesc.get_pvar_formals proc_desc in
+  let empty_aliasing = VarMap.create 0 in
+  let summary = VarToScope.create empty_aliasing (1 + List.length summary_vars) in
+  List.iter summary_vars ~f:(fun (pvar, pvar_typ) ->
+      if Typ.is_pointer pvar_typ then
+        let var = Var.of_pvar pvar in
+        let var_scope = VarToScope.find_or_bottom scoping var in
+        VarToScope.join summary var var_scope ) ;
+  summary
+
+
 (** Un-prefix if we need to debug the configuration parsing code. *)
 let _print_config () = L.debug Analysis Quiet "%a@\n" AnalysisConfig.pp config
 
 (** Checks whether the given procedure does not violate the scope nesting restriction. *)
-let checker {IntraproceduralAnalysis.proc_desc; tenv; err_log} =
-  let scoping = locally_assign_scopes_to_vars proc_desc tenv in
+let checker {InterproceduralAnalysis.proc_desc; tenv; err_log; analyze_dependency} =
   let aliasing = Aliasing.of_proc_desc proc_desc in
-  join_scopes_for_alias_sets aliasing scoping ;
-  report_bad_field_assignments err_log proc_desc scoping
+  let scoping = assign_scopes_to_vars proc_desc tenv analyze_dependency aliasing in
+  report_bad_field_assignments err_log proc_desc scoping ;
+  let summary = to_summary proc_desc scoping in
+  Some summary

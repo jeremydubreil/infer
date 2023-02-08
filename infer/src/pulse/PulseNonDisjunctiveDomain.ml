@@ -7,6 +7,7 @@
 
 open! IStd
 module F = Format
+module IRAttributes = Attributes
 open PulseBasicInterface
 module BaseMemory = PulseBaseMemory
 module DecompilerExpr = PulseDecompilerExpr
@@ -44,13 +45,18 @@ end
 
 type copy_spec_t =
   | Copied of
-      { typ: Typ.t
+      { source_typ: Typ.t option
       ; location: Location.t
       ; copied_location: (Procname.t * Location.t) option
       ; heap: BaseMemory.t
       ; from: Attribute.CopyOrigin.t
       ; timestamp: Timestamp.t }
-  | Modified
+  | Modified of
+      { source_typ: Typ.t option
+      ; location: Location.t
+      ; copied_location: (Procname.t * Location.t) option
+      ; from: Attribute.CopyOrigin.t
+      ; copied_timestamp: Timestamp.t }
 [@@deriving equal]
 
 module CopySpec = MakeDomainFromTotalOrder (struct
@@ -60,18 +66,20 @@ module CopySpec = MakeDomainFromTotalOrder (struct
     match (lhs, rhs) with
     | Copied _, _ ->
         true
-    | Modified, Copied _ ->
+    | Modified _, Copied _ ->
         false
-    | Modified, Modified ->
+    | Modified _, Modified _ ->
         true
 
 
   let pp fmt = function
-    | Copied {typ; heap; location; from; timestamp} ->
+    | Copied {source_typ; heap; location; from; timestamp} ->
         Format.fprintf fmt "@[%a (value of type %a) at %a@ with heap= %a@ (timestamp: %d)@]"
-          Attribute.CopyOrigin.pp from (Typ.pp Pp.text) typ Location.pp location BaseMemory.pp heap
+          Attribute.CopyOrigin.pp from
+          (Pp.option (Typ.pp Pp.text))
+          source_typ Location.pp location BaseMemory.pp heap
           (timestamp :> int)
-    | Modified ->
+    | Modified _ ->
         Format.fprintf fmt "modified"
 end)
 
@@ -137,13 +145,19 @@ module CopyMap = AbstractDomain.Map (CopyVar) (CopySpec)
 module ParameterMap = AbstractDomain.Map (ParameterVar) (ParameterSpec)
 module Locked = AbstractDomain.BooleanOr
 
+module TrackedLoc = struct
+  type t = {loc: Location.t; timestamp: Timestamp.t} [@@deriving compare, equal]
+
+  let pp fmt {loc} = Location.pp fmt loc
+end
+
 module Loads = struct
   module IdentToVars = AbstractDomain.FiniteMultiMap (Ident) (Var)
-  module LoadedVars = AbstractDomain.FiniteMultiMap (Var) (Location)
+  module LoadedVars = AbstractDomain.FiniteMultiMap (Var) (TrackedLoc)
   include AbstractDomain.PairWithBottom (IdentToVars) (LoadedVars)
 
-  let add loc ident var (ident_to_vars, loaded_vars) =
-    (IdentToVars.add ident var ident_to_vars, LoadedVars.add var loc loaded_vars)
+  let add loc timestamp ident var (ident_to_vars, loaded_vars) =
+    (IdentToVars.add ident var ident_to_vars, LoadedVars.add var {loc; timestamp} loaded_vars)
 
 
   let get_all ident (ident_to_vars, _) = IdentToVars.get_all ident ident_to_vars
@@ -153,8 +167,17 @@ module Loads = struct
   let get_loaded_locations var (_, loaded_vars) = LoadedVars.get_all var loaded_vars
 end
 
+module PVar = struct
+  type t = Pvar.t [@@deriving compare]
+
+  let pp = Pvar.pp Pp.text
+end
+
+module Stores = AbstractDomain.FiniteMultiMap (PVar) (TrackedLoc)
+
 module CalleeWithUnknown = struct
-  type t = V of {copy_tgt: Exp.t option; callee: Procname.t} | Unknown [@@deriving compare]
+  type t = V of {copy_tgt: Exp.t option; callee: Procname.t; timestamp: Timestamp.t} | Unknown
+  [@@deriving compare]
 
   let pp_copy_tgt f copy_tgt = Option.iter copy_tgt ~f:(fun tgt -> F.fprintf f "(%a)" Exp.pp tgt)
 
@@ -167,9 +190,12 @@ module CalleeWithUnknown = struct
 
   let is_copy_to_field_or_global = function
     | V {copy_tgt= Some (Lindex _ | Lfield _); callee} ->
-        Procname.is_copy_assignment callee || Procname.is_copy_ctor callee
+        Option.exists (IRAttributes.load callee) ~f:(fun attrs ->
+            attrs.ProcAttributes.is_cpp_copy_assignment || attrs.ProcAttributes.is_cpp_copy_ctor )
     | V {copy_tgt= Some (Lvar pvar); callee} ->
-        Pvar.is_global pvar && Procname.is_copy_assignment callee
+        Pvar.is_global pvar
+        && Option.exists (IRAttributes.load callee) ~f:(fun attrs ->
+               attrs.ProcAttributes.is_cpp_copy_assignment )
     | V _ ->
         false
     | Unknown ->
@@ -198,6 +224,7 @@ type elt =
   ; captured: Captured.t
   ; locked: Locked.t
   ; loads: Loads.t
+  ; stores: Stores.t
   ; passed_to: PassedTo.t }
 
 type t = V of elt | Top
@@ -241,6 +268,7 @@ let join x y =
         ; captured= Captured.join x.captured y.captured
         ; locked= Locked.join x.locked y.locked
         ; loads= Loads.join x.loads y.loads
+        ; stores= Stores.join x.stores y.stores
         ; passed_to= PassedTo.join x.passed_to y.passed_to }
 
 
@@ -259,6 +287,7 @@ let widen ~prev ~next ~num_iters =
         ; captured= Captured.widen ~prev:prev.captured ~next:next.captured ~num_iters
         ; locked= Locked.widen ~prev:prev.locked ~next:next.locked ~num_iters
         ; loads= Loads.widen ~prev:prev.loads ~next:next.loads ~num_iters
+        ; stores= Stores.widen ~prev:prev.stores ~next:next.stores ~num_iters
         ; passed_to= PassedTo.widen ~prev:prev.passed_to ~next:next.passed_to ~num_iters }
 
 
@@ -270,6 +299,7 @@ let bottom =
     ; captured= Captured.empty
     ; locked= Locked.bottom
     ; loads= Loads.bottom
+    ; stores= Stores.bottom
     ; passed_to= PassedTo.bottom }
 
 
@@ -294,10 +324,16 @@ let mark_copy_as_modified_elt ~is_modified ~copied_into ~source_addr_opt ({copy_
   let copy_var = CopyVar.{copied_into; source_addr_opt} in
   let copy_map =
     match CopyMap.find_opt copy_var copy_map with
-    | Some (Copied {heap= copy_heap; timestamp= copy_timestamp})
-      when is_modified copy_heap copy_timestamp ->
+    | Some
+        (Copied
+          {source_typ; from; copied_location; location; heap= copy_heap; timestamp= copied_timestamp}
+          )
+      when is_modified copy_heap copied_timestamp ->
         Logging.d_printfln_escaped "Copy/source modified!" ;
-        CopyMap.add copy_var Modified copy_map
+        let modified : copy_spec_t =
+          Modified {source_typ; location; copied_location; from; copied_timestamp}
+        in
+        CopyMap.add copy_var modified copy_map
     | _ ->
         copy_map
   in
@@ -332,14 +368,40 @@ let checked_via_dtor var = map (checked_via_dtor_elt var)
 
 module CopiedSet = PrettyPrintable.MakePPSet (Attribute.CopiedInto)
 
-let get_copied = function
+let is_never_used_after_copy_into_intermediate_or_field pvar (copied_timestamp : Timestamp.t) astate
+    =
+  match astate with
+  | Top ->
+      false
+  | V {passed_to; loads; stores} ->
+      let is_after_copy =
+        List.exists ~f:(fun TrackedLoc.{timestamp} ->
+            (copied_timestamp :> int) < (timestamp :> int) )
+      in
+      let source_var = Var.of_pvar pvar in
+      let is_passed_to_non_destructor_after_copy =
+        PassedTo.get_all source_var passed_to
+        |> List.exists ~f:(fun {CalleeWithLoc.callee; _} ->
+               match callee with
+               | V {callee; timestamp} when (copied_timestamp :> int) < (timestamp :> int) ->
+                   not (Procname.is_destructor callee)
+               | _ ->
+                   false )
+      in
+      let is_loaded_after_copy = Loads.get_loaded_locations source_var loads |> is_after_copy in
+      let is_stored_after_copy = Stores.get_all pvar stores |> is_after_copy in
+      not (is_loaded_after_copy || is_stored_after_copy || is_passed_to_non_destructor_after_copy)
+
+
+let get_copied astate =
+  match astate with
   | Top ->
       []
   | V {copy_map; captured} ->
       let modified =
         CopyMap.fold
           (fun CopyVar.{copied_into} (copy_spec : CopySpec.t) acc ->
-            match copy_spec with Modified -> CopiedSet.add copied_into acc | Copied _ -> acc )
+            match copy_spec with Modified _ -> CopiedSet.add copied_into acc | Copied _ -> acc )
           copy_map CopiedSet.empty
       in
       let is_captured copy_into =
@@ -351,12 +413,22 @@ let get_copied = function
       in
       CopyMap.fold
         (fun CopyVar.{copied_into} (copy_spec : CopySpec.t) acc ->
-          match copy_spec with
-          | Modified ->
+          match (copied_into, copy_spec) with
+          | _, Copied _ when CopiedSet.mem copied_into modified || is_captured copied_into ->
               acc
-          | Copied {location; copied_location; typ= copied_typ; from} ->
-              if CopiedSet.mem copied_into modified || is_captured copied_into then acc
-              else (copied_into, copied_typ, location, copied_location, from) :: acc )
+          | ( ( IntoField {source_opt= Some (SourceExpr ((PVar pvar, _), _))}
+              | IntoIntermediate {source_opt= Some (PVar pvar, _)} )
+            , ( Copied {location; copied_location; source_typ; from; timestamp= copied_timestamp}
+              | Modified {location; copied_location; source_typ; from; copied_timestamp} ) ) ->
+              if is_never_used_after_copy_into_intermediate_or_field pvar copied_timestamp astate
+              then
+                (* if source var is never used later on, we can still suggest removing the copy even though the copy is modified *)
+                (copied_into, source_typ, location, copied_location, from) :: acc
+              else acc
+          | _, Copied {location; copied_location; source_typ; from} ->
+              (copied_into, source_typ, location, copied_location, from) :: acc
+          | _, Modified _ ->
+              acc )
         copy_map []
 
 
@@ -373,30 +445,24 @@ let get_const_refable_parameters = function
             match parameter_spec_t with
             | Modified ->
                 acc
-            | Unmodified {location; typ= copied_typ} ->
-                (var, copied_typ, location) :: acc
+            | Unmodified {location; typ= copied_source_typ} ->
+                (var, copied_source_typ, location) :: acc
           else acc )
         parameter_map []
 
 
-let add_var_elt copied_var ~source_addr_opt ~source_opt (res : copy_spec_t) astate =
-  { astate with
-    copy_map=
-      CopyMap.add
-        {copied_into= IntoVar {copied_var; source_opt}; source_addr_opt}
-        res astate.copy_map }
+let add_var_elt copied_into ~source_addr_opt (res : copy_spec_t) astate =
+  {astate with copy_map= CopyMap.add {copied_into; source_addr_opt} res astate.copy_map}
 
 
-let add_var copied_var ~source_addr_opt ~source_opt res =
-  map (add_var_elt copied_var ~source_addr_opt ~source_opt res)
-
+let add_var copied_into ~source_addr_opt res = map (add_var_elt copied_into ~source_addr_opt res)
 
 let add_field_elt copied_field ~source_opt (res : copy_spec_t) astate =
   { astate with
     copy_map=
       CopyMap.add
         { copied_into= IntoField {field= copied_field; source_opt}
-        ; source_addr_opt= Option.bind source_opt ~f:PulseDecompilerExpr.abstract_value_of_expr }
+        ; source_addr_opt= Option.bind source_opt ~f:DecompilerExpr.abstract_value_of_expr }
         res astate.copy_map }
 
 
@@ -432,15 +498,25 @@ let set_locked = map set_locked_elt
 
 let is_locked = function Top -> true | V {locked} -> locked
 
-let set_load_elt loc ident var astate = {astate with loads= Loads.add loc ident var astate.loads}
+let set_load_elt loc tstamp ident var astate =
+  {astate with loads= Loads.add loc tstamp ident var astate.loads}
 
-let set_load loc ident var = map (set_load_elt loc ident var)
+
+let set_load loc tstamp ident var astate =
+  if Ident.is_none ident then astate else map (set_load_elt loc tstamp ident var) astate
+
+
+let set_store_elt loc timestamp var astate =
+  {astate with stores= Stores.add var {loc; timestamp} astate.stores}
+
+
+let set_store loc tstamp var astate = map (set_store_elt loc tstamp var) astate
 
 let get_loaded_locations var = function
   | Top ->
       []
   | V {loads} ->
-      Loads.get_loaded_locations var loads
+      Loads.get_loaded_locations var loads |> List.map ~f:(fun TrackedLoc.{loc} -> loc)
 
 
 let is_captured var astate =
@@ -453,24 +529,29 @@ let is_captured var astate =
       true
 
 
-let set_passed_to_elt loc call_exp actuals ({loads; passed_to} as astate) =
+let set_passed_to_elt loc timestamp call_exp actuals ({loads; passed_to} as astate) =
   let new_callee =
     match (call_exp : Exp.t) with
     | Const (Cfun callee) | Closure {name= callee} ->
         let copy_tgt =
           match actuals with
-          | (tgt, _) :: _ when Procname.is_copy_ctor callee || Procname.is_copy_assignment callee ->
+          | (tgt, _) :: _
+            when Option.exists (IRAttributes.load callee) ~f:(fun attrs ->
+                     attrs.ProcAttributes.is_cpp_copy_ctor
+                     || attrs.ProcAttributes.is_cpp_copy_assignment ) ->
               Some tgt
           | _ ->
               None
         in
-        CalleeWithUnknown.V {copy_tgt; callee}
+        CalleeWithUnknown.V {copy_tgt; callee; timestamp}
     | _ ->
         CalleeWithUnknown.Unknown
   in
   let vars =
     List.fold actuals ~init:Var.Set.empty ~f:(fun acc (actual, _) ->
         match (actual : Exp.t) with
+        | Lvar pvar when not (Pvar.is_frontend_tmp pvar) ->
+            Var.Set.add (Var.of_pvar pvar) acc
         | Var ident ->
             List.fold (Loads.get_all ident loads) ~init:acc ~f:(fun acc var -> Var.Set.add var acc)
         | _ ->
@@ -482,7 +563,9 @@ let set_passed_to_elt loc call_exp actuals ({loads; passed_to} as astate) =
   {astate with passed_to}
 
 
-let set_passed_to loc call_exp actuals = map (set_passed_to_elt loc call_exp actuals)
+let set_passed_to loc timestamp call_exp actuals =
+  map (set_passed_to_elt loc timestamp call_exp actuals)
+
 
 let get_passed_to var ~f = function
   | Top ->

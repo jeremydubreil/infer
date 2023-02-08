@@ -7,21 +7,17 @@
  (name Textuallib)
  (public_name infer.Textuallib)
  (flags
-  (:standard -open Core -open IStdlib -open IStd -open IBase -open IR))
- (libraries core zarith IStdlib IBase IR)
+  (:standard -open IStdlib -open IBase -open IR))
+ (libraries core zarith IStdlib IBase IR menhirLib sedlex sedlex.ppx)
  (preprocess
-  (pps ppx_compare ppx_hash ppx_show ppx_sexp_conv ppx_yojson_conv)))
-
-(ocamllex TextualLexer)
-
-(menhir
- (modules TextualMenhir)
- (flags --explain)
- (infer false))
-
-(ocamllex doliLexer)
+  (pps
+   ppx_compare
+   ppx_hash
+   ppx_show
+   ppx_sexp_conv
+   ppx_yojson_conv
+   sedlex.ppx)))
 
 (menhir
- (modules doliFrameParser doliJavaMatch doliObjCMatch doliBody)
- (merge_into doliCombined)
- (flags --explain))
+ (modules CombinedMenhir)
+ (flags --explain --unused-tokens))

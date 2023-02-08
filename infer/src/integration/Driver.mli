@@ -15,6 +15,7 @@ type mode =
   | Analyze
   | Ant of {prog: string; args: string list}
   | Buck2Clang of {build_cmd: string list}
+  | Buck2Java of {build_cmd: string list}
   | BuckClangFlavor of {build_cmd: string list}
   | BuckCompilationDB of {deps: BuckMode.clang_compilation_db_deps; prog: string; args: string list}
   | BuckErlang of {prog: string; args: string list}
@@ -30,7 +31,7 @@ type mode =
   | Rebar3 of {args: string list}
   | Erlc of {args: string list}
   | Hackc of {prog: string; args: string list}
-  | Textual of {files: string list}
+  | Textual of {textualfiles: string list; dolifiles: string list}
   | XcodeBuild of {prog: string; args: string list}
   | XcodeXcpretty of {prog: string; args: string list}
 

@@ -18,6 +18,11 @@ class Optional {
   Optional(const Optional& src);
   bool has_value();
 };
+
+namespace coro {
+template <class Value>
+class Task {};
+} // namespace coro
 } // namespace folly
 
 namespace const_refable {
@@ -81,6 +86,11 @@ int move_ok(std::set<int> source) {
 int param_ref_move_ok(std::set<int> source) {
   auto& source_ref = source;
   pass_rvalue_ref(std::move(source_ref));
+  return 0;
+}
+
+int static_cast_to_rvalue_ref_ok(std::set<int> source) {
+  pass_rvalue_ref(static_cast<std::set<int>&&>(source));
   return 0;
 }
 
@@ -155,11 +165,50 @@ class AssignField {
  public:
   // It should NOT report const refable issue, but unncessary copy assignment
   // issue.
-  void assign_field_bad_FN(Arr a) { field = a; }
+  void assign_field_bad(Arr a) { field = a; }
 
   // It should NOT report const refable issue, but unncessary copy assignment
   // issue.
   void assign_global_bad(Arr a) { global = a; }
 };
+
+// Suppress const refable issues on functions returning folly::coro::Task
+folly::coro::Task<Arr> ret_coro_task_ok(std::string s) {
+  int n = s.length();
+  return folly::coro::Task<Arr>();
+}
+
+void move_iterated_vector_ok(std::vector<std::string> v) {
+  std::vector<std::string> local;
+  local.insert(local.end(),
+               std::make_move_iterator(v.begin()),
+               std::make_move_iterator(v.end()));
+}
+
+char mod_char(char);
+
+void modify_string(std::string& s) {
+  for (char& c : s) {
+    c = mod_char(c);
+  }
+}
+
+void call_modify_string_ok(std::string s) { modify_string(s); }
+
+void void_cast(std::string* s) { (void)s; }
+
+void call_void_cast_bad(std::string s) { void_cast(&s); }
+
+int get_lambda(const std::function<int(Arr)>& f, Arr a) {
+  return f(std::move(a));
+}
+
+int call_get_lambda_ok(Arr a) {
+  return get_lambda([](Arr a) { return a.vec[0]; }, std::move(a));
+}
+
+std::string use_unique_ptr_ok(std::unique_ptr<std::string> x) {
+  return *x.get();
+}
 
 } // namespace const_refable

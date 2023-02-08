@@ -16,13 +16,13 @@ type t =
   ; config_impact_analysis: ConfigImpactAnalysis.Summary.t option Lazy.t
   ; cost: CostDomain.summary option Lazy.t
   ; disjunctive_demo: DisjunctiveDemo.domain option Lazy.t
-  ; dotnet_resource_leaks: ResourceLeakCSDomain.summary option Lazy.t
   ; lab_resource_leaks: ResourceLeakDomain.summary option Lazy.t
   ; litho_required_props: LithoDomain.summary option Lazy.t
   ; pulse: PulseSummary.t option Lazy.t
   ; purity: PurityDomain.summary option Lazy.t
   ; quandary: QuandarySummary.t option Lazy.t
   ; racerd: RacerDDomain.summary option Lazy.t
+  ; scope_leakage: ScopeLeakage.Summary.t option Lazy.t
   ; siof: SiofDomain.Summary.t option Lazy.t
   ; simple_lineage: SimpleLineage.Summary.t option Lazy.t
   ; simple_shape: SimpleShape.Summary.t option Lazy.t
@@ -57,7 +57,7 @@ let all_fields =
     ~quandary:(fun f -> mk f Quandary QuandarySummary.pp)
     ~racerd:(fun f -> mk f RacerD RacerDDomain.pp_summary)
     ~lab_resource_leaks:(fun f -> mk f LabResourceLeaks ResourceLeakDomain.pp)
-    ~dotnet_resource_leaks:(fun f -> mk f DotnetResourceLeaks ResourceLeakCSDomain.Summary.pp)
+    ~scope_leakage:(fun f -> mk f ScopeLeakage ScopeLeakage.Summary.pp)
     ~siof:(fun f -> mk f SIOF SiofDomain.Summary.pp)
     ~simple_lineage:(fun f -> mk f SimpleLineage SimpleLineage.Summary.pp)
     ~simple_shape:(fun f -> mk f SimpleShape SimpleShape.Summary.pp)
@@ -87,13 +87,13 @@ let empty =
   ; config_impact_analysis= no_payload
   ; cost= no_payload
   ; disjunctive_demo= no_payload
-  ; dotnet_resource_leaks= no_payload
   ; lab_resource_leaks= no_payload
   ; litho_required_props= no_payload
   ; pulse= no_payload
   ; purity= no_payload
   ; quandary= no_payload
   ; racerd= no_payload
+  ; scope_leakage= no_payload
   ; siof= no_payload
   ; simple_lineage= no_payload
   ; simple_shape= no_payload
@@ -106,7 +106,7 @@ module SQLite = struct
   (** Each payload is stored in the DB as either [NULL] for the absence of payload, or the payload
       itself. We cannot give a good type to this function because it deserializes several payload
       types. *)
-  let deserialize_payload_opt = function[@warning "-8"]
+  let deserialize_payload_opt = function[@warning "-partial-match"]
     | Sqlite3.Data.NULL ->
         Lazy.from_val None
     | Sqlite3.Data.BLOB blob ->
@@ -145,7 +145,7 @@ module SQLite = struct
       ~disjunctive_demo:data_of_sqlite_column ~litho_required_props:data_of_sqlite_column
       ~pulse:data_of_sqlite_column ~purity:data_of_sqlite_column ~quandary:data_of_sqlite_column
       ~racerd:data_of_sqlite_column ~lab_resource_leaks:data_of_sqlite_column
-      ~dotnet_resource_leaks:data_of_sqlite_column ~siof:data_of_sqlite_column
+      ~scope_leakage:data_of_sqlite_column ~siof:data_of_sqlite_column
       ~simple_lineage:data_of_sqlite_column ~simple_shape:data_of_sqlite_column
       ~starvation:data_of_sqlite_column ~nullsafe:data_of_sqlite_column
       ~uninit:data_of_sqlite_column
@@ -194,13 +194,13 @@ module SQLite = struct
     ; config_impact_analysis= lazy (load table ~rowid ConfigImpactAnalysis)
     ; cost= lazy (load table ~rowid Cost)
     ; disjunctive_demo= lazy (load table ~rowid DisjunctiveDemo)
-    ; dotnet_resource_leaks= lazy (load table ~rowid DotnetResourceLeaks)
     ; lab_resource_leaks= lazy (load table ~rowid LabResourceLeaks)
     ; litho_required_props= lazy (load table ~rowid LithoRequiredProps)
     ; pulse= lazy (load table ~rowid Pulse)
     ; purity= lazy (load table ~rowid Purity)
     ; quandary= lazy (load table ~rowid Quandary)
     ; racerd= lazy (load table ~rowid RacerD)
+    ; scope_leakage= lazy (load table ~rowid ScopeLeakage)
     ; siof= lazy (load table ~rowid SIOF)
     ; simple_lineage= lazy (load table ~rowid SimpleLineage)
     ; simple_shape= lazy (load table ~rowid SimpleShape)

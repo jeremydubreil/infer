@@ -469,7 +469,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     mk_trans_result (Exp.Const (Const.Cfun pname), typ) empty_control
 
 
-  let field_deref_trans trans_state stmt_info pre_trans_result decl_ref ~is_constructor_init =
+  let field_deref_trans trans_state stmt_info pre_trans_result decl_ref ~is_constructor_init
+      ~is_member_of_const =
     let open CContext in
     let context = trans_state.context in
     let sil_loc =
@@ -479,6 +480,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     let field_string = name_info.Clang_ast_t.ni_name in
     L.debug Capture Verbose "Translating field '%s'@\n" field_string ;
     let field_typ = CType_decl.qual_type_to_sil_type context.tenv qual_type in
+    (* If the object is const, field member will also be const *)
+    let field_typ = if is_member_of_const then Typ.set_to_const field_typ else field_typ in
     let obj_sil, class_typ = pre_trans_result.return in
     let is_pointer_typ = Typ.is_pointer class_typ in
     let class_typ = match class_typ.Typ.desc with Typ.Tptr (t, _) -> t | _ -> class_typ in
@@ -721,7 +724,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
   let rec labelStmt_trans trans_state stmt_info stmt_list label_name =
     let context = trans_state.context in
-    let[@warning "-8"] [stmt] = stmt_list in
+    let[@warning "-partial-match"] [stmt] = stmt_list in
     let res_trans = instruction trans_state stmt in
     (* create the label root node into the hashtbl *)
     let sil_loc =
@@ -872,7 +875,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     res_trans
 
 
-  and decl_ref_trans ?(is_constructor_init = false) ~context trans_state stmt_info decl_ref =
+  and decl_ref_trans ?(is_constructor_init = false) ?(is_member_of_const = false) ~context
+      trans_state stmt_info decl_ref =
     let decl_kind = decl_ref.Clang_ast_t.dr_kind in
     match (decl_kind, context) with
     | `EnumConstant, _ ->
@@ -885,6 +889,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
         (* a field outside of constructor initialization is probably a pointer to member, which we
            do not support *)
         field_deref_trans trans_state stmt_info pre_trans_result decl_ref ~is_constructor_init
+          ~is_member_of_const
     | (`CXXMethod | `CXXConversion | `CXXConstructor | `CXXDestructor), _ ->
         method_deref_trans trans_state ~context decl_ref stmt_info decl_kind
     | _ ->
@@ -2083,7 +2088,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
         prune_nodes' ;
       res_trans
     in
-    let[@warning "-8"] [cond; exp1; exp2] = stmt_list in
+    let[@warning "-partial-match"] [cond; exp1; exp2] = stmt_list in
     let typ =
       CType_decl.qual_type_to_sil_type context.CContext.tenv expr_info.Clang_ast_t.ei_qual_type
     in
@@ -2183,6 +2188,10 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
           conditionalOperator_trans trans_state' stmt_info [ostmt1; ostmt2; stmt2] expr_info
         in
         L.debug Capture Verbose "op_res_trans.control=%a@\n" pp_control op_res_trans.control ;
+        let init_res_trans =
+          PriorityNode.compute_results_to_parent trans_state_pri sil_loc
+            ~return:init_res_trans.return BinaryConditionalStmtInit stmt_info [init_res_trans]
+        in
         PriorityNode.compute_results_to_parent trans_state_pri sil_loc ~return:op_res_trans.return
           BinaryConditionalStmtInit stmt_info [init_res_trans; op_res_trans]
     | _ ->
@@ -2412,7 +2421,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
 
   and defaultStmt_trans trans_state stmt_info default_stmt_list =
-    let[@warning "-8"] [body] = default_stmt_list in
+    let[@warning "-partial-match"] [body] = default_stmt_list in
     let body_trans_result = instruction trans_state body in
     (let open SwitchCase in
     add {condition= Default; stmt_info; root_nodes= body_trans_result.control.root_nodes}) ;
@@ -3245,8 +3254,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
 
   (** Cast expression are treated the same apart from the cast operation kind *)
-  and cast_exprs_trans trans_state stmt_info stmt_list expr_info ?objc_bridge_cast_kind
-      cast_expr_info =
+  and cast_exprs_trans trans_state ?cxx_static_cast stmt_info stmt_list expr_info
+      ?objc_bridge_cast_kind cast_expr_info =
     let context = trans_state.context in
     let sil_loc =
       CLocation.location_of_stmt_info context.translation_unit_context.source_file stmt_info
@@ -3292,7 +3301,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     in
     let res_trans_stmt = instruction trans_state stmt in
     let typ =
-      CType_decl.qual_type_to_sil_type context.CContext.tenv expr_info.Clang_ast_t.ei_qual_type
+      CType_decl.qual_type_to_sil_type context.CContext.tenv
+        (Option.value cxx_static_cast ~default:expr_info.Clang_ast_t.ei_qual_type)
     in
     let exp_typ = res_trans_stmt.return in
     (* This gives the difference among cast operations kind *)
@@ -3303,7 +3313,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
 
   (** function used in the computation for both Member_Expr and ObjCIVarRefExpr *)
-  and do_memb_ivar_ref_exp trans_state stmt_info stmt_list decl_ref =
+  and do_memb_ivar_ref_exp ~is_member_of_const trans_state stmt_info stmt_list decl_ref =
     let exp_stmt =
       extract_stmt_from_singleton stmt_list stmt_info.Clang_ast_t.si_source_range
         "in MemberExpr there must be only one stmt defining its expression."
@@ -3313,17 +3323,21 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     (* int p = X(1).field; *)
     let trans_state' = {trans_state with var_exp_typ= None} in
     let result_trans_exp_stmt = exec_with_glvalue_as_reference instruction trans_state' exp_stmt in
-    decl_ref_trans ~context:(MemberOrIvar result_trans_exp_stmt) trans_state stmt_info decl_ref
+    decl_ref_trans ~is_member_of_const ~context:(MemberOrIvar result_trans_exp_stmt) trans_state
+      stmt_info decl_ref
 
 
   and objCIvarRefExpr_trans trans_state stmt_info stmt_list obj_c_ivar_ref_expr_info =
     let decl_ref = obj_c_ivar_ref_expr_info.Clang_ast_t.ovrei_decl_ref in
-    do_memb_ivar_ref_exp trans_state stmt_info stmt_list decl_ref
+    do_memb_ivar_ref_exp ~is_member_of_const:false trans_state stmt_info stmt_list decl_ref
 
 
-  and memberExpr_trans trans_state stmt_info stmt_list member_expr_info =
+  and memberExpr_trans trans_state stmt_info stmt_list expr_info member_expr_info =
     let decl_ref = member_expr_info.Clang_ast_t.mei_decl_ref in
-    let res_trans = do_memb_ivar_ref_exp trans_state stmt_info stmt_list decl_ref in
+    let res_trans =
+      do_memb_ivar_ref_exp ~is_member_of_const:expr_info.Clang_ast_t.ei_qual_type.qt_is_const
+        trans_state stmt_info stmt_list decl_ref
+    in
     let is_virtual_dispatch = member_expr_info.Clang_ast_t.mei_performs_virtual_dispatch in
     {res_trans with is_cpp_call_virtual= res_trans.is_cpp_call_virtual && is_virtual_dispatch}
 
@@ -4559,7 +4573,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     let temporaries_to_destroy =
       CScope.CXXTemporaries.get_destroyable_temporaries trans_state.context stmt_list
     in
-    let[@warning "-8"] [stmt] = stmt_list in
+    let[@warning "-partial-match"] [stmt] = stmt_list in
     let temporaries_constructor_markers =
       List.fold temporaries_to_destroy ~init:trans_state.context.temporaries_constructor_markers
         ~f:(fun markers {CContext.pvar; typ; marker} ->
@@ -4876,9 +4890,11 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     | CStyleCastExpr (stmt_info, stmt_list, expr_info, cast_kind, _)
     | CXXReinterpretCastExpr (stmt_info, stmt_list, expr_info, cast_kind, _, _)
     | CXXConstCastExpr (stmt_info, stmt_list, expr_info, cast_kind, _, _)
-    | CXXStaticCastExpr (stmt_info, stmt_list, expr_info, cast_kind, _, _)
     | CXXFunctionalCastExpr (stmt_info, stmt_list, expr_info, cast_kind, _) ->
         cast_exprs_trans trans_state stmt_info stmt_list expr_info cast_kind
+    | CXXStaticCastExpr (stmt_info, stmt_list, expr_info, cast_kind, qual_type, _) ->
+        cast_exprs_trans trans_state ~cxx_static_cast:qual_type stmt_info stmt_list expr_info
+          cast_kind
     | ObjCBridgedCastExpr (stmt_info, stmt_list, expr_info, cast_kind, _, objc_bridge_cast_ei) ->
         let objc_bridge_cast_kind = objc_bridge_cast_ei.Clang_ast_t.obcei_cast_kind in
         cast_exprs_trans trans_state stmt_info stmt_list expr_info ~objc_bridge_cast_kind cast_kind
@@ -4900,8 +4916,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
         objCProtocolExpr_trans trans_state expr_info decl_ref
     | ObjCIvarRefExpr (stmt_info, stmt_list, _, obj_c_ivar_ref_expr_info) ->
         objCIvarRefExpr_trans trans_state stmt_info stmt_list obj_c_ivar_ref_expr_info
-    | MemberExpr (stmt_info, stmt_list, _, member_expr_info) ->
-        memberExpr_trans trans_state stmt_info stmt_list member_expr_info
+    | MemberExpr (stmt_info, stmt_list, expr_info, member_expr_info) ->
+        memberExpr_trans trans_state stmt_info stmt_list expr_info member_expr_info
     | UnaryOperator (stmt_info, stmt_list, expr_info, unary_operator_info) ->
         if
           is_logical_negation_of_int trans_state.context.CContext.tenv expr_info unary_operator_info
@@ -5027,7 +5043,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     | ObjCAvailabilityCheckExpr (_, _, expr_info, _) ->
         undefined_expr trans_state expr_info
     | SubstNonTypeTemplateParmExpr (_, stmts, _) | SubstNonTypeTemplateParmPackExpr (_, stmts, _) ->
-        let[@warning "-8"] [expr] = stmts in
+        let[@warning "-partial-match"] [expr] = stmts in
         instruction trans_state expr
     (* Infer somehow ended up in templated non instantiated code - right now
        it's not supported and failure in those cases is expected. *)

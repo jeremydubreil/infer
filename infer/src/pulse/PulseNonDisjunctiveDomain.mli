@@ -12,7 +12,7 @@ module BaseMemory = PulseBaseMemory
 
 type copy_spec_t =
   | Copied of
-      { typ: Typ.t
+      { source_typ: Typ.t option
       ; location: Location.t (* the location to report the issue *)
       ; copied_location: (Procname.t * Location.t) option
             (* [copied_location] has a value when the copied location is different to where to
@@ -20,7 +20,12 @@ type copy_spec_t =
       ; heap: BaseMemory.t
       ; from: Attribute.CopyOrigin.t
       ; timestamp: Timestamp.t }
-  | Modified
+  | Modified of
+      { source_typ: Typ.t option
+      ; location: Location.t
+      ; copied_location: (Procname.t * Location.t) option
+      ; from: Attribute.CopyOrigin.t
+      ; copied_timestamp: Timestamp.t }
 
 type parameter_spec_t =
   | Unmodified of {typ: Typ.t; location: Location.t; heap: BaseMemory.t}
@@ -29,14 +34,9 @@ type parameter_spec_t =
 include AbstractDomain.WithBottomTop
 
 val add_var :
-     Var.t
-  -> source_addr_opt:AbstractValue.t option
-  -> source_opt:DecompilerExpr.source_expr option
-  -> copy_spec_t
-  -> t
-  -> t
+  Attribute.CopiedInto.t -> source_addr_opt:AbstractValue.t option -> copy_spec_t -> t -> t
 
-val add_field : Fieldname.t -> source_opt:PulseDecompilerExpr.t option -> copy_spec_t -> t -> t
+val add_field : Fieldname.t -> source_opt:DecompilerExpr.t option -> copy_spec_t -> t -> t
 
 val add_parameter : Var.t -> parameter_spec_t -> t -> t
 
@@ -55,7 +55,7 @@ val mark_parameter_as_modified :
 val get_copied :
      t
   -> ( Attribute.CopiedInto.t
-     * Typ.t
+     * Typ.t option
      * Location.t
      * (Procname.t * Location.t) option
      * Attribute.CopyOrigin.t )
@@ -71,10 +71,12 @@ val set_locked : t -> t
 
 val is_locked : t -> bool
 
-val set_load : Location.t -> Ident.t -> Var.t -> t -> t
+val set_load : Location.t -> Timestamp.t -> Ident.t -> Var.t -> t -> t
+
+val set_store : Location.t -> Timestamp.t -> Pvar.t -> t -> t
 
 val get_loaded_locations : Var.t -> t -> Location.t list
 
-val set_passed_to : Location.t -> Exp.t -> (Exp.t * Typ.t) list -> t -> t
+val set_passed_to : Location.t -> Timestamp.t -> Exp.t -> (Exp.t * Typ.t) list -> t -> t
 
 val is_lifetime_extended : Var.t -> t -> bool

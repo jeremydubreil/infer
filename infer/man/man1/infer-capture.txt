@@ -68,9 +68,9 @@ OPTIONS
 
        --force-integration command
            Proceed as if the first argument after -- was command. Possible
-           values: ant, buck, buck2, gradle, gradlew, java, javac, cc, clang,
-           gcc, clang++, c++, g++, hackc, make, configure, cmake, waf, mvn,
-           mvnw, ndk-build, rebar3, erlc, xcodebuild.
+           values: ant, buck, buck1, buck2, gradle, gradlew, java, javac, cc,
+           clang, gcc, clang++, c++, g++, hackc, make, configure, cmake, waf,
+           mvn, mvnw, ndk-build, rebar3, erlc, xcodebuild.
 
        --help
            Show this manual
@@ -168,6 +168,12 @@ BUCK OPTIONS
            Depth of dependencies used by the --buck-compilation-database deps
            option. By default, all recursive dependencies are captured.
 
+       --buck-dependency-depth int
+           Capture dependencies only if they are at most the depth provided,
+           or all transitive dependencies if depth is not provided (the
+           default). In particular, depth zero means capture exactly the
+           targets provided and nothing else.
+
        --buck-erlang
            Activates: Buck integration for Erlang. (Conversely:
            --no-buck-erlang)
@@ -176,12 +182,6 @@ BUCK OPTIONS
            Activates: Buck integration for Java which uses the buck flavor
            #infer-java-capture instead of genrules like buck-java.
            (Conversely: --no-buck-java-flavor)
-
-       --buck-java-flavor-dependency-depth int
-           Capture dependencies only if they are at most the depth provided,
-           or all transitive dependencies if depth is not provided (the
-           default). In particular, depth zero means capture exactly the
-           targets provided and nothing else.
 
        --buck-java-flavor-suppress-config
            Activates: Suppress setting buck config values for the infer
@@ -200,7 +200,10 @@ BUCK OPTIONS
 
        --buck-targets-block-list +regex
            Skip capture of buck targets matched by the specified regular
-           expression. Only valid for --buck-compilation-database.
+           expression.
+
+       --buck2-root dir
+           Specify the parent directory of buck-out (used only for buck2).
 
        --Xbuck +string
            Pass values as command-line arguments to invocations of `buck
@@ -297,6 +300,11 @@ ERLANG OPTIONS
        --erlang-ast-dir dir
            Also load AST from all .json files in the given path. These .json
            files usually come from a previous run with --debug.
+
+       --erlang-check-return
+           Activates: Check whether the values returned by functions
+           correspond to what the function's spec promises. This check is
+           introduced at capture time. (Conversely: --no-erlang-check-return)
 
        --erlang-skip-compile
            Activates: Skip running compiler (erlc/rebar3), to save time. The

@@ -91,6 +91,8 @@ val bad_map : latent:bool -> t
 
 val bad_record : latent:bool -> t
 
+val bad_return : latent:bool -> t
+
 val biabduction_analysis_stops : t
 
 val biabduction_retain_cycle : t
@@ -262,8 +264,6 @@ val javascript_injection : t
 
 val lab_resource_leak : t
 
-val dotnet_resource_leak : t
-
 val leak_after_array_abstraction : t
 
 val leak_in_footprint : t
@@ -378,9 +378,13 @@ val unnecessary_copy_pulse : t
 
 val unnecessary_copy_assignment_pulse : t
 
+val unnecessary_copy_assignment_const_pulse : t
+
 val unnecessary_copy_assignment_movable_pulse : t
 
 val unnecessary_copy_intermediate_pulse : t
+
+val unnecessary_copy_intermediate_const_pulse : t
 
 val unnecessary_copy_movable_pulse : t
 

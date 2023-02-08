@@ -421,7 +421,7 @@ let yojson_lookup yojson_assoc elt_name ~src ~f ~default =
 let timeit ~f =
   let start_time = Mtime_clock.counter () in
   let ret_val = f () in
-  let duration_ms = Mtime_clock.count start_time |> Mtime.Span.to_ms |> int_of_float in
+  let duration_ms = Mtime_clock.count start_time |> IMtime.span_to_ms_int in
   (ret_val, duration_ms)
 
 
@@ -445,14 +445,13 @@ let get_available_memory_MB () =
   else with_file_in proc_meminfo ~f:scan_for_expected_output
 
 
-let iter_infer_deps ~project_root ~f infer_deps_file =
-  let buck_root = project_root ^/ "buck-out" in
+let iter_infer_deps ~root ~f infer_deps_file =
   let one_line line =
     match String.split ~on:'\t' line with
     | [_; _; target_results_dir] ->
         let infer_out_src =
           if Filename.is_relative target_results_dir then
-            Filename.dirname (buck_root ^/ target_results_dir)
+            Filename.dirname (root ^/ target_results_dir)
           else target_results_dir
         in
         f infer_out_src
@@ -519,13 +518,6 @@ let numcores =
       default
   | Linux ->
       physical_cores () |> Option.value ~default
-
-
-let set_best_cpu_for worker_id =
-  let threads_per_core = cpus / numcores in
-  let chosen_core = worker_id * threads_per_core % numcores in
-  let chosen_thread_in_core = worker_id * threads_per_core / numcores in
-  Setcore.setcore ((chosen_core * threads_per_core) + chosen_thread_in_core)
 
 
 let zip_fold_filenames ~init ~f ~zip_filename =

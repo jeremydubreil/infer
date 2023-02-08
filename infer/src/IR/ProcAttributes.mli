@@ -46,6 +46,7 @@ type t =
   { access: access  (** visibility access *)
   ; captured: CapturedVar.t list
         (** name, type, and mode of variables captured in blocks and lambdas *)
+  ; mutable changed: bool  (** true if proc has changed since last analysis *)
   ; exceptions: string list  (** exceptions thrown by the procedure *)
   ; formals: (Mangled.t * Typ.t * Annot.Item.t) list
         (** name, type, and annotation of formal parameters *)
@@ -54,6 +55,11 @@ type t =
   ; is_abstract: bool  (** the procedure is abstract *)
   ; is_biabduction_model: bool  (** the procedure is a model for the biabduction analysis *)
   ; is_bridge_method: bool  (** the procedure is a bridge method *)
+  ; is_cpp_copy_assignment: bool  (** true if the procedure is a copy assignment *)
+  ; is_cpp_copy_ctor: bool  (** true if the procedure is a copy constructor *)
+  ; is_cpp_implicit: bool
+        (** returns false if the declaration exists in code and true if it was created implicitly by
+            the compiler *)
   ; is_defined: bool  (** true if the procedure is defined, and not just declared *)
   ; is_java_synchronized_method: bool  (** the procedure is a Java synchronized method *)
   ; is_csharp_synchronized_method: bool  (** the procedure is a C# synchronized method *)

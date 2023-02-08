@@ -323,6 +323,8 @@ let set_ptr_to_const ({desc} as typ) =
       typ
 
 
+let set_to_const ({quals} as typ) = {typ with quals= {quals with is_const= true}}
+
 let mk_array ?default ?quals ?length ?stride elt : t =
   mk ?default ?quals (Tarray {elt; length; stride})
 
@@ -542,8 +544,6 @@ module Name = struct
     F.fprintf fmt "%s %a" (prefix tname) (pp_name_c_syntax Pp.text) tname
 
 
-  let pp_name_only fmt tname = F.fprintf fmt "%a" (pp_name_c_syntax Pp.text) tname
-
   let to_string = F.asprintf "%a" pp
 
   let is_class = function
@@ -675,29 +675,6 @@ module Name = struct
 
     let hash = hash
   end)
-
-  module Normalizer = HashNormalizer.Make (struct
-    type nonrec t = t [@@deriving equal]
-
-    let hash = Hashtbl.hash
-
-    let normalize t =
-      match t with
-      | CStruct _
-      | CUnion _
-      | CppClass _
-      | ErlangType _
-      | HackClass _
-      | ObjcClass _
-      | ObjcProtocol _ ->
-          t
-      | JavaClass java_class_name ->
-          let java_class_name' = JavaClassName.Normalizer.normalize java_class_name in
-          if phys_equal java_class_name java_class_name' then t else JavaClass java_class_name'
-      | CSharpClass cs_class_name ->
-          let cs_class_name' = CSharpClassName.Normalizer.normalize cs_class_name in
-          if phys_equal cs_class_name cs_class_name' then t else CSharpClass cs_class_name'
-  end)
 end
 
 (** dump a type with all the details. *)
@@ -776,6 +753,16 @@ let is_pointer_to_smart_pointer =
         false
 
 
+let is_pointer_to_unique_pointer =
+  let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::unique_ptr"] in
+  fun typ ->
+    match typ.desc with
+    | Tptr ({desc= Tstruct (CppClass {name})}, _) ->
+        QualifiedCppName.Match.match_qualifiers matcher name
+    | _ ->
+        false
+
+
 let is_shared_pointer =
   let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::shared_ptr"] in
   fun typ ->
@@ -797,14 +784,6 @@ let is_int typ = match typ.desc with Tint _ -> true | _ -> false
 let is_unsigned_int typ = match typ.desc with Tint ikind -> ikind_is_unsigned ikind | _ -> false
 
 let is_char typ = match typ.desc with Tint ikind -> ikind_is_char ikind | _ -> false
-
-let has_block_prefix s =
-  match Str.split_delim (Str.regexp_string Config.anonymous_block_prefix) s with
-  | _ :: _ :: _ ->
-      true
-  | _ ->
-      false
-
 
 let rec pp_java ~verbose f {desc} =
   let string_of_int = function
@@ -958,7 +937,7 @@ module rec DescNormalizer : (HashNormalizer.S with type t = desc) = HashNormaliz
     | Tint _ | Tfloat _ | Tvoid | Tfun ->
         t
     | Tstruct name ->
-        let name' = Name.Normalizer.normalize name in
+        let name' = NameNormalizer.normalize name in
         if phys_equal name name' then t else Tstruct name'
     | TVar str_var ->
         let str_var' = HashNormalizer.StringNormalizer.normalize str_var in
@@ -980,4 +959,73 @@ and Normalizer : (HashNormalizer.S with type t = t) = HashNormalizer.Make (struc
     let quals = TypeQualsNormalizer.normalize t.quals in
     let desc = DescNormalizer.normalize t.desc in
     if phys_equal desc t.desc && phys_equal quals t.quals then t else {desc; quals}
+end)
+
+and TemplateArgNormalizer : (HashNormalizer.S with type t = template_arg) =
+HashNormalizer.Make (struct
+  type t = template_arg [@@deriving equal]
+
+  let hash = Hashtbl.hash
+
+  let normalize t =
+    match t with
+    | TNull | TNullPtr | TOpaque | TInt _ ->
+        t
+    | TType typ ->
+        let typ' = Normalizer.normalize typ in
+        if phys_equal typ typ' then t else TType typ'
+end)
+
+and TemplateSpecInfoNormalizer : (HashNormalizer.S with type t = template_spec_info) =
+HashNormalizer.Make (struct
+  type t = template_spec_info [@@deriving equal]
+
+  let hash = Hashtbl.hash
+
+  let normalize t =
+    match t with
+    | NoTemplate ->
+        t
+    | Template {mangled; args} ->
+        let mangled' =
+          IOption.map_changed mangled ~equal:phys_equal ~f:HashNormalizer.StringNormalizer.normalize
+        in
+        let args' = IList.map_changed args ~equal:phys_equal ~f:TemplateArgNormalizer.normalize in
+        if phys_equal mangled mangled' && phys_equal args args' then t
+        else Template {mangled= mangled'; args= args'}
+end)
+
+and NameNormalizer : (HashNormalizer.S with type t = name) = HashNormalizer.Make (struct
+  type nonrec t = name [@@deriving equal]
+
+  let hash = Hashtbl.hash
+
+  let normalize t =
+    match t with
+    | ErlangType _ | HackClass _ ->
+        (* TODO *)
+        t
+    | CStruct qualified_name ->
+        let qualified_name' = QualifiedCppName.Normalizer.normalize qualified_name in
+        if phys_equal qualified_name qualified_name' then t else CStruct qualified_name'
+    | CUnion qualified_name ->
+        let qualified_name' = QualifiedCppName.Normalizer.normalize qualified_name in
+        if phys_equal qualified_name qualified_name' then t else CUnion qualified_name'
+    | ObjcClass qualified_name ->
+        let qualified_name' = QualifiedCppName.Normalizer.normalize qualified_name in
+        if phys_equal qualified_name qualified_name' then t else ObjcClass qualified_name'
+    | ObjcProtocol qualified_name ->
+        let qualified_name' = QualifiedCppName.Normalizer.normalize qualified_name in
+        if phys_equal qualified_name qualified_name' then t else ObjcProtocol qualified_name'
+    | CppClass {name; template_spec_info; is_union} ->
+        let name' = QualifiedCppName.Normalizer.normalize name in
+        let template_spec_info' = TemplateSpecInfoNormalizer.normalize template_spec_info in
+        if phys_equal name name' && phys_equal template_spec_info template_spec_info' then t
+        else CppClass {name= name'; template_spec_info= template_spec_info'; is_union}
+    | JavaClass java_class_name ->
+        let java_class_name' = JavaClassName.Normalizer.normalize java_class_name in
+        if phys_equal java_class_name java_class_name' then t else JavaClass java_class_name'
+    | CSharpClass cs_class_name ->
+        let cs_class_name' = CSharpClassName.Normalizer.normalize cs_class_name in
+        if phys_equal cs_class_name cs_class_name' then t else CSharpClass cs_class_name'
 end)

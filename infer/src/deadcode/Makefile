@@ -51,7 +51,7 @@ endif
 # sources from subfolders to src/ folder to avoid duplicates we use
 # $(DEPTH_ONE) and iteration over main and library folders.
 LIBRARY_FOLDERS = . ./IR  ./textual ./absint ./atd ./backend ./base ./biabduction ./bufferoverrun ./c_stubs ./checkers ./clang ./clang/unit ./concurrency ./cost ./datalog ./erlang ./integration ./istd ./java ./labs ./dotnet ./nullsafe ./nullsafe/unit ./pulse ./quandary ./scripts ./test_determinator ./topl ./unit
-INCLUDE_FOLDERS = -I IR -I textual -I textual/unit -I absint -I atd -I backend -I base -I biabduction -I bufferoverrun -I c_stubs -I checkers -I clang -I clang/unit -I concurrency -I cost -I datalog -I erlang -I integration -I istd -I java -I labs -I dotnet -I nullsafe -I nullsafe/unit -I pulse -I quandary -I scripts -I test_determinator -I topl -I unit
+INCLUDE_FOLDERS = -I IR -I textual -I textual/unit -I absint -I atd -I backend -I base -I biabduction -I bufferoverrun -I c_stubs -I checkers -I clang -I clang/unit -I concurrency -I cost -I datalog -I erlang -I integration -I istd -I java -I labs -I nullsafe -I nullsafe/unit -I pulse -I quandary -I scripts -I test_determinator -I topl -I unit
 
 ml_src_files = $(shell \
   cd $(INFER_BUILD_DIR); \
@@ -111,7 +111,7 @@ depend:
 	        || [ $@ = "inferunit.cmx" ] \
 	        || [ $@ = "InferCreateTraceViewLinks.cmx" ] \
 	        ; then \
-	  echo '[@warning "-60"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); \
+	  echo '[@warning "-unused-module"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); \
 	fi
 	$(QUIET)echo "(* END OF SIGNATURE $*.mli *)" >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo >> $(ALL_INFER_IN_ONE_FILE_ML)
@@ -133,7 +133,7 @@ depend:
 	        || [ $@ = "InferCreateTraceViewLinks.cmx" ] \
 	        || [ $@ = "scripts/checkCopyright.cmx" ] \
 	        ; then \
-	  echo '[@warning "-60"] ' >> $(ALL_INFER_IN_ONE_FILE_ML);\
+	  echo '[@warning "-unused-module"] ' >> $(ALL_INFER_IN_ONE_FILE_ML);\
 	fi
 	$(QUIET)echo >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo "$*.mli" >> $(ALL_MLI_FILES_COPIED)
@@ -172,8 +172,8 @@ dune: dune.in
 detect_dead_code: dune
 #	create a dummy implementation file to keep dune happy, as we are about to generate the
 #	dune file for this directory
-	echo > $(ALL_INFER_IN_ONE_FILE_ML)
-	echo > $(ALL_INFER_IN_ONE_FILE_ML:.ml=.mli)
+	printf "" > $(ALL_INFER_IN_ONE_FILE_ML)
+	printf "" > $(ALL_INFER_IN_ONE_FILE_ML:.ml=.mli)
 #	needed to get the generated code for the lexers and parsers in ../_build
 	$(MAKE) -C .. check
 	$(MAKE) depend

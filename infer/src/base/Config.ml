@@ -63,6 +63,7 @@ type pulse_taint_config =
 let build_system_exe_assoc =
   [ (BAnt, "ant")
   ; (BBuck, "buck")
+  ; (BBuck, "buck1")
   ; (BBuck2, "buck2")
   ; (BGradle, "gradle")
   ; (BGradle, "gradlew")
@@ -853,18 +854,18 @@ and buck_compilation_database_depth =
     ~meta:"int"
 
 
-and buck_java_heap_size_gb =
-  CLOpt.mk_int_opt ~long:"buck-java-heap-size-gb"
-    ~in_help:InferCommand.[(Capture, manual_buck)]
-    "Explicitly set the size of the Java heap of Buck processes, in gigabytes." ~meta:"int"
-
-
-and buck_java_flavor_dependency_depth =
-  CLOpt.mk_int_opt ~long:"buck-java-flavor-dependency-depth"
+and buck_dependency_depth =
+  CLOpt.mk_int_opt ~long:"buck-dependency-depth"
     ~in_help:InferCommand.[(Capture, manual_buck)]
     "Capture dependencies only if they are at most the depth provided, or all transitive \
      dependencies if depth is not provided (the default). In particular, depth zero means capture \
      exactly the targets provided and nothing else."
+
+
+and buck_java_heap_size_gb =
+  CLOpt.mk_int_opt ~long:"buck-java-heap-size-gb"
+    ~in_help:InferCommand.[(Capture, manual_buck)]
+    "Explicitly set the size of the Java heap of Buck processes, in gigabytes." ~meta:"int"
 
 
 and buck_java_flavor_suppress_config =
@@ -907,7 +908,7 @@ and buck_mode =
   |> ignore ;
   CLOpt.mk_bool ~long:"buck-java-flavor"
     ~in_help:InferCommand.[(Capture, manual_buck)]
-    ~f:(set_mode `JavaFlavor)
+    ~f:(set_mode `Java)
     "Buck integration for Java which uses the buck flavor #infer-java-capture instead of genrules \
      like buck-java."
   |> ignore ;
@@ -919,12 +920,16 @@ and _buck_out =
     "[DOES NOTHING] Specify the root directory of buck-out. Only valid for $(b,--buck-java)."
 
 
+and buck2_root =
+  CLOpt.mk_path_opt ~long:"buck2-root" ~meta:"dir"
+    ~in_help:InferCommand.[(Run, manual_buck); (Capture, manual_buck)]
+    "Specify the parent directory of $(b, buck-out) (used only for $(b, buck2))."
+
+
 and buck_targets_block_list =
   CLOpt.mk_string_list ~long:"buck-targets-block-list" ~deprecated:["-buck-targets-blacklist"]
     ~in_help:InferCommand.[(Run, manual_buck); (Capture, manual_buck)]
-    ~meta:"regex"
-    "Skip capture of buck targets matched by the specified regular expression. Only valid for \
-     $(b,--buck-compilation-database)."
+    ~meta:"regex" "Skip capture of buck targets matched by the specified regular expression."
 
 
 and capture =
@@ -946,8 +951,13 @@ and capture_textual =
 
 
 and capture_doli =
-  CLOpt.mk_path_opt ~long:"capture-doli" ~meta:"path"
-    "Generate models from a DOLI representation given a .doli file."
+  CLOpt.mk_path_list ~long:"capture-doli" ~meta:"path"
+    "Generate a SIL program from doli representations given in .doli files."
+
+
+and parse_doli =
+  CLOpt.mk_path_opt ~long:"parse-doli" ~meta:"path"
+    "Perform parsing on given a .doli file -- no checks on textual, no capture."
 
 
 and cfg_json =
@@ -1528,6 +1538,13 @@ and erlang_ast_dir =
     ~meta:"dir"
     "Also load AST from all .json files in the given path. These .json files usually come from a \
      previous run with $(b,--debug)."
+
+
+and erlang_check_return =
+  CLOpt.mk_bool ~long:"erlang-check-return"
+    ~in_help:InferCommand.[(Capture, manual_erlang)]
+    "Check whether the values returned by functions correspond to what the function's spec \
+     promises. This check is introduced at capture time."
 
 
 and erlang_skip_compile =
@@ -2462,6 +2479,12 @@ and pulse_nullsafe_report_npe =
     "Report null dereference issues on files marked @Nullsafe."
 
 
+and pulse_log_summary_count =
+  CLOpt.mk_bool ~long:"pulse-log-summary-count"
+    ~in_help:InferCommand.[(Analyze, manual_pulse)]
+    "Log the number of summaries for each analyzed procedure in Pulse"
+
+
 and pure_by_default =
   CLOpt.mk_bool ~long:"pure-by-default" ~default:false
     "[Purity]Consider unknown functions to be pure by default"
@@ -2741,10 +2764,27 @@ and simple_lineage_include_builtins =
      constructing a list."
 
 
-and simple_lineage_model_fields =
-  CLOpt.mk_bool ~long:"simple-lineage-model-fields"
+and simple_lineage_field_depth =
+  CLOpt.mk_int ~long:"simple-lineage-field-depth" ~default:0
     ~in_help:InferCommand.[(Analyze, manual_simple_lineage)]
-    "[EXPERIMENTAL] Enable field-aware lineage analysis."
+    "[EXPERIMENTAL] Maximal field depth sensitivity for lineage analysis. 0 will make the analysis \
+     field insensitive."
+
+
+and simple_lineage_prevent_cycles =
+  CLOpt.mk_bool ~long:"simple-lineage-prevent-cycles" ~default:false
+    ~in_help:InferCommand.[(Analyze, manual_simple_lineage)]
+    "[EXPERIMENTAL] If set, SimpleLineage will stop distinguishing the fields of a variable when \
+     it notices recursive types (that is, a sub-field having the same type as one of its \
+     \"ancestors\")."
+
+
+and simple_lineage_field_width =
+  CLOpt.mk_int_opt ~long:"simple-lineage-field-width"
+    ~in_help:InferCommand.[(Analyze, manual_simple_lineage)]
+    "[EXPERIMENTAL] Maximal width of structures for field sensitive lineage analysis. Structure \
+     that have a higher number of fields will be smashed into a single element. 0 will make the \
+     analysis field insensitive. If not set, field width will be unlimited."
 
 
 and simple_lineage_max_cfg_size =
@@ -3401,9 +3441,9 @@ and buck_cache_mode = (!buck || !genrule_mode) && not !debug
 
 and buck_clang_use_toolchain_config = !buck_clang_use_toolchain_config
 
-and buck_java_heap_size_gb = !buck_java_heap_size_gb
+and buck_dependency_depth = !buck_dependency_depth
 
-and buck_java_flavor_dependency_depth = !buck_java_flavor_dependency_depth
+and buck_java_heap_size_gb = !buck_java_heap_size_gb
 
 and buck_java_flavor_suppress_config = !buck_java_flavor_suppress_config
 
@@ -3423,9 +3463,11 @@ and buck_mode : BuckMode.t option =
       Some (ClangCompilationDB (DepsUpToDepth depth))
   | `Erlang, _ ->
       Some Erlang
-  | `JavaFlavor, _ ->
-      Some JavaFlavor
+  | `Java, _ ->
+      Some Java
 
+
+and buck2_root = match !buck2_root with Some root -> root | None -> !project_root
 
 and buck_targets_block_list = RevList.to_list !buck_targets_block_list
 
@@ -3433,7 +3475,9 @@ and capture = !capture
 
 and capture_textual = RevList.to_list !capture_textual
 
-and capture_doli = !capture_doli
+and capture_doli = RevList.to_list !capture_doli
+
+and parse_doli = !parse_doli
 
 and capture_block_list = !capture_block_list
 
@@ -3589,6 +3633,8 @@ and eradicate_return_over_annotated = !eradicate_return_over_annotated
 and eradicate_verbose = !eradicate_verbose
 
 and erlang_ast_dir = !erlang_ast_dir
+
+and erlang_check_return = !erlang_check_return
 
 and erlang_skip_compile = !erlang_skip_compile
 
@@ -3887,6 +3933,8 @@ and pulse_models_for_erlang = !pulse_models_for_erlang
 
 and pulse_nullsafe_report_npe = !pulse_nullsafe_report_npe
 
+and pulse_log_summary_count = !pulse_log_summary_count
+
 and pulse_prevent_non_disj_top = !pulse_prevent_non_disj_top
 
 and pulse_recency_limit = !pulse_recency_limit
@@ -4062,7 +4110,11 @@ and shrink_analysis_db = !shrink_analysis_db
 
 and simple_lineage_include_builtins = !simple_lineage_include_builtins
 
-and simple_lineage_model_fields = !simple_lineage_model_fields
+and simple_lineage_field_depth = !simple_lineage_field_depth
+
+and simple_lineage_prevent_cycles = !simple_lineage_prevent_cycles
+
+and simple_lineage_field_width = !simple_lineage_field_width
 
 and simple_lineage_max_cfg_size = !simple_lineage_max_cfg_size
 

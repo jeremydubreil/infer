@@ -48,9 +48,9 @@ module Hist = struct
     ValueHistory.Allocation {f= Model desc; location; timestamp}
 
 
-  let call_event {PathContext.timestamp} location ?more model_desc =
+  let call_event {PathContext.timestamp} ?(in_call = ValueHistory.epoch) location ?more model_desc =
     let desc = mk_desc ?more model_desc in
-    ValueHistory.Call {f= Model desc; location; in_call= ValueHistory.epoch; timestamp}
+    ValueHistory.Call {f= Model desc; location; in_call; timestamp}
 
 
   let add_event path event hist =
@@ -59,12 +59,12 @@ module Hist = struct
 
   let single_event path event = add_event path event ValueHistory.epoch
 
-  let add_call path location model_desc ?more hist =
-    add_event path (call_event path location ?more model_desc) hist
+  let add_call path ?(in_call = ValueHistory.epoch) location model_desc ?more hist =
+    add_event path (call_event path ~in_call location ?more model_desc) hist
 
 
-  let single_call path location ?more model_desc =
-    add_call path location model_desc ?more ValueHistory.epoch
+  let single_call path ?(in_call = ValueHistory.epoch) location ?more model_desc =
+    add_call path ~in_call location model_desc ?more ValueHistory.epoch
 
 
   let single_alloc path location ?more model_desc =
@@ -291,13 +291,13 @@ module Basic = struct
     let candidates = Tenv.find_cpp_constructor analysis_data.tenv class_name in
     match match_args_of_procedures Typ.overloading_resolution actuals candidates with
     | Some constructor ->
-        L.d_printfln "Constructor found: %a" Procname.pp_unique_id constructor ;
+        L.d_printfln_escaped "Constructor found: %a" Procname.pp_unique_id constructor ;
         dispatch_call_eval_args analysis_data path ret exp
           (List.map args ~f:(fun x ->
                (x.PulseAliasSpecialization.FuncArg.exp, x.PulseAliasSpecialization.FuncArg.typ) ) )
           args location CallFlags.default astate (Some constructor)
     | None ->
-        (* In theory, with a precise overloading resolution, it shouldn't go here *)
+        (* A constructor can be not found if it is not in captured data, e.g. standard library. *)
         L.d_printfln "Constructor not found" ;
         astate |> ok_continue
 

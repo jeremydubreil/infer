@@ -22,9 +22,22 @@ open Textual
 module LocationBridge = struct
   open Location
 
-  let to_sil file = function
-    | Known {line; col} ->
-        BaseLocation.{line; col; file; macro_file_opt= None; macro_line= -1}
+  let to_sil sourcefile loc =
+    let file = SourceFile.file sourcefile in
+    match loc with
+    | Known {line; col} -> (
+      match SourceFile.line_map sourcefile with
+      | None ->
+          BaseLocation.{line; col; file; macro_file_opt= None; macro_line= -1}
+      | Some line_map -> (
+          let entry = LineMap.find line_map line in
+          match entry with
+          | None ->
+              BaseLocation.{line; col; file; macro_file_opt= None; macro_line= -1}
+          (* hackc doesn't output column information yet *)
+          | Some original_line ->
+              BaseLocation.{line= original_line; col= -1; file; macro_file_opt= None; macro_line= -1}
+          ) )
     | Unknown ->
         BaseLocation.none file
 
@@ -250,9 +263,9 @@ module ProcDeclBridge = struct
             (this_type :: formals_types, [])
         in
         let result_type = Procname.Java.get_return_typ jpname |> TypBridge.annotated_of_sil in
-        let formals_types = Some formals_types in
+        let are_formal_types_fully_declared = true in
         (* FIXME when adding inheritance *)
-        {qualified_name; formals_types; result_type; attributes}
+        {qualified_name; formals_types; result_type; are_formal_types_fully_declared; attributes}
     | _ ->
         L.die InternalError "Non-Java procname %a should not appear in Java mode" Procname.describe
           pname
@@ -488,7 +501,7 @@ module InstrBridge = struct
           ; loc= Location.Unknown }
     | Call ((id, _), Const (Cfun pname), args, _, call_flags) ->
         let procdecl = ProcDeclBridge.of_sil pname in
-        let () = TextualDecls.declare_proc decls procdecl in
+        let () = TextualDecls.declare_proc decls ~is_implemented:false procdecl in
         let proc = procdecl.qualified_name in
         let args = List.map ~f:(fun (e, _) -> ExpBridge.of_sil decls tenv e) args in
         let loc = Location.Unknown in
@@ -548,7 +561,7 @@ module InstrBridge = struct
         Call ((ret, class_type), builtin_new, args, loc, CallFlags.default)
     | Let {id; exp= Call {proc; args; kind}; loc} ->
         let ret = IdentBridge.to_sil id in
-        let procname =
+        let ({formals_types; are_formal_types_fully_declared} as procname : ProcDecl.t) =
           match TextualDecls.get_procname decls_env proc with
           | Some procname ->
               procname
@@ -562,18 +575,30 @@ module InstrBridge = struct
         let result_type = TypBridge.to_sil lang procname.result_type.typ in
         let args = List.map ~f:(ExpBridge.to_sil lang decls_env procname) args in
         let formals_types =
-          match procname.formals_types with
-          | Some formals_types ->
-              List.map formals_types ~f:(fun ({typ} : Typ.annotated) -> TypBridge.to_sil lang typ)
-          | _ -> (
+          if are_formal_types_fully_declared then
+            List.map formals_types ~f:(fun ({typ} : Typ.annotated) -> TypBridge.to_sil lang typ)
+          else
             match lang with
             | Lang.Hack ->
-                (* Declarations with unknown formals are expected in Hack. Assume that formal types
-                   are *Mixed and their number matches that of the arguments. *)
-                List.map args ~f:(fun _ -> TypBridge.hack_mixed)
+                (* Declarations with unknown formals are expected in Hack. Assume that unknown
+                   formal types are *Mixed and their number matches that of the arguments. *)
+                let rec map_and_complete_with_mixed formals args =
+                  match (formals, args) with
+                  | [], [] ->
+                      []
+                  | [], _ :: _ ->
+                      List.map args ~f:(fun _ -> TypBridge.hack_mixed)
+                  | typ :: formals, _ :: args ->
+                      TypBridge.to_sil lang typ.Typ.typ :: map_and_complete_with_mixed formals args
+                  | _ :: _, [] ->
+                      L.die InternalError
+                        "less arguments than expected: the type checker should have report this \
+                         issue"
+                in
+                map_and_complete_with_mixed formals_types args
             | other ->
                 L.die InternalError "Unexpected unknown formals outside of Hack: %s"
-                  (Lang.to_string other) )
+                  (Lang.to_string other)
         in
         let args =
           match List.zip args formals_types with
@@ -705,7 +730,7 @@ module ProcDescBridge = struct
     let formals = build_formals lang pdesc in
     let locals = build_locals lang pdesc in
     let pattributes =
-      { (ProcAttributes.default sourcefile sil_procname) with
+      { (ProcAttributes.default (SourceFile.file sourcefile) sil_procname) with
         is_defined= true
       ; formals
       ; locals
@@ -832,7 +857,11 @@ module ModuleBridge = struct
              [{loc= Location.Unknown; msg= lazy "Missing or unsupported source_language attribute"}]
           )
     | Some lang ->
-        let decls_env = TextualDecls.make_decls module_ in
+        let errors, decls_env = TextualDecls.make_decls module_ in
+        if not (List.is_empty errors) then
+          L.die InternalError
+            "to_sil conversion should not be performed if TextualDecls verification has raised any \
+             errors before." ;
         let module_ =
           let open TextualTransform in
           module_ |> remove_internal_calls |> let_propagation |> out_of_ssa

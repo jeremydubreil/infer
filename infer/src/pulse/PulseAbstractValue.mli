@@ -8,9 +8,7 @@ open! IStd
 module F = Format
 
 (** An abstract value (or "symbolic variable"), eg an address in memory. *)
-type t = private int [@@deriving compare, yojson_of]
-
-val equal : t -> t -> bool
+type t = private int [@@deriving compare, equal, yojson_of]
 
 val mk_fresh : unit -> t
 (** create an abstract value guaranteed not to appear in the current state *)
@@ -38,7 +36,7 @@ val compare_unrestricted_first : t -> t -> int
 
 module Constants : sig
   val get_int : IntLit.t -> t
-  (** Get or create an abstract value associated with a constant {!IntLit.t}. The idea is that
+  (** Get or create an abstract value associated with a constant {!IR.IntLit.t}. The idea is that
       clients will record in the abstract state that the returned [t] is equal to the given integer.
       If the same integer is queried later on then this module will return the same abstract
       variable. *)

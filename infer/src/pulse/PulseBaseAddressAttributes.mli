@@ -101,9 +101,11 @@ val add_copied_return :
   -> t
   -> t
 
-val get_config_usage : AbstractValue.t -> t -> FbPulseConfigName.t option
+val get_config_usage : AbstractValue.t -> t -> Attribute.ConfigUsage.t option
 
 val get_const_string : AbstractValue.t -> t -> string option
+
+val get_used_as_branch_cond : AbstractValue.t -> t -> (Procname.t * Location.t * Trace.t) option
 
 val pp : F.formatter -> t -> unit
 
@@ -113,12 +115,12 @@ val remove_taint_attrs : AbstractValue.t -> t -> t
 
 val remove_must_be_valid_attr : AbstractValue.t -> t -> t
 
-val remove_unsuitable_for_summary : t -> t
+val make_suitable_for_pre_summary : t -> t
 
 val initialize : AbstractValue.t -> t -> t
 
-val canonicalize : get_var_repr:(AbstractValue.t -> AbstractValue.t) -> t -> t
+val canonicalize_post : get_var_repr:(AbstractValue.t -> AbstractValue.t) -> t -> t
 (** merge the attributes of all the variables that are equal according to [get_var_repr] and remove
-    non-canonical variables in favor of their rerpresentative *)
+    non-canonical variables in favor of their representative *)
 
-val subst_var : for_summary:bool -> AbstractValue.t * AbstractValue.t -> t -> t
+val subst_var : AbstractValue.t * AbstractValue.t -> t -> t

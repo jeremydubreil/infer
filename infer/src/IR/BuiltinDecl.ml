@@ -56,6 +56,12 @@ let __opencl_atomic_fetch_max = create_procname "__opencl_atomic_fetch_max"
 
 let __opencl_atomic_fetch_min = create_procname "__opencl_atomic_fetch_min"
 
+let __builtin_add_overflow = create_procname "__builtin_add_overflow"
+
+let __builtin_mul_overflow = create_procname "__builtin_mul_overflow"
+
+let __builtin_sub_overflow = create_procname "__builtin_sub_overflow"
+
 let __builtin_va_arg = create_procname "__builtin_va_arg"
 
 let __builtin_va_copy = create_procname "__builtin_va_copy"
@@ -99,6 +105,8 @@ let __erlang_error_badmatch = create_procname "__erlang_error_badmatch"
 let __erlang_error_badmap = create_procname "__erlang_error_badmap"
 
 let __erlang_error_badrecord = create_procname "__erlang_error_badrecord"
+
+let __erlang_error_badreturn = create_procname "__erlang_error_badreturn"
 
 let __erlang_error_case_clause = create_procname "__erlang_error_case_clause"
 

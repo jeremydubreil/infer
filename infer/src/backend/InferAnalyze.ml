@@ -46,13 +46,12 @@ let do_compaction_if_needed =
     else ()
 
 
-let clear_caches_except_lrus () =
+let clear_caches () =
   Summary.OnDisk.clear_cache () ;
   BufferOverrunUtils.clear_cache () ;
-  Attributes.clear_cache ()
+  Attributes.clear_cache () ;
+  Tenv.Deps.clear ()
 
-
-let clear_caches () = clear_caches_except_lrus ()
 
 let proc_name_of_uid uid =
   match Attributes.load_from_uid uid with
@@ -103,7 +102,7 @@ let analyze_target : (TaskSchedulerTypes.target, string) Tasks.doer =
     in
     (* clear cache for each source file to avoid it growing unboundedly; we do it here to
        release memory before potentially going idle *)
-    clear_caches_except_lrus () ;
+    clear_caches () ;
     do_compaction_if_needed () ;
     result
 
@@ -202,7 +201,7 @@ let analyze source_files_to_analyze =
     let runner =
       (* use a ref to pass data from prologue to epilogue without too much machinery *)
       let gc_stats_pre_fork = ref None in
-      let child_prologue () =
+      let child_prologue _ =
         Stats.reset () ;
         gc_stats_pre_fork := Some (GCStats.get ~since:ProgramStart) ;
         if Config.memtrace_analysis then
@@ -213,7 +212,7 @@ let analyze source_files_to_analyze =
             ~filename
           |> ignore
       in
-      let child_epilogue () =
+      let child_epilogue _ =
         let gc_stats_in_fork =
           match !gc_stats_pre_fork with
           | Some stats ->
@@ -252,18 +251,13 @@ let invalidate_changed_procedures changed_files =
           L.die InternalError "Incremental analysis enabled without specifying changed files"
     in
     L.progress "Incremental analysis: invalidating potentially-affected analysis results.@." ;
-    let dependency_graph = ReverseAnalysisCallGraph.build () in
+    let dependency_graph = AnalysisDependencyGraph.build ~changed_files in
     let total_nodes = CallGraph.n_procs dependency_graph in
     (* Only bother with incremental invalidation and logging if there are already some analysis
        results stored in the db. *)
     if total_nodes > 0 then (
-      SourceFile.Set.iter
-        (fun sf ->
-          SourceFiles.proc_names_of_source sf
-          |> List.iter ~f:(CallGraph.flag_reachable dependency_graph) )
-        changed_files ;
       if Config.debug_level_analysis > 0 then
-        CallGraph.to_dotty dependency_graph "reverse_analysis_callgraph.dot" ;
+        CallGraph.to_dotty dependency_graph "analysis_dependency_graph.dot" ;
       let invalidated_nodes, invalidated_files =
         CallGraph.fold_flagged dependency_graph
           ~f:(fun node (acc_nodes, acc_files) ->
@@ -321,7 +315,7 @@ let main ~changed_files =
   Stats.log_aggregate backend_stats_list ;
   GCStats.log_aggregate ~prefix:"backend_stats." Analysis gc_stats_list ;
   let analysis_duration = ExecutionDuration.since start in
-  L.debug Analysis Quiet "Analysis phase finished in %a@\n" Mtime.Span.pp_float_s
+  L.debug Analysis Quiet "Analysis phase finished in %a@\n" Mtime.Span.pp
     (ExecutionDuration.wall_time analysis_duration) ;
   ExecutionDuration.log ~prefix:"backend_stats.scheduler_process_analysis_time" Analysis
     analysis_duration ;

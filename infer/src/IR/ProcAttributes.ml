@@ -67,6 +67,7 @@ type specialized_with_closures_info =
 type t =
   { access: access  (** visibility access *)
   ; captured: CapturedVar.t list  (** name and type of variables captured in blocks *)
+  ; mutable changed: bool  (** true if proc has changed since last analysis *)
   ; exceptions: string list  (** exceptions thrown by the procedure *)
   ; formals: (Mangled.t * Typ.t * Annot.Item.t) list  (** name and type of formal parameters *)
   ; const_formals: int list  (** list of indices of formals that are const-qualified *)
@@ -74,6 +75,11 @@ type t =
   ; is_abstract: bool  (** the procedure is abstract *)
   ; is_biabduction_model: bool  (** the procedure is a model for the biabduction analysis *)
   ; is_bridge_method: bool  (** the procedure is a bridge method *)
+  ; is_cpp_copy_assignment: bool  (** true if the procedure is a copy assignment *)
+  ; is_cpp_copy_ctor: bool  (** true if the procedure is a copy constructor *)
+  ; is_cpp_implicit: bool
+        (** returns false if the declaration exists in code and true if it was created implicitly by
+            the compiler *)
   ; is_defined: bool  (** true if the procedure is defined, and not just declared *)
   ; is_java_synchronized_method: bool  (** the procedure is a Java synchronized method *)
   ; is_csharp_synchronized_method: bool  (** the procedure is a C# synchronized method *)
@@ -136,6 +142,7 @@ let to_return_type attributes =
 let default translation_unit proc_name =
   { access= Default
   ; captured= []
+  ; changed= true
   ; exceptions= []
   ; formals= []
   ; const_formals= []
@@ -143,6 +150,9 @@ let default translation_unit proc_name =
   ; is_abstract= false
   ; is_biabduction_model= false
   ; is_bridge_method= false
+  ; is_cpp_copy_assignment= false
+  ; is_cpp_copy_ctor= false
+  ; is_cpp_implicit= false
   ; is_defined= false
   ; is_java_synchronized_method= false
   ; is_csharp_synchronized_method= false
@@ -201,6 +211,7 @@ let pp_captured = Pp.semicolon_seq ~print_env:Pp.text_break CapturedVar.pp
 let pp f
     ({ access
      ; captured
+     ; changed
      ; exceptions
      ; formals
      ; const_formals
@@ -208,6 +219,9 @@ let pp f
      ; is_abstract
      ; is_biabduction_model
      ; is_bridge_method
+     ; is_cpp_copy_assignment
+     ; is_cpp_copy_ctor
+     ; is_cpp_implicit
      ; is_defined
      ; is_java_synchronized_method
      ; is_csharp_synchronized_method
@@ -231,7 +245,7 @@ let pp f
      ; ret_type
      ; ret_annots
      ; is_ret_type_pod
-     ; is_ret_constexpr } [@warning "+9"] ) =
+     ; is_ret_constexpr } [@warning "+missing-record-field-pattern"] ) =
   let default = default translation_unit proc_name in
   let pp_bool_default ~default title b f () =
     if not (Bool.equal default b) then F.fprintf f "; %s= %b@," title b
@@ -242,6 +256,8 @@ let pp f
     F.fprintf f "; access= %a@," (Pp.of_string ~f:string_of_access) access ;
   if not ([%equal: CapturedVar.t list] default.captured captured) then
     F.fprintf f "; captured= [@[%a@]]@," pp_captured captured ;
+  if not (Bool.equal default.changed changed) then
+    F.fprintf f "; changed_since_last_capture= %b@," changed ;
   if not ([%equal: string list] default.exceptions exceptions) then
     F.fprintf f "; exceptions= [@[%a@]]@,"
       (Pp.semicolon_seq ~print_env:Pp.text_break F.pp_print_string)
@@ -259,6 +275,10 @@ let pp f
   pp_bool_default ~default:default.is_abstract "is_abstract" is_abstract f () ;
   pp_bool_default ~default:default.is_biabduction_model "is_model" is_biabduction_model f () ;
   pp_bool_default ~default:default.is_bridge_method "is_bridge_method" is_bridge_method f () ;
+  pp_bool_default ~default:default.is_cpp_copy_assignment "is_cpp_copy_assignment"
+    is_cpp_copy_assignment f () ;
+  pp_bool_default ~default:default.is_cpp_copy_ctor "is_cpp_copy_ctor" is_cpp_copy_ctor f () ;
+  pp_bool_default ~default:default.is_cpp_implicit "is_cpp_implicit" is_cpp_implicit f () ;
   pp_bool_default ~default:default.is_defined "is_defined" is_defined f () ;
   pp_bool_default ~default:default.is_java_synchronized_method "is_java_synchronized_method"
     is_java_synchronized_method f () ;

@@ -128,7 +128,8 @@ and template_spec_info =
                 template arguments is also needed for uniqueness. *)
       ; args: template_arg list }
 
-val pp_template_spec_info : Pp.env -> F.formatter -> template_spec_info -> unit [@@warning "-32"]
+val pp_template_spec_info : Pp.env -> F.formatter -> template_spec_info -> unit
+  [@@warning "-unused-value-declaration"]
 
 val mk : ?default:t -> ?quals:type_quals -> desc -> t
 (** Create Typ.t from given desc. if [default] is passed then use its value to set other fields such
@@ -144,6 +145,8 @@ val mk_ptr : ?ptr_kind:ptr_kind -> t -> t
 (** make a pointer to [t], default kind is [Pk_pointer] *)
 
 val set_ptr_to_const : t -> t
+
+val set_to_const : t -> t
 
 val get_ikind_opt : t -> ikind option
 (** Get ikind if the type is integer. *)
@@ -174,9 +177,6 @@ module Name : sig
   (** convert the typename to a string *)
 
   val pp : Format.formatter -> t -> unit
-
-  val pp_name_only : Format.formatter -> t -> unit
-  (** Print name only without prefix *)
 
   val is_class : t -> bool
   (** [is_class name] holds if [name] names CPP/Objc/Java class *)
@@ -260,8 +260,6 @@ module Name : sig
   module Map : PrettyPrintable.PPMap with type key = t
 
   module Hash : Caml.Hashtbl.S with type key = t
-
-  module Normalizer : HashNormalizer.S with type t = t
 end
 
 val equal : t -> t -> bool
@@ -325,6 +323,8 @@ val is_pointer_to_objc_non_tagged_class : t -> bool
 
 val is_pointer_to_smart_pointer : t -> bool
 
+val is_pointer_to_unique_pointer : t -> bool
+
 val is_shared_pointer : t -> bool
 
 val is_pointer_to_void : t -> bool
@@ -357,8 +357,8 @@ val is_csharp_type : t -> bool
 val is_java_type : t -> bool
 (** is [t] a type produced by the Java frontend? *)
 
-val has_block_prefix : string -> bool
-
 val unsome : string -> t option -> t
 
 module Normalizer : HashNormalizer.S with type t = t
+
+module NameNormalizer : HashNormalizer.S with type t = name

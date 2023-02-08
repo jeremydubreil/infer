@@ -41,13 +41,13 @@ BUILD_SYSTEMS_TESTS += \
   results_xml \
   tracebugs \
   utf8_in_procname \
-  export_changed_functions \
   incremental_analysis_remove_file \
   incremental_analysis_change_procedure \
   incremental_analysis_add_procedure \
 
-COST_TESTS += \
-  c_performance \
+ifeq ($(DIFF_CAN_FORMAT),yes)
+BUILD_SYSTEMS_TESTS += export_changed_functions
+endif
 
 DIRECT_TESTS += \
   c_biabduction \
@@ -87,14 +87,16 @@ ifneq ($(BUCK),no)
 BUILD_SYSTEMS_TESTS += \
   buck_block_list \
   buck-clang-db \
-  buck_clang_test_determinator \
   buck_flavors \
   buck_flavors_diff \
   buck_flavors_run \
-  buck_flavors_deterministic \
-  buck_export_changed_functions \
+  buck_flavors_deterministic
 
+ifeq ($(DIFF_CAN_FORMAT),yes)
+BUILD_SYSTEMS_TESTS += buck_clang_test_determinator buck_export_changed_functions
 endif
+endif
+
 ifneq ($(CMAKE),no)
 BUILD_SYSTEMS_TESTS += clang_compilation_db cmake inferconfig inferconfig_not_strict
 endif
@@ -103,7 +105,6 @@ BUILD_SYSTEMS_TESTS += ndk_build
 endif
 ifeq ($(HAS_OBJC),yes)
 BUILD_SYSTEMS_TESTS += \
-  clang_test_determinator \
   differential_of_costs_report_objc \
   objc_getters_setters \
   objc_missing_fld \
@@ -111,9 +112,9 @@ BUILD_SYSTEMS_TESTS += \
   objc_retain_cycles_weak \
   pulse_messages_objc \
 
-COST_TESTS += \
-  objc_autoreleasepool \
-  objc_performance \
+ifeq ($(DIFF_CAN_FORMAT),yes)
+BUILD_SYSTEMS_TESTS += clang_test_determinator
+endif
 
 DIRECT_TESTS += \
   objc_autoreleasepool \
@@ -147,12 +148,13 @@ DIRECT_TESTS += \
 endif
 
 
-ifneq ($(XCODE_SELECT),no)
-BUILD_SYSTEMS_TESTS += xcodebuild_no_xcpretty
-endif
-ifneq ($(XCPRETTY),no)
-BUILD_SYSTEMS_TESTS += xcodebuild
-endif
+# Temporarily turn off xcodebuild tests while we sort out problems on CI
+# ifneq ($(XCODE_SELECT),no)
+# BUILD_SYSTEMS_TESTS += xcodebuild_no_xcpretty
+# endif
+# ifneq ($(XCPRETTY),no)
+# BUILD_SYSTEMS_TESTS += xcodebuild
+# endif
 endif # HAS_OBJC
 endif # BUILD_C_ANALYZERS
 
@@ -161,6 +163,7 @@ ifneq ($(REBAR3),no)
 DIRECT_TESTS += \
   erlang_pulse \
   erlang_pulse-otp \
+  erlang_pulse-taint \
   erlang_topl \
   erlang_compiler \
 
@@ -187,16 +190,14 @@ BUILD_SYSTEMS_TESTS += \
   differential_skip_duplicated_types_on_filenames_with_renamings \
   gradle \
   java_source_parser \
-  java_test_determinator \
   javac \
   resource_leak_exception_lines \
   racerd_dedup \
   merge-capture \
 
-COST_TESTS += \
-  java_hoistingExpensive \
-  java_performance \
-  java_performance-exclusive \
+ifeq ($(DIFF_CAN_FORMAT),yes)
+BUILD_SYSTEMS_TESTS += java_test_determinator
+endif
 
 DIRECT_TESTS += \
   java_annotreach \
@@ -225,9 +226,10 @@ DIRECT_TESTS += \
   java_starvation-dedup \
   java_starvation-whole-program \
   java_topl \
-  sil_doli \
-  sil_parsing \
+  sil_doliCapture  \
+  sil_doliParsing \
   sil_pulse \
+  sil_verif \
 
 ifneq ($(KOTLINC), no)
 DIRECT_TESTS += \
@@ -244,8 +246,6 @@ endif
 ifeq ($(IS_FACEBOOK_TREE),yes)
 BUILD_SYSTEMS_TESTS += \
   fb_differential_of_config_impact_report_java
-
-COST_TESTS += java_fb-performance
 
 DIRECT_TESTS += \
   java_fb-config-impact \
@@ -284,7 +284,6 @@ DIRECT_TESTS += \
   dotnet_nullparam \
   dotnet_numcomparison \
   dotnet_reference \
-  dotnet_resourceleak \
   dotnet_starg \
   dotnet_threadsafetyviolation
 
@@ -585,18 +584,6 @@ $(DIRECT_TESTS:%=direct_%_replace): infer
 
 .PHONY: direct_tests
 direct_tests: $(DIRECT_TESTS:%=direct_%_test)
-
-.PHONY: cost_tests
-cost_tests: $(COST_TESTS:%=direct_%_test)
-
-.PHONY: cost_tests_clean
-cost_tests_clean: $(COST_TESTS:%=direct_%_clean)
-
-.PHONY: cost_tests_replace
-cost_tests_replace: $(COST_TESTS:%=direct_%_replace)
-
-.PHONY: cost_tests_print
-cost_tests_print: $(COST_TESTS:%=direct_%_print)
 
 .PHONY: $(BUILD_SYSTEMS_TESTS:%=build_%_test)
 $(BUILD_SYSTEMS_TESTS:%=build_%_test): infer
@@ -967,6 +954,10 @@ endif
 	$(QUIET)if [ "$(PLATFORM)" = "Darwin" ] && [ x"$(GNU_SED)" = x"no" ]; then \
 	  echo '$(TERM_INFO)*** Installing GNU sed$(TERM_RESET)' >&2; \
 	  brew install gnu-sed; \
+	fi
+	$(QUIET)if [ "$(PLATFORM)" = "Darwin" ] && [ x"$(DIFF_CAN_FORMAT)" = x"no" ] ; then \
+	  echo '$(TERM_INFO)*** Installing diffutils$(TERM_RESET)' >&2; \
+	  brew install diffutils; \
 	fi
 	$(QUIET)if [ "$(PLATFORM)" = "Darwin" ] && ! $$(parallel -h | grep -q GNU); then \
 	  echo '$(TERM_INFO)*** Installing GNU parallel$(TERM_RESET)' >&2; \

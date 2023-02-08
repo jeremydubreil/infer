@@ -62,10 +62,15 @@ end
 module CopiedInto : sig
   type t =
     | IntoVar of {copied_var: Var.t; source_opt: DecompilerExpr.source_expr option}
+    | IntoIntermediate of {copied_var: Var.t; source_opt: DecompilerExpr.source_expr option}
     | IntoField of {field: Fieldname.t; source_opt: DecompilerExpr.t option}
   [@@deriving compare, equal]
 
   val pp : F.formatter -> t -> unit
+end
+
+module ConfigUsage : sig
+  type t = ConfigName of ConfigName.t | StringParam of {v: AbstractValue.t; config_type: string}
 end
 
 type t =
@@ -74,7 +79,7 @@ type t =
   | Allocated of allocator * Trace.t
   | AlwaysReachable
   | Closure of Procname.t
-  | ConfigUsage of ConfigName.t
+  | ConfigUsage of ConfigUsage.t
   | ConstString of string
   | CopiedInto of CopiedInto.t  (** records the copied var/field for each source address *)
   | CopiedReturn of
@@ -106,6 +111,7 @@ type t =
   | UnreachableAt of Location.t
       (** temporary marker to remember where a variable became unreachable; helps with accurately
           reporting leaks *)
+  | UsedAsBranchCond of Procname.t * Location.t * Trace.t
   | WrittenTo of Timestamp.t * Trace.t
 [@@deriving compare]
 
@@ -127,9 +133,11 @@ module Attributes : sig
 
   val get_closure_proc_name : t -> Procname.t option
 
-  val get_config_usage : t -> ConfigName.t option
+  val get_config_usage : t -> ConfigUsage.t option
 
   val get_const_string : t -> string option
+
+  val get_used_as_branch_cond : t -> (Procname.t * Location.t * Trace.t) option
 
   val get_copied_into : t -> CopiedInto.t option
 
@@ -207,5 +215,7 @@ module Attributes : sig
 
   val get_allocated_not_freed : t -> (allocator * Trace.t) option
 
-  val remove_unsuitable_for_summary : t -> t
+  val make_suitable_for_pre_summary : t -> t
+
+  val make_suitable_for_post_summary : t -> t
 end

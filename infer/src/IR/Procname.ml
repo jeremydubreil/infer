@@ -273,7 +273,7 @@ module Java = struct
       let parameters =
         IList.map_changed t.parameters ~equal:phys_equal ~f:Typ.Normalizer.normalize
       in
-      let class_name = Typ.Name.Normalizer.normalize t.class_name in
+      let class_name = Typ.NameNormalizer.normalize t.class_name in
       let return_type =
         IOption.map_changed t.return_type ~equal:phys_equal ~f:Typ.Normalizer.normalize
       in
@@ -292,6 +292,14 @@ module Parameter = struct
       struct, with [name] being the name of the struct, [None] means the parameter is of some other
       type. *)
   type clang_parameter = Typ.Name.t option [@@deriving compare, equal, yojson_of, sexp, hash]
+
+  module ClangParameterNormalizer = HashNormalizer.Make (struct
+    type nonrec t = clang_parameter [@@deriving equal]
+
+    let hash = Hashtbl.hash
+
+    let normalize t = IOption.map_changed t ~equal:phys_equal ~f:Typ.NameNormalizer.normalize
+  end)
 
   (** Type for parameters in procnames, for java and clang. *)
   type t =
@@ -330,10 +338,12 @@ module Parameter = struct
 end
 
 module ObjC_Cpp = struct
+  type mangled = string option [@@deriving compare, equal, yojson_of, sexp, hash]
+
   type kind =
-    | CPPMethod of {mangled: string option; is_copy_assignment: bool}
-    | CPPConstructor of {mangled: string option; is_copy_ctor: bool; is_implicit: bool}
-    | CPPDestructor of {mangled: string option}
+    | CPPMethod of mangled
+    | CPPConstructor of mangled
+    | CPPDestructor of mangled
     | ObjCClassMethod
     | ObjCInstanceMethod
   [@@deriving compare, equal, yojson_of, sexp, hash]
@@ -368,18 +378,6 @@ module ObjC_Cpp = struct
     if is_instance then ObjCInstanceMethod else ObjCClassMethod
 
 
-  let is_copy_assignment {kind} =
-    match kind with CPPMethod {is_copy_assignment} -> is_copy_assignment | _ -> false
-
-
-  let is_copy_ctor {kind} =
-    match kind with CPPConstructor {is_copy_ctor} -> is_copy_ctor | _ -> false
-
-
-  let is_implicit_ctor {kind} =
-    match kind with CPPConstructor {is_implicit} -> is_implicit | _ -> false
-
-
   let is_prefix_init s = String.is_prefix ~prefix:"init" s
 
   let is_objc_constructor method_name = String.equal method_name "new" || is_prefix_init method_name
@@ -404,12 +402,10 @@ module ObjC_Cpp = struct
   let is_cpp_lambda {method_name} = String.is_substring ~substring:"operator()" method_name
 
   let pp_verbose_kind fmt = function
-    | CPPMethod {mangled} | CPPDestructor {mangled} ->
+    | CPPMethod mangled | CPPDestructor mangled ->
         F.fprintf fmt "(%s)" (Option.value ~default:"" mangled)
-    | CPPConstructor {mangled; is_copy_ctor} ->
-        F.fprintf fmt "{%s}%s"
-          (if is_copy_ctor then "[copy_ctor]" else "")
-          (Option.value ~default:"" mangled)
+    | CPPConstructor mangled ->
+        F.fprintf fmt "{%s}" (Option.value ~default:"" mangled)
     | ObjCClassMethod ->
         F.pp_print_string fmt "[class]"
     | ObjCInstanceMethod ->
@@ -445,6 +441,26 @@ module ObjC_Cpp = struct
   let get_parameters osig = osig.parameters
 
   let replace_parameters new_parameters osig = {osig with parameters= new_parameters}
+
+  module Normalizer = HashNormalizer.Make (struct
+    type nonrec t = t [@@deriving equal]
+
+    let hash = Hashtbl.hash
+
+    let normalize t =
+      let class_name = Typ.NameNormalizer.normalize t.class_name in
+      let method_name = HashNormalizer.StringNormalizer.normalize t.method_name in
+      let parameters =
+        IList.map_changed ~equal:phys_equal ~f:Parameter.ClangParameterNormalizer.normalize
+          t.parameters
+      in
+      if
+        phys_equal class_name t.class_name
+        && phys_equal method_name t.method_name
+        && phys_equal parameters t.parameters
+      then t
+      else {class_name; kind= t.kind; method_name; parameters; template_args= t.template_args}
+  end)
 end
 
 module C = struct
@@ -495,6 +511,21 @@ module C = struct
   let is_make_shared c = is_std_function ~prefix:"make_shared" c
 
   let is_std_move c = is_std_function ~prefix:"move" c
+
+  module Normalizer = HashNormalizer.Make (struct
+    type nonrec t = t [@@deriving equal]
+
+    let hash = Hashtbl.hash
+
+    let normalize t =
+      let name = QualifiedCppName.Normalizer.normalize t.name in
+      let parameters =
+        IList.map_changed ~equal:phys_equal ~f:Parameter.ClangParameterNormalizer.normalize
+          t.parameters
+      in
+      if phys_equal name t.name && phys_equal parameters t.parameters then t
+      else {name; mangled= t.mangled; parameters; template_args= t.template_args}
+  end)
 end
 
 module Erlang = struct
@@ -515,11 +546,14 @@ module Erlang = struct
 
   let pp_filename fmt {module_name; function_name; arity} =
     (* Extend list of illegal characters if needed. *)
-    let target = "/:<>" in
-    let replacement = "_" in
-    let f = Staged.unstage (String.tr_multi ~target ~replacement) in
-    let module_name = f module_name in
-    let function_name = f function_name in
+    let invalid_chars = "/:<>" in
+    let sanitize_char chr =
+      if String.mem invalid_chars chr then Printf.sprintf "%#x" (Char.to_int chr)
+      else Char.to_string chr
+    in
+    let sanitize str = String.concat_map str ~f:sanitize_char in
+    let module_name = sanitize module_name in
+    let function_name = sanitize function_name in
     pp_general '#' Verbose fmt {module_name; function_name; arity}
 
 
@@ -753,34 +787,10 @@ let rec base_of = function
 
 let is_std_move t = match base_of t with C c_pname -> C.is_std_move c_pname | _ -> false
 
-let is_copy_assignment t =
-  match base_of t with
-  | ObjC_Cpp objc_cpp_pname ->
-      ObjC_Cpp.is_copy_assignment objc_cpp_pname
-  | _ ->
-      false
-
-
-let is_copy_ctor t =
-  match base_of t with
-  | ObjC_Cpp objc_cpp_pname ->
-      ObjC_Cpp.is_copy_ctor objc_cpp_pname
-  | _ ->
-      false
-
-
 let is_cpp_assignment_operator t =
   match base_of t with
   | ObjC_Cpp name when String.equal name.method_name "operator=" ->
       true
-  | _ ->
-      false
-
-
-let is_implicit_ctor t =
-  match base_of t with
-  | ObjC_Cpp objc_cpp_pname ->
-      ObjC_Cpp.is_implicit_ctor objc_cpp_pname
   | _ ->
       false
 
@@ -1093,6 +1103,21 @@ let get_global_name_of_initializer t =
       None
 
 
+let rec is_lambda_or_block = function
+  | Block _ ->
+      true
+  | ObjC_Cpp {class_name} -> (
+    match QualifiedCppName.extract_last (Typ.Name.unqualified_name class_name) with
+    | Some (name, _) when String.is_prefix name ~prefix:"lambda" ->
+        true
+    | _ ->
+        false )
+  | WithAliasingParameters (base, _) | WithFunctionParameters (base, _) ->
+      is_lambda_or_block base
+  | _ ->
+      false
+
+
 let pp_with_aliasing_parameters verbose pp fmt base aliases =
   pp fmt base ;
   F.pp_print_string fmt "[" ;
@@ -1139,7 +1164,7 @@ let rec pp_unique_id fmt = function
   | C osig ->
       C.pp Verbose fmt osig
   | Erlang e ->
-      Erlang.pp Verbose fmt e
+      Erlang.pp_filename fmt e
   | Hack h ->
       Hack.pp Verbose fmt h
   | ObjC_Cpp osig ->
@@ -1159,30 +1184,34 @@ let rec pp_unique_id fmt = function
 let to_unique_id proc_name = F.asprintf "%a" pp_unique_id proc_name
 
 (** Convert a proc name to a string for the user to see *)
-let rec pp fmt = function
+let rec pp_with_verbosity verbosity fmt = function
   | Java j ->
-      Java.pp Non_verbose fmt j
+      Java.pp verbosity fmt j
   | CSharp cs ->
-      CSharp.pp Non_verbose fmt cs
+      CSharp.pp verbosity fmt cs
   | C osig ->
-      C.pp Non_verbose fmt osig
+      C.pp verbosity fmt osig
   | Erlang e ->
-      Erlang.pp Non_verbose fmt e
+      Erlang.pp verbosity fmt e
   | Hack h ->
-      Hack.pp Non_verbose fmt h
+      Hack.pp verbosity fmt h
   | ObjC_Cpp osig ->
-      ObjC_Cpp.pp Non_verbose fmt osig
+      ObjC_Cpp.pp verbosity fmt osig
   | Block bsig ->
-      Block.pp Non_verbose fmt bsig
+      Block.pp verbosity fmt bsig
   | WithAliasingParameters (base, []) | WithFunctionParameters (base, []) ->
-      pp fmt base
+      pp_with_verbosity verbosity fmt base
   | WithAliasingParameters (base, aliases) ->
-      pp_with_aliasing_parameters Non_verbose pp fmt base aliases
+      pp_with_aliasing_parameters verbosity (pp_with_verbosity verbosity) fmt base aliases
   | WithFunctionParameters (base, (_ :: _ as functions)) ->
-      pp_with_function_parameters Non_verbose pp fmt base functions
+      pp_with_function_parameters verbosity (pp_with_verbosity verbosity) fmt base functions
   | Linters_dummy_method ->
       pp_unique_id fmt Linters_dummy_method
 
+
+let pp = pp_with_verbosity Non_verbose
+
+let pp_verbose = pp_with_verbosity Verbose
 
 let pp_without_templates fmt = function
   | ObjC_Cpp osig when not (ObjC_Cpp.is_objc_method osig) ->
@@ -1444,6 +1473,7 @@ end
 module Hash = Hashtbl.Make (Hashable)
 module LRUHash = LRUHashtbl.Make (Hashable)
 module HashQueue = Hash_queue.Make (Hashable)
+module HashSet = HashSet.Make (Hashable)
 
 module Map = PrettyPrintable.MakePPMap (struct
   type nonrec t = t [@@deriving compare]
@@ -1480,8 +1510,6 @@ let to_filename pname =
         let pp_mangled fmt = function None -> () | Some mangled -> F.fprintf fmt "#%s" mangled in
         F.asprintf "%a%a%a" pp_rev_qualified pname Parameter.pp_parameters parameters pp_mangled
           mangled
-    | Erlang pname ->
-        F.asprintf "%a" Erlang.pp_filename pname
     | ObjC_Cpp objc_cpp ->
         F.asprintf "%a%a#%a" pp_rev_qualified pname Parameter.pp_parameters objc_cpp.parameters
           ObjC_Cpp.pp_verbose_kind objc_cpp.kind
@@ -1519,6 +1547,16 @@ module Normalizer = HashNormalizer.Make (struct
     | Java java_pname ->
         let java_pname' = Java.Normalizer.normalize java_pname in
         if phys_equal java_pname java_pname' then t else Java java_pname'
-    | _ ->
+    | C c ->
+        let c' = C.Normalizer.normalize c in
+        if phys_equal c c' then t else C c'
+    | ObjC_Cpp objc_cpp ->
+        let objc_cpp' = ObjC_Cpp.Normalizer.normalize objc_cpp in
+        if phys_equal objc_cpp objc_cpp' then t else ObjC_Cpp objc_cpp'
+    | Linters_dummy_method | WithAliasingParameters _ | WithFunctionParameters _ ->
+        (* these kinds should not appear inside a type environment *)
+        t
+    | Block _ | CSharp _ | Erlang _ | Hack _ ->
+        (* TODO *)
         t
 end)

@@ -17,8 +17,8 @@ include $(TESTS_DIR)/differential.make
 .PHONY: compare_cg
 compare_cg: $(PREVIOUS_REPORT)
 	$(QUIET)$(call check_no_diff,\
-	  reverse_analysis_callgraph.dot,\
-	  reverse_analysis_callgraph.dot.test)
+	  analysis_dependency_graph.dot,\
+	  analysis_dependency_graph.dot.test)
 
 .PHONY: compare_invalidation_stats
 compare_invalidation_stats: $(PREVIOUS_REPORT)
@@ -27,7 +27,7 @@ compare_invalidation_stats: $(PREVIOUS_REPORT)
 	invalidation_stats.exp.test)
 
 replace_cg: $(PREVIOUS_REPORT)
-	$(COPY) reverse_analysis_callgraph.dot.test reverse_analysis_callgraph.dot
+	$(COPY) analysis_dependency_graph.dot.test analysis_dependency_graph.dot
 
 replace_invalidation_stats: $(PREVIOUS_REPORT)
 	$(COPY) invalidation_stats.exp.test invalidation_stats.exp
@@ -39,7 +39,7 @@ $(CURRENT_REPORT): $(INFER_CLANG_DEPS) $(SOURCES)
 	$(QUIET)$(REMOVE_DIR) src
 	$(QUIET)$(MKDIR_P) src
 	$(QUIET)$(COPY) src_after/* src/
-	$(QUIET)$(INFER_BIN) -o $(CURRENT_DIR) -- clang -c src/*.c
+	$(QUIET)$(INFER_BIN) -P -o $(CURRENT_DIR) -- clang -c src/*.c
 
 $(PREVIOUS_REPORT): $(INFER_CLANG_DEPS) $(SOURCES) $(CURRENT_REPORT)
 	$(QUIET)$(REMOVE_DIR) src
@@ -48,7 +48,7 @@ $(PREVIOUS_REPORT): $(INFER_CLANG_DEPS) $(SOURCES) $(CURRENT_REPORT)
 	$(QUIET)$(REMOVE_DIR) $(PREVIOUS_DIR)
 	$(QUIET)$(COPY) -r $(CURRENT_DIR) $(PREVIOUS_DIR)
 	$(QUIET)$(REMOVE) $@
-	$(QUIET)$(INFER_BIN) -o $(PREVIOUS_DIR) $(INFER_OPTIONS) -- clang -c src/*.c 2>&1 \
+	$(QUIET)$(INFER_BIN) -P -o $(PREVIOUS_DIR) $(INFER_OPTIONS) -- clang -c src/*.c 2>&1 \
 		| grep "Invalidated" > invalidation_stats.exp.test
-	$(QUIET)$(COPY) $(PREVIOUS_DIR)/reverse_analysis_callgraph.dot \
-	        reverse_analysis_callgraph.dot.test
+	$(QUIET)$(COPY) $(PREVIOUS_DIR)/analysis_dependency_graph.dot \
+	        analysis_dependency_graph.dot.test

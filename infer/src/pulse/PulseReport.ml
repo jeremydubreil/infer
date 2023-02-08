@@ -34,13 +34,33 @@ let report ~is_suppressed ~latent proc_desc err_log diagnostic =
             (Some (proc_name_of_taint source), None)
         | TaintFlow {flow_kind= FlowToSink; sink= sink, _} ->
             (None, Some (proc_name_of_taint sink))
+        | TaintFlow {flow_kind= TaintedFlow; source= source, _; sink= sink, _} ->
+            (Some (proc_name_of_taint source), Some (proc_name_of_taint sink))
         | _ ->
             (None, None)
       in
-      let config_name =
+      let taint_policy_privacy_effect =
         match diagnostic with
-        | ConfigUsage {config} ->
-            Some (F.asprintf "%a" ConfigName.pp config)
+        | TaintFlow {flow_kind= TaintedFlow; policy_privacy_effect; _} ->
+            policy_privacy_effect
+        | _ ->
+            None
+      in
+      let taint_extra : Jsonbug_t.taint_extra option =
+        match (taint_source, taint_sink, taint_policy_privacy_effect) with
+        | None, None, None ->
+            None
+        | _, _, _ ->
+            Some {taint_source; taint_sink; taint_policy_privacy_effect}
+      in
+      let config_usage_extra : Jsonbug_t.config_usage_extra option =
+        match diagnostic with
+        | ConfigUsage {pname; config; branch_location= {file; line}} ->
+            Some
+              { config_name= F.asprintf "%a" ConfigName.pp config
+              ; function_name= Procname.to_string pname
+              ; filename= SourceFile.to_string ~force_relative:true file
+              ; line_number= line }
         | _ ->
             None
       in
@@ -49,9 +69,8 @@ let report ~is_suppressed ~latent proc_desc err_log diagnostic =
         ; cost_degree= None
         ; nullsafe_extra= None
         ; copy_type
-        ; taint_source
-        ; taint_sink
-        ; config_name }
+        ; config_usage_extra
+        ; taint_extra }
     in
     Reporting.log_issue proc_desc err_log ~loc:(get_location diagnostic)
       ~ltr:(extra_trace @ get_trace diagnostic)

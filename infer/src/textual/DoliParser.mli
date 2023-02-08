@@ -7,7 +7,5 @@
 
 open! IStd
 
-val run : string -> unit
-(** [run path] parses the file in [path] accordning to the doli syntax. In the end, it discards the
-    generated AST It prints a message indicating whether parsing was succesful, and if not, also
-    gives the location of the error. *)
+val just_parse : string -> unit
+(** [parse path] parses the file in path *)

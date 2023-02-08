@@ -42,7 +42,7 @@ let pp_access_to_invalid_address fmt
      ; invalidation
      ; invalidation_trace
      ; access_trace
-     ; must_be_valid_reason } [@warning "+9"] ) =
+     ; must_be_valid_reason } [@warning "+missing-record-field-pattern"] ) =
   let pp_immediate fmt = F.pp_print_string fmt "immediate" in
   F.fprintf fmt
     "{@[calling_context=%a;@;\
@@ -64,6 +64,7 @@ module ErlangError = struct
     | Badmap of {calling_context: calling_context; location: Location.t}
     | Badmatch of {calling_context: calling_context; location: Location.t}
     | Badrecord of {calling_context: calling_context; location: Location.t}
+    | Badreturn of {calling_context: calling_context; location: Location.t}
     | Case_clause of {calling_context: calling_context; location: Location.t}
     | Function_clause of {calling_context: calling_context; location: Location.t}
     | If_clause of {calling_context: calling_context; location: Location.t}
@@ -75,15 +76,16 @@ module ErlangError = struct
   let pp fmt erlang_error =
     (* this is for debug purposes so if you add another field please remove this warning but make sure
        to pretty print it too *)
-    let[@warning "+9"] ( Badarg {calling_context; location}
-                       | Badkey {calling_context; location}
-                       | Badmap {calling_context; location}
-                       | Badmatch {calling_context; location}
-                       | Badrecord {calling_context; location}
-                       | Case_clause {calling_context; location}
-                       | Function_clause {calling_context; location}
-                       | If_clause {calling_context; location}
-                       | Try_clause {calling_context; location} ) =
+    let[@warning "+missing-record-field-pattern"] ( Badarg {calling_context; location}
+                                                  | Badkey {calling_context; location}
+                                                  | Badmap {calling_context; location}
+                                                  | Badmatch {calling_context; location}
+                                                  | Badrecord {calling_context; location}
+                                                  | Badreturn {calling_context; location}
+                                                  | Case_clause {calling_context; location}
+                                                  | Function_clause {calling_context; location}
+                                                  | If_clause {calling_context; location}
+                                                  | Try_clause {calling_context; location} ) =
       erlang_error
     in
     F.fprintf fmt "%s{@[location=%a; calling_context=%a@]}" (Variants.to_name erlang_error)
@@ -95,7 +97,8 @@ type read_uninitialized_value = {calling_context: calling_context; trace: Trace.
 
 let yojson_of_read_uninitialized_value = [%yojson_of: _]
 
-let pp_read_uninitialized_value fmt ({calling_context; trace} [@warning "+9"]) =
+let pp_read_uninitialized_value fmt
+    ({calling_context; trace} [@warning "+missing-record-field-pattern"]) =
   F.fprintf fmt "{@[calling_context=%a;@;trace=%a@]}" pp_calling_context calling_context
     (Trace.pp ~pp_immediate:(fun fmt -> F.pp_print_string fmt "immediate"))
     trace
@@ -115,7 +118,12 @@ let pp_flow_kind fmt flow_kind =
 
 type t =
   | AccessToInvalidAddress of access_to_invalid_address
-  | ConfigUsage of {pname: Procname.t; config: ConfigName.t; location: Location.t}
+  | ConfigUsage of
+      { pname: Procname.t
+      ; config: ConfigName.t
+      ; branch_location: Location.t
+      ; location: Location.t
+      ; trace: Trace.t }
   | ConstRefableParameter of {param: Var.t; typ: Typ.t; location: Location.t}
   | CSharpResourceLeak of
       {class_name: CSharpClassName.t; allocation_trace: Trace.t; location: Location.t}
@@ -137,10 +145,12 @@ type t =
       ; source: Taint.t * ValueHistory.t
       ; sink: Taint.t * Trace.t
       ; location: Location.t
-      ; flow_kind: flow_kind }
+      ; flow_kind: flow_kind
+      ; policy_description: string
+      ; policy_privacy_effect: string option }
   | UnnecessaryCopy of
       { copied_into: PulseAttribute.CopiedInto.t
-      ; typ: Typ.t
+      ; source_typ: Typ.t option
       ; location: Location.t
       ; copied_location: (Procname.t * Location.t) option
       ; from: PulseAttribute.CopyOrigin.t }
@@ -148,13 +158,15 @@ type t =
 
 let pp fmt diagnostic =
   let pp_immediate fmt = F.pp_print_string fmt "immediate" in
-  match[@warning "+9"] diagnostic with
+  match[@warning "+missing-record-field-pattern"] diagnostic with
   | AccessToInvalidAddress access_to_invalid_address ->
       F.fprintf fmt "AccessToInvalidAddress %a" pp_access_to_invalid_address
         access_to_invalid_address
-  | ConfigUsage {pname; config; location} ->
-      F.fprintf fmt "ConfigUsage {@[pname=%a;@;config=%a;@;location=%a@]}" Procname.pp pname
-        ConfigName.pp config Location.pp location
+  | ConfigUsage {pname; config; branch_location; location; trace} ->
+      F.fprintf fmt
+        "ConfigUsage {@[pname=%a;@;config=%a;@;branch_location=%a;@;location=%a;@;trace=%a@]}"
+        Procname.pp pname ConfigName.pp config Location.pp branch_location Location.pp location
+        (Trace.pp ~pp_immediate) trace
   | ConstRefableParameter {param; typ; location} ->
       F.fprintf fmt "ConstRefableParameter {@[param=%a;@;typ=%a;@;location=%a@]}" Var.pp param
         (Typ.pp_full Pp.text) typ Location.pp location
@@ -187,7 +199,7 @@ let pp fmt diagnostic =
   | StackVariableAddressEscape {variable; history; location} ->
       F.fprintf fmt "StackVariableAddressEscape {@[variable=%a;@;history=%a;@;location:%a@]}" Var.pp
         variable ValueHistory.pp history Location.pp location
-  | TaintFlow {expr; source; sink; location; flow_kind} ->
+  | TaintFlow {expr; source; sink; location; flow_kind; _} ->
       F.fprintf fmt "TaintFlow {@[expr=%a;@;source=%a;@;sink=%a;@;location:%a;@;flow_kind=%a@]}"
         DecompilerExpr.pp_with_abstract_value expr
         (Pp.pair ~fst:Taint.pp ~snd:ValueHistory.pp)
@@ -196,13 +208,15 @@ let pp fmt diagnostic =
         sink Location.pp location pp_flow_kind flow_kind
   | UnnecessaryCopy
       { copied_into: PulseAttribute.CopiedInto.t
-      ; typ: Typ.t
+      ; source_typ: Typ.t option
       ; location: Location.t
       ; copied_location: (Procname.t * Location.t) option
       ; from: PulseAttribute.CopyOrigin.t } ->
       F.fprintf fmt
         "UnnecessaryCopy {@[copied_into=%a;@;typ=%a;@;location:%a;@;copied_location:%a@;from=%a@]}"
-        PulseAttribute.CopiedInto.pp copied_into (Typ.pp_full Pp.text) typ Location.pp location
+        PulseAttribute.CopiedInto.pp copied_into
+        (Pp.option (Typ.pp_full Pp.text))
+        source_typ Location.pp location
         (fun fmt -> function
           | None ->
               F.pp_print_string fmt "none"
@@ -220,6 +234,7 @@ let get_location = function
   | ErlangError (Badmap {location; calling_context= []})
   | ErlangError (Badmatch {location; calling_context= []})
   | ErlangError (Badrecord {location; calling_context= []})
+  | ErlangError (Badreturn {location; calling_context= []})
   | ErlangError (Case_clause {location; calling_context= []})
   | ErlangError (Function_clause {location; calling_context= []})
   | ErlangError (If_clause {location; calling_context= []})
@@ -231,6 +246,7 @@ let get_location = function
   | ErlangError (Badmap {calling_context= (_, location) :: _})
   | ErlangError (Badmatch {calling_context= (_, location) :: _})
   | ErlangError (Badrecord {calling_context= (_, location) :: _})
+  | ErlangError (Badreturn {calling_context= (_, location) :: _})
   | ErlangError (Case_clause {calling_context= (_, location) :: _})
   | ErlangError (Function_clause {calling_context= (_, location) :: _})
   | ErlangError (If_clause {calling_context= (_, location) :: _})
@@ -251,7 +267,9 @@ let get_location = function
 
 
 let get_copy_type = function
-  | UnnecessaryCopy {typ} | ConstRefableParameter {typ} ->
+  | UnnecessaryCopy {source_typ} ->
+      source_typ
+  | ConstRefableParameter {typ} ->
       Some typ
   | _ ->
       None
@@ -265,6 +283,7 @@ let aborts_execution = function
       | Badmap _
       | Badmatch _
       | Badrecord _
+      | Badreturn _
       | Case_clause _
       | Function_clause _
       | If_clause _
@@ -314,6 +333,10 @@ let pp_calling_context_prefix fmt calling_context =
         (List.last_exn calling_context |> fst)
         in_between_calls
         (if in_between_calls > 1 then "s" else "")
+
+
+let pp_typ fmt =
+  Option.iter ~f:(fun typ -> F.fprintf fmt " with type `%a`" (Typ.pp_full Pp.text) typ)
 
 
 let get_message diagnostic =
@@ -366,7 +389,7 @@ let get_message diagnostic =
               F.fprintf fmt
                 "%a is used as a %s when inserting into a collection%a, potentially causing a crash"
                 pp_prefix "nil"
-                ( match[@warning "-8"] must_be_valid_reason with
+                ( match[@warning "-partial-match"] must_be_valid_reason with
                 | Some InsertionIntoCollectionKey ->
                     "key"
                 | Some InsertionIntoCollectionValue ->
@@ -408,9 +431,9 @@ let get_message diagnostic =
         F.asprintf "%a%a%a" pp_calling_context_prefix calling_context pp_access_trace access_trace
           (pp_invalidation_trace invalidation_line invalidation)
           invalidation_trace )
-  | ConfigUsage {pname; config; location} ->
+  | ConfigUsage {pname; config; branch_location} ->
       F.asprintf "Function %a used config %a at %a." Procname.pp pname ConfigName.pp config
-        Location.pp location
+        Location.pp branch_location
   | ConstRefableParameter {param; typ; location} ->
       F.asprintf
         "Function parameter `%a` with type `%a` is passed by-value but not modified inside the \
@@ -444,6 +467,8 @@ let get_message diagnostic =
       F.asprintf "no match of RHS at %a" Location.pp location
   | ErlangError (Badrecord {calling_context= _; location}) ->
       F.asprintf "bad record at %a" Location.pp location
+  | ErlangError (Badreturn {calling_context= _; location}) ->
+      F.asprintf "dynamic type of returned value disagrees with spec at %a" Location.pp location
   | ErlangError (Case_clause {calling_context= _; location}) ->
       F.asprintf "no matching case clause at %a" Location.pp location
   | ErlangError (Function_clause {calling_context= _; location}) ->
@@ -552,20 +577,27 @@ let get_message diagnostic =
         else F.fprintf f "stack variable `%a`" Var.pp var
       in
       F.asprintf "Address of %a is returned by the function" pp_var variable
-  | TaintFlow {expr; source= source, _; sink= sink, _; flow_kind} ->
+  | TaintFlow {expr; source= source, _; sink= sink, _; flow_kind; policy_description} ->
       (* TODO: say what line the source happened in the current function *)
-      F.asprintf "`%a` is tainted by %a and flows to %a (%a)" DecompilerExpr.pp expr Taint.pp source
-        Taint.pp sink pp_flow_kind flow_kind
-  | UnnecessaryCopy {copied_into; typ; copied_location= Some (callee, {file; line})} ->
+      F.asprintf "`%a` is tainted by %a and flows to %a (%a) and policy (%s)" DecompilerExpr.pp expr
+        Taint.pp source Taint.pp sink pp_flow_kind flow_kind policy_description
+  | UnnecessaryCopy {copied_into; source_typ; copied_location= Some (callee, {file; line})} ->
       let open PulseAttribute in
       F.asprintf
-        "the return value `%a` with type `%a` is not modified after it is copied in the callee \
-         `%a` at `%a:%d`. Please check if we can avoid the copy, e.g. by changing the return type \
-         of `%a` or by revising the function body of it."
-        CopiedInto.pp copied_into (Typ.pp_full Pp.text) typ Procname.pp callee SourceFile.pp file
-        line Procname.pp callee
-  | UnnecessaryCopy {copied_into; typ; location; copied_location= None; from} -> (
+        "the return value `%a` is not modified after it is copied in the callee `%a`%a at `%a:%d`. \
+         Please check if we can avoid the copy, e.g. by changing the return type of `%a` or by \
+         revising the function body of it."
+        CopiedInto.pp copied_into Procname.pp callee pp_typ source_typ SourceFile.pp file line
+        Procname.pp callee
+  | UnnecessaryCopy {copied_into; source_typ; location; copied_location= None; from} -> (
       let open PulseAttribute in
+      let is_from_const = Option.exists ~f:Typ.is_const_reference source_typ in
+      let suggestion_msg_move =
+        if is_from_const then
+          "To avoid the copy, try 1) removing the `const &` from the source and 2) moving it by \
+           calling `std::move` instead"
+        else "To avoid the copy, try moving it by calling `std::move` instead"
+      in
       let suppression_msg =
         "If this copy was intentional, consider calling `folly::copy` to make it explicit and \
          hence suppress the warning"
@@ -573,35 +605,39 @@ let get_message diagnostic =
       let suggestion_msg =
         match (from : CopyOrigin.t) with
         | CopyCtor ->
-            "try using a reference `&`"
+            "To avoid the copy, try using a reference `&`"
         | CopyAssignment ->
-            "try getting a reference to it or move it if possible"
+            suggestion_msg_move
       in
       match copied_into with
+      | IntoIntermediate {source_opt= None} ->
+          F.asprintf "An intermediate%a is %a on %a. %s." pp_typ source_typ CopyOrigin.pp from
+            Location.pp_line location suggestion_msg_move
+      | IntoIntermediate {source_opt= Some source_expr} ->
+          F.asprintf "variable `%a`%a is %a unnecessarily into an intermediate on %a. %s."
+            DecompilerExpr.pp_source_expr source_expr pp_typ source_typ CopyOrigin.pp from
+            Location.pp_line location suggestion_msg_move
       | IntoVar {source_opt= None} ->
           F.asprintf
-            "%a variable `%a` with type `%a` is not modified after it is copied on %a. To avoid \
-             the copy, %s. %s."
-            CopyOrigin.pp from CopiedInto.pp copied_into (Typ.pp_full Pp.text) typ Location.pp_line
-            location suggestion_msg suppression_msg
+            "%a variable `%a` is not modified after it is copied from a source%a on %a. %s. %s."
+            CopyOrigin.pp from CopiedInto.pp copied_into pp_typ source_typ Location.pp_line location
+            suggestion_msg suppression_msg
       | IntoVar {source_opt= Some source_expr} ->
-          F.asprintf "variable `%a` with type `%a` is %a unnecessarily into an intermediate on %a."
-            DecompilerExpr.pp_source_expr source_expr (Typ.pp_full Pp.text) typ CopyOrigin.pp from
-            Location.pp_line location
+          F.asprintf
+            "%a variable `%a` is not modified after it is copied from `%a`%a on %a. %s. %s."
+            CopyOrigin.pp from CopiedInto.pp copied_into DecompilerExpr.pp_source_expr source_expr
+            pp_typ source_typ Location.pp_line location suggestion_msg suppression_msg
       | IntoField {field; source_opt} -> (
           let advice = "Rather than copying into the field, consider moving into it instead." in
           match source_opt with
           | Some source_expr ->
-              F.asprintf
-                "`%a` is an rvalue-ref that is %a into field `%a` with type `%a` but is not \
-                 modified afterwards. %s"
-                DecompilerExpr.pp source_expr CopyOrigin.pp from Fieldname.pp field
-                (Typ.pp_full Pp.text) typ advice
+              F.asprintf "`%a`%a is %a into field `%a` but is not modified afterwards. %s"
+                DecompilerExpr.pp source_expr pp_typ source_typ CopyOrigin.pp from Fieldname.pp
+                field advice
           | None ->
               F.asprintf
-                "Field `%a` is %a into from an rvalue-ref that is of type `%a` but is not modified \
-                 afterwards. %s"
-                Fieldname.pp field CopyOrigin.pp from (Typ.pp_full Pp.text) typ advice ) )
+                "Field `%a` is %a into from an rvalue-ref%a but is not modified afterwards. %s"
+                Fieldname.pp field CopyOrigin.pp from pp_typ source_typ advice ) )
 
 
 let add_errlog_header ~nesting ~title location errlog =
@@ -679,9 +715,12 @@ let get_trace = function
            ~include_title:(should_print_invalidation_trace || not (List.is_empty calling_context))
            ~nesting:in_context_nesting invalidation access_trace
       @@ []
-  | ConfigUsage {config; location} ->
-      let nesting = 0 in
-      [Errlog.make_trace_element nesting location (F.asprintf "Config %a" ConfigName.pp config) []]
+  | ConfigUsage {config; trace} ->
+      Trace.add_to_errlog ~nesting:0
+        ~pp_immediate:(fun fmt ->
+          F.fprintf fmt "config %a is used as branch condition here" ConfigName.pp config )
+        trace
+      @@ []
   | ConstRefableParameter {param; location} ->
       let nesting = 0 in
       [Errlog.make_trace_element nesting location (F.asprintf "Parameter %a" Var.pp param) []]
@@ -710,6 +749,9 @@ let get_trace = function
   | ErlangError (Badrecord {calling_context; location}) ->
       get_trace_calling_context calling_context
       @@ [Errlog.make_trace_element 0 location "bad record here" []]
+  | ErlangError (Badreturn {calling_context; location}) ->
+      get_trace_calling_context calling_context
+      @@ [Errlog.make_trace_element 0 location "bad return here" []]
   | ErlangError (Case_clause {calling_context; location}) ->
       get_trace_calling_context calling_context
       @@ [Errlog.make_trace_element 0 location "no matching case clause here" []]
@@ -807,6 +849,8 @@ let get_issue_type ~latent issue_type =
       IssueType.no_match_of_rhs ~latent
   | ErlangError (Badrecord _), _ ->
       IssueType.bad_record ~latent
+  | ErlangError (Badreturn _), _ ->
+      IssueType.bad_return ~latent
   | ErlangError (Case_clause _), _ ->
       IssueType.no_matching_case_clause ~latent
   | ErlangError (Function_clause _), _ ->
@@ -841,16 +885,24 @@ let get_issue_type ~latent issue_type =
       IssueType.sensitive_data_flow
   | UnnecessaryCopy {copied_location= Some _}, false ->
       IssueType.unnecessary_copy_return_pulse
-  | UnnecessaryCopy {copied_into= IntoField _; from= CopyAssignment}, false ->
+  | UnnecessaryCopy {copied_into= IntoField _; source_typ; from= CopyAssignment}, false
+    when Option.exists ~f:Typ.is_rvalue_reference source_typ ->
       IssueType.unnecessary_copy_assignment_movable_pulse
-  | UnnecessaryCopy {copied_into= IntoField _; from= CopyCtor}, false ->
+  | UnnecessaryCopy {copied_into= IntoField _; source_typ; from= CopyCtor}, false
+    when Option.exists ~f:Typ.is_rvalue_reference source_typ ->
       IssueType.unnecessary_copy_movable_pulse
-  | UnnecessaryCopy {copied_into= IntoVar {source_opt= None}; from= CopyCtor}, false ->
-      IssueType.unnecessary_copy_pulse
-  | UnnecessaryCopy {copied_into= IntoVar {source_opt= Some _}; from= CopyCtor}, false ->
+  | ( UnnecessaryCopy {copied_into= IntoField _ | IntoIntermediate _; source_typ; from= CopyCtor}
+    , false )
+    when Option.exists ~f:Typ.is_const_reference source_typ ->
+      IssueType.unnecessary_copy_intermediate_const_pulse
+  | UnnecessaryCopy {copied_into= IntoField _ | IntoIntermediate _; from= CopyCtor}, false ->
       IssueType.unnecessary_copy_intermediate_pulse
-  | UnnecessaryCopy {from= CopyAssignment}, false ->
-      IssueType.unnecessary_copy_assignment_pulse
+  | UnnecessaryCopy {copied_into= IntoVar _; from= CopyCtor}, false ->
+      IssueType.unnecessary_copy_pulse
+  | UnnecessaryCopy {from= CopyAssignment; source_typ}, false ->
+      if Option.exists ~f:Typ.is_const_reference source_typ then
+        IssueType.unnecessary_copy_assignment_const_pulse
+      else IssueType.unnecessary_copy_assignment_pulse
   | ( ( ConfigUsage _
       | ConstRefableParameter _
       | CSharpResourceLeak _

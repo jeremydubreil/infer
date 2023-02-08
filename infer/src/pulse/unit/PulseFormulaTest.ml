@@ -45,7 +45,7 @@ let of_binop bop f1 f2 phi =
 
 
 (* the following are shorthand notations that are generally useful to keep around *)
-[@@@warning "-32"]
+[@@@warning "-unused-value-declaration"]
 
 let instanceof typ x_var y_var phi =
   let+ phi, _new_eqs = and_equal_instanceof y_var x_var typ phi in
@@ -113,7 +113,7 @@ let ( >= ) f1 f2 phi = ( <= ) f2 f1 phi
 
 let ( && ) f1 f2 phi = f1 phi >>= f2
 
-[@@@warning "+32"]
+[@@@warning "+unused-value-declaration"]
 (* end of shorthand notations *)
 
 (* we remember a mapping [Var.t -> string] to print more readable results that mention the
@@ -453,7 +453,7 @@ let%test_module "conjunctive normal form" =
         {|
           conditions: (empty)
           phi: var_eqs: a10=a8=a6=a4=a2=x ∧ a9=a7=a5=a3=a1 ∧ v6=v7=v8
-               && linear_eqs: a11 = a12 -1 ∧ a10 = a11 +1 ∧ a9 = a10 -1 ∧ a7 = a10 -1 ∧ v6 = 1
+               && linear_eqs: a11 = a12 -1 ∧ a10 = a11 +1 ∧ a9 = a10 -1 ∧ v6 = 1
                && term_eqs: 1=v6∧[a10 -1]=a9∧[a12 -1]=a11∧[a11 +1]=a10∧(0<[a10])=v6∧(0≤[a10])=v6
                && intervals: v6≠0|}]
   end )

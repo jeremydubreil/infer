@@ -41,6 +41,7 @@ module ErlangError : sig
     | Badmap of {calling_context: calling_context; location: Location.t}
     | Badmatch of {calling_context: calling_context; location: Location.t}
     | Badrecord of {calling_context: calling_context; location: Location.t}
+    | Badreturn of {calling_context: calling_context; location: Location.t}
     | Case_clause of {calling_context: calling_context; location: Location.t}
     | Function_clause of {calling_context: calling_context; location: Location.t}
     | If_clause of {calling_context: calling_context; location: Location.t}
@@ -62,7 +63,12 @@ type flow_kind = TaintedFlow | FlowToSink | FlowFromSource [@@deriving equal]
 (** an error to report to the user *)
 type t =
   | AccessToInvalidAddress of access_to_invalid_address
-  | ConfigUsage of {pname: Procname.t; config: ConfigName.t; location: Location.t}
+  | ConfigUsage of
+      { pname: Procname.t
+      ; config: ConfigName.t
+      ; branch_location: Location.t
+      ; location: Location.t
+      ; trace: Trace.t }
   | ConstRefableParameter of {param: Var.t; typ: Typ.t; location: Location.t}
   | CSharpResourceLeak of
       {class_name: CSharpClassName.t; allocation_trace: Trace.t; location: Location.t}
@@ -84,10 +90,12 @@ type t =
       ; source: Taint.t * ValueHistory.t
       ; sink: Taint.t * Trace.t
       ; location: Location.t
-      ; flow_kind: flow_kind }
+      ; flow_kind: flow_kind
+      ; policy_description: string
+      ; policy_privacy_effect: string option }
   | UnnecessaryCopy of
       { copied_into: PulseAttribute.CopiedInto.t
-      ; typ: Typ.t
+      ; source_typ: Typ.t option
       ; location: Location.t (* the location to report the issue *)
       ; copied_location: (Procname.t * Location.t) option
             (* [copied_location] has a value when the copied location is different to where to

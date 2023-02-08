@@ -66,7 +66,7 @@ let create_json_bug ~qualifier ~line ~file ~source_file ~trace ~(item : Jsoncost
   ; procedure= item.procedure_id
   ; procedure_start_line= line
   ; file
-  ; bug_trace= JsonReports.loc_trace_to_jsonbug_record trace Advice
+  ; bug_trace= JsonReports.loc_trace_to_jsonbug_record trace
   ; key= ""
   ; node_key= None
   ; hash= item.hash
@@ -256,7 +256,7 @@ module Cost = struct
     let file = cost_info.Jsoncost_t.loc.file in
     let method_name = cost_info.Jsoncost_t.procedure_name in
     let is_on_ui_thread = cost_info.Jsoncost_t.is_on_ui_thread in
-    let source_file = SourceFile.create ~warn_on_error:false file in
+    let source_file = SourceFile.create ~check_abs_path:false file in
     let issue_type =
       if CostItem.is_top curr_item then infinite_issue
       else if CostItem.is_unreachable curr_item then unreachable_issue
@@ -442,7 +442,7 @@ module ConfigImpactItem = struct
     if should_report then
       let qualifier, trace = get_qualifier_trace ~change_type callees in
       let file = config_impact_item.loc.file in
-      let source_file = SourceFile.create ~warn_on_error:false file in
+      let source_file = SourceFile.create ~check_abs_path:false file in
       let line = config_impact_item.loc.lnum in
       let convert Jsonconfigimpact_t.{hash; loc; procedure_name; procedure_id} : Jsoncost_t.sub_item
           =

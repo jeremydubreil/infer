@@ -49,6 +49,7 @@ type global_state =
   ; pulse_address_generator: PulseAbstractValue.State.t
   ; absint_state: AnalysisState.t
   ; biabduction_state: State.t
+  ; current_procname: Procname.t option
   ; taskbar_nesting: int
   ; checker_timer_state: Timer.state }
 
@@ -68,6 +69,7 @@ let save_global_state () =
   ; pulse_address_generator= PulseAbstractValue.State.get ()
   ; absint_state= AnalysisState.save ()
   ; biabduction_state= State.save_state ()
+  ; current_procname= Tenv.Deps.get_current_proc ()
   ; taskbar_nesting= !nesting
   ; checker_timer_state= Timer.suspend () }
 
@@ -82,6 +84,7 @@ let restore_global_state st =
   Ident.NameGenerator.set_current st.name_generator ;
   PulseAbstractValue.State.set st.pulse_address_generator ;
   AnalysisState.restore st.absint_state ;
+  Tenv.Deps.set_current_proc st.current_procname ;
   State.restore_state st.biabduction_state ;
   current_taskbar_status :=
     Option.map st.proc_analysis_time ~f:(fun (suspended_span, status) ->
@@ -128,12 +131,13 @@ let analyze exe_env callee_summary =
 
 let run_proc_analysis exe_env ~caller_pdesc callee_pdesc =
   let callee_pname = Procdesc.get_proc_name callee_pdesc in
+  Tenv.Deps.set_current_proc (Some callee_pname) ;
   let callee_attributes = Procdesc.get_attributes callee_pdesc in
   let log_elapsed_time =
     let start_time = Mtime_clock.counter () in
     fun () ->
       let elapsed = Mtime_clock.count start_time in
-      let duration = Mtime.Span.to_ms elapsed |> Float.to_int in
+      let duration = IMtime.span_to_ms_int elapsed in
       Stats.add_proc_duration (Procname.to_string callee_pname) duration ;
       L.(debug Analysis Medium)
         "Elapsed analysis time: %a: %a@\n" Procname.pp callee_pname Mtime.Span.pp elapsed
@@ -263,10 +267,8 @@ let dump_duplicate_procs source_file procs =
 
 
 let register_callee ?caller_summary callee_pname =
-  Option.iter
-    ~f:(fun (summary : Summary.t) ->
-      summary.callee_pnames <- Procname.Set.add callee_pname summary.callee_pnames )
-    caller_summary
+  Option.iter caller_summary
+    ~f:Summary.(fun {dependencies} -> Deps.add_exn dependencies callee_pname)
 
 
 let get_proc_desc callee_pname =
@@ -289,7 +291,7 @@ let analyze_callee exe_env ~lazy_payloads ?caller_summary callee_pname =
                let callee_summary =
                  protect
                    ~f:(fun () ->
-                     Timer.protect
+                     Timer.time Preanalysis
                        ~f:(fun () ->
                          Some
                            (run_proc_analysis exe_env

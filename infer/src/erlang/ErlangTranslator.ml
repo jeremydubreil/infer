@@ -63,8 +63,8 @@ let update_location (loc : Ast.location) (env : (_, _) Env.t) =
 
 
 let update_path (path : string) (env : (_, _) Env.t) =
-  (* Ignore if we don't find the source for OTP related files. *)
-  let file = SourceFile.create path ~warn_on_error:(not env.is_otp) in
+  (* Ignore if we don't find the source for OTP related files or any absolute paths. *)
+  let file = SourceFile.create path ~check_abs_path:false ~check_rel_path:(not env.is_otp) in
   let location = {env.location with file} in
   {env with location}
 
@@ -482,6 +482,7 @@ and translate_guard_expression (env : (_, _) Env.t) (expression : Ast.expression
     =
   let id, guard_block = translate_expression_to_fresh_id env expression in
   (* If we'd like to catch "silent" errors later, we might do it here *)
+  let env = update_location expression.location env in
   let unboxed, unbox_block = unbox_bool env (Exp.Var id) in
   (unboxed, Block.all env [guard_block; unbox_block])
 
@@ -551,14 +552,8 @@ and translate_expression env {Ast.location; simple_expression} =
         Block.make_load env ret_var (Exp.Closure {name; captured_vars= []}) any_typ
     | If clauses ->
         translate_expression_if env clauses
-    | Lambda {name= None; cases; procname; captured} -> (
-      match captured with
-      | Some captured ->
-          translate_expression_lambda env ret_var cases procname captured
-      | None ->
-          L.die InternalError
-            "Captured variables are missing for lambda. The scoping preprocessing step might be \
-             missing." )
+    | Lambda {name; cases; procname; captured} ->
+        translate_expression_lambda env ret_var name cases procname captured
     | ListComprehension {expression; qualifiers} ->
         translate_expression_listcomprehension env ret_var expression qualifiers
     | Literal (Atom atom) ->
@@ -809,7 +804,8 @@ and translate_expression_if env clauses : Block.t =
   {blocks with exit_failure= crash_node}
 
 
-and translate_expression_lambda (env : (_, _) Env.t) ret_var cases procname_opt captured : Block.t =
+and translate_expression_lambda (env : (_, _) Env.t) ret_var lambda_name cases procname_opt
+    captured_opt : Block.t =
   let arity =
     match cases with
     | c :: _ ->
@@ -822,7 +818,17 @@ and translate_expression_lambda (env : (_, _) Env.t) ret_var cases procname_opt 
     | Some name ->
         name
     | None ->
-        L.die InternalError "Procname not found for lambda, probably missing annotation."
+        L.die InternalError
+          "Procname not found for lambda. The scoping preprocessing step might be missing."
+  in
+  let captured =
+    match captured_opt with
+    | Some captured ->
+        captured
+    | None ->
+        L.die InternalError
+          "Captured variables are missing for lambda. The scoping preprocessing step might be \
+           missing."
   in
   let captured_vars = Pvar.Set.elements captured in
   let attributes =
@@ -847,16 +853,36 @@ and translate_expression_lambda (env : (_, _) Env.t) ret_var cases procname_opt 
     ; result= Env.Present (Exp.Lvar (Pvar.get_ret_pvar name)) }
   in
   let () = translate_function_clauses sub_env procdesc attributes name cases None in
-  let load_block, closure =
+  let make_closure_with_capture (env : (_, _) Env.t) =
     let mk_capt_var (var : Pvar.t) =
       let id = mk_fresh_id () in
       let instr = Sil.Load {id; e= Exp.Lvar var; typ= any_typ; loc= env.location} in
       (instr, (Exp.Var id, var, any_typ, CapturedVar.ByValue))
     in
     let instrs, captured_vars = List.unzip (List.map ~f:mk_capt_var captured_vars) in
-    (Block.make_instruction env instrs, Exp.Closure {name; captured_vars})
+    (instrs, Exp.Closure {name; captured_vars})
   in
-  Block.all env [load_block; Block.make_load env ret_var closure any_typ]
+  let () =
+    match lambda_name with
+    | Some vname ->
+        (* Named lambdas can refer to themselves, so in the beginning of the lambda's
+           procedure, we create a closure from the lambda's procname and bind it to
+           the variable with the lambda's name. *)
+        let captures, closure = make_closure_with_capture sub_env in
+        let bind_closure : Sil.instr =
+          let lambda_var = Exp.Lvar (Pvar.mk (Mangled.from_string vname) name) in
+          Store {e1= lambda_var; typ= any_typ; e2= closure; loc= sub_env.location}
+        in
+        let node = Node.make_stmt sub_env (captures @ [bind_closure]) in
+        node |~~> Procdesc.Node.get_succs (Procdesc.get_start_node procdesc) ;
+        Procdesc.get_start_node procdesc |~~> [node]
+    | None ->
+        ()
+  in
+  (* Make a closure that can be the result of the current expression. *)
+  let captures, closure = make_closure_with_capture env in
+  let capture_block = Block.make_instruction env captures in
+  Block.all env [capture_block; Block.make_load env ret_var closure any_typ]
 
 
 and translate_expression_listcomprehension (env : (_, _) Env.t) ret_var expression qualifiers :
@@ -1035,6 +1061,10 @@ and translate_expression_match (env : (_, _) Env.t) ret_var pattern body : Block
   let crash_node = Node.make_fail env BuiltinDecl.__erlang_error_badmatch in
   pattern_block.exit_failure |~~> [crash_node] ;
   let pattern_block = {pattern_block with exit_failure= crash_node} in
+  (* Note that for an expression X = Y, this causes X to be returned. This is because
+     in lineage, for Z = (X = Y) we wanted flows to be Y -> X and X -> Y instead of
+     Y -> X and Y -> Z. But if X is some data structure (e.g. a tuple) this causes
+     an extra construction step and doesn't seem to align with compiler: T136864730 *)
   let store_return_block = translate_expression_to_id env ret_var pattern in
   Block.all env [body_block; pattern_block; store_return_block]
 
@@ -1273,7 +1303,8 @@ and translate_body (env : (_, _) Env.t) body : Block.t =
     values on which patterns should be matched have been loaded into the identifiers listed in
     [values]. *)
 and translate_case_clause (env : (_, _) Env.t) (values : Ident.t list)
-    {Ast.location= _; patterns; guards; body} : Block.t =
+    {Ast.location; patterns; guards; body} : Block.t =
+  let env = update_location location env in
   let f (one_value, one_pattern) = translate_pattern env one_value one_pattern in
   let matchers = List.map ~f (List.zip_exn values patterns) in
   let guard_block = translate_guard_sequence env guards in
@@ -1300,32 +1331,40 @@ and translate_function_clauses (env : (_, _) Env.t) procdesc (attributes : ProcA
       let load = Sil.Load {id; e= Exp.Lvar pvar; typ; loc= attributes.loc} in
       (id, load)
     in
-    List.unzip (List.map ~f:load attributes.formals)
+    let idents, load_instructions = List.unzip (List.map ~f:load attributes.formals) in
+    (idents, Block.make_instruction env ~kind:ErlangCaseClause load_instructions)
   in
   (* Translate each clause using the idents we load into. *)
-  let ({start; exit_success; exit_failure} : Block.t) =
-    let blocks = List.map ~f:(translate_case_clause env idents) clauses in
-    Block.any env blocks
+  let clauses_blocks =
+    let match_cases = List.map ~f:(translate_case_clause env idents) clauses in
+    let no_match_case = Block.make_fail env BuiltinDecl.__erlang_error_function_clause in
+    Block.any env (match_cases @ [no_match_case])
   in
-  let () =
-    (* Put the loading node before the translated clauses or the specs (if any). *)
-    let loads_node = Node.make_stmt env ~kind:ErlangCaseClause loads in
-    Procdesc.get_start_node procdesc |~~> [loads_node] ;
+  let maybe_prune_args =
     match spec with
     | Some spec ->
-        let prune_block = ErlangTypes.prune_spec_args env idents spec in
-        loads_node |~~> [prune_block.start] ;
-        prune_block.exit_success |~~> [start]
+        Block.any env [ErlangTypes.prune_spec_args env idents spec; Block.make_stuck env]
     | None ->
-        loads_node |~~> [start]
+        Block.make_success env
   in
-  let () =
-    (* Finally, if all patterns fail, report error. *)
-    let crash_node = Node.make_fail env BuiltinDecl.__erlang_error_function_clause in
-    exit_failure |~~> [crash_node] ;
-    crash_node |~~> [Procdesc.get_exit_node procdesc]
+  let maybe_prune_ret =
+    match spec with
+    | Some spec when Config.erlang_check_return ->
+        let id = mk_fresh_id () in
+        let load =
+          let (Env.Present ret) = env.result in
+          Block.make_instruction env [Sil.Load {id; e= ret; typ= any_typ; loc= env.location}]
+        in
+        let prune_ret = ErlangTypes.prune_spec_return env id spec in
+        let bad_ret_type = Block.make_fail env BuiltinDecl.__erlang_error_badreturn in
+        Block.all env [load; Block.any env [prune_ret; bad_ret_type]]
+    | _ ->
+        Block.make_success env
   in
-  exit_success |~~> [Procdesc.get_exit_node procdesc]
+  let body = Block.all env [loads; maybe_prune_args; clauses_blocks; maybe_prune_ret] in
+  Procdesc.get_start_node procdesc |~~> [body.start] ;
+  body.exit_success |~~> [Procdesc.get_exit_node procdesc] ;
+  body.exit_failure |~~> [Procdesc.get_exit_node procdesc]
 
 
 let mk_procdesc (env : (_, _) Env.t) attributes =
@@ -1410,7 +1449,9 @@ let translate_one_spec (env : (_, _) Env.t) function_ spec =
     let body =
       let ret_id = mk_fresh_id () in
       let store_instr = Sil.Store {e1= ret_var; typ= any_typ; e2= Var ret_id; loc= env.location} in
-      let prune_block = ErlangTypes.prune_spec_return env ret_id spec in
+      let prune_block =
+        Block.any env [ErlangTypes.prune_spec_return env ret_id spec; Block.make_stuck env]
+      in
       let store_block = Block.make_instruction env [store_instr] in
       Block.all env [prune_block; store_block]
     in
@@ -1420,7 +1461,7 @@ let translate_one_spec (env : (_, _) Env.t) function_ spec =
 
 
 (** Translate forms of a module. *)
-let translate_module (env : (_, _) Env.t) module_ =
+let translate_module (env : (_, _) Env.t) module_ base_dir =
   let f env {Ast.location; simple_form} =
     let sub_env = update_location location env in
     match simple_form with
@@ -1434,6 +1475,7 @@ let translate_module (env : (_, _) Env.t) module_ =
         translate_one_spec sub_env function_ spec ;
         env
     | File {path} ->
+        let path = match base_dir with Some dir -> Filename.concat dir path | None -> path in
         update_path path env
     | _ ->
         env

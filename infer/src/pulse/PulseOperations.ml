@@ -487,6 +487,33 @@ let shallow_copy ({PathContext.timestamp} as path) location addr_hist astate =
   , copy )
 
 
+let rec deep_copy ?depth_max ({PathContext.timestamp} as path) location addr_hist astate =
+  match depth_max with
+  | Some 0 ->
+      shallow_copy path location addr_hist astate
+  | _ -> (
+      let depth_max = Option.map ~f:(fun n -> n - 1) depth_max in
+      let* astate = check_addr_access path Read location addr_hist astate in
+      let cell_opt = AbductiveDomain.find_post_cell_opt (fst addr_hist) astate in
+      let copy =
+        (AbstractValue.mk_fresh (), ValueHistory.singleton (Assignment (location, timestamp)))
+      in
+      match cell_opt with
+      | None ->
+          Ok (astate, copy)
+      | Some (edges, attributes) ->
+          let+ astate, edges =
+            BaseMemory.Edges.fold edges
+              ~init:(Ok (astate, BaseMemory.Edges.empty))
+              ~f:(fun astate_edges (access, addr_hist) ->
+                let* astate, edges = astate_edges in
+                let+ astate, addr_hist = deep_copy ?depth_max path location addr_hist astate in
+                let edges = BaseMemory.Edges.add access addr_hist edges in
+                (astate, edges) )
+          in
+          (AbductiveDomain.set_post_cell path copy (edges, attributes) location astate, copy) )
+
+
 let check_address_escape escape_location proc_desc address history astate =
   let is_assigned_to_global address astate =
     let points_to_address pointer address astate =
@@ -735,3 +762,27 @@ let get_captured_actuals procname path location ~captured_formals ~call_kind ~ac
            get_var_captured_actuals path location ~captured_formals ~actual_closure astate )
     | _ ->
         Sat (Ok (astate, []))
+
+
+let check_used_as_branch_cond (addr, hist) ~pname_using_config ~branch_location ~location trace
+    astate =
+  let report_config_usage config =
+    let diagnostic =
+      Diagnostic.ConfigUsage {pname= pname_using_config; config; branch_location; location; trace}
+    in
+    Recoverable (astate, [ReportableError {astate; diagnostic}])
+  in
+  match AddressAttributes.get_config_usage addr astate with
+  | None ->
+      Ok
+        (AddressAttributes.abduce_attribute addr
+           (UsedAsBranchCond (pname_using_config, branch_location, trace))
+           astate )
+  | Some (ConfigName config) ->
+      if FbPulseConfigName.has_config_read hist then report_config_usage config else Ok astate
+  | Some (StringParam {v; config_type}) -> (
+    match AddressAttributes.get_const_string v astate with
+    | None ->
+        Ok astate
+    | Some s ->
+        report_config_usage (FbPulseConfigName.of_string ~config_type s) )

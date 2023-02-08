@@ -243,6 +243,18 @@ val shallow_copy :
   -> (t * (AbstractValue.t * ValueHistory.t)) AccessResult.t
 (** returns the address of a new cell with the same edges as the original *)
 
+val deep_copy :
+     ?depth_max:int
+  -> PathContext.t
+  -> Location.t
+  -> AbstractValue.t * ValueHistory.t
+  -> t
+  -> (t * (AbstractValue.t * ValueHistory.t)) AccessResult.t
+(** returns the address of a new cell with the copied edges from the original. The content is deeply
+    copied up until [max_depth] edges deep in memory. The deepest copied value is then shallow
+    copied. If no [max_depth] is specified, then there is no shallow copy and everything is deeply
+    copied until there is no more edge to follow *)
+
 val get_dynamic_type_unreachable_values : Var.t list -> t -> (Var.t * Typ.t) list
 (** Given a list of variables, computes the unreachable values if the variables were removed from
     the stack, then return the dynamic types of those values if they are available *)
@@ -266,3 +278,14 @@ val get_captured_actuals :
   -> actuals:((AbstractValue.t * ValueHistory.t) * Typ.t) list
   -> t
   -> (t * ((AbstractValue.t * ValueHistory.t) * Typ.t) list) AccessResult.t SatUnsat.t
+
+val check_used_as_branch_cond :
+     AbstractValue.t * ValueHistory.t
+  -> pname_using_config:Procname.t
+  -> branch_location:Location.t
+  -> location:Location.t
+  -> Trace.t
+  -> AbductiveDomain.t
+  -> AbductiveDomain.t AccessResult.t
+(** Check and report config usage issue on the abstract value that is used as branch condition. If
+    it is not certain that tha abstract value is a config, it adds [UsedAsBranchCond] attribute. *)

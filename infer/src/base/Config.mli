@@ -195,7 +195,7 @@ val buck_cache_mode : bool
 
 val buck_clang_use_toolchain_config : bool
 
-val buck_java_flavor_dependency_depth : int option
+val buck_dependency_depth : int option
 
 val buck_java_flavor_suppress_config : bool
 
@@ -209,6 +209,8 @@ val buck_out : string
 
 val buck_out_gen : string
 
+val buck2_root : string
+
 val buck_targets_block_list : string list
 
 val capture : bool
@@ -217,7 +219,9 @@ val capture_block_list : string option
 
 val capture_textual : string list
 
-val capture_doli : string option
+val capture_doli : string list
+
+val parse_doli : string option
 
 val censor_report : ((bool * Str.regexp) * (bool * Str.regexp) * string) list
 
@@ -340,6 +344,8 @@ val eradicate_return_over_annotated : bool
 val eradicate_verbose : bool
 
 val erlang_ast_dir : string option
+
+val erlang_check_return : bool
 
 val erlang_skip_compile : bool
 
@@ -620,6 +626,8 @@ val pulse_widen_threshold : int
 
 val pulse_nullsafe_report_npe : bool
 
+val pulse_log_summary_count : bool
+
 val pure_by_default : bool
 
 val quandary_endpoints : Yojson.Basic.t
@@ -696,7 +704,11 @@ val shrink_analysis_db : bool
 
 val simple_lineage_include_builtins : bool
 
-val simple_lineage_model_fields : bool
+val simple_lineage_field_depth : int
+
+val simple_lineage_prevent_cycles : bool
+
+val simple_lineage_field_width : int option
 
 val simple_lineage_json_report : bool
 
@@ -762,7 +774,7 @@ val subtype_multirange : bool
 
 val suffix_match_changed_files : bool
 
-val summaries_caches_max_size : int [@@warning "-32"]
+val summaries_caches_max_size : int [@@warning "-unused-value-declaration"]
 
 val suppress_lint_ignore_types : bool
 

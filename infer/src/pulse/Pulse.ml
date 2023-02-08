@@ -27,31 +27,41 @@ let report_topl_errors proc_desc err_log summary =
   List.iter ~f summary
 
 
+let is_not_implicit_or_copy_ctor_assignment pname =
+  not
+    (Option.exists (IRAttributes.load pname) ~f:(fun attrs ->
+         attrs.ProcAttributes.is_cpp_implicit || attrs.ProcAttributes.is_cpp_copy_ctor
+         || attrs.ProcAttributes.is_cpp_copy_assignment ) )
+
+
 let report_unnecessary_copies proc_desc err_log non_disj_astate =
-  PulseNonDisjunctiveDomain.get_copied non_disj_astate
-  |> List.iter ~f:(fun (copied_into, typ, location, copied_location, from) ->
-         let copy_name = Format.asprintf "%a" Attribute.CopiedInto.pp copied_into in
-         let diagnostic =
-           Diagnostic.UnnecessaryCopy {copied_into; typ; location; copied_location; from}
-         in
-         PulseReport.report
-           ~is_suppressed:(PulseNonDisjunctiveOperations.has_copy_in copy_name)
-           ~latent:false proc_desc err_log diagnostic )
+  let pname = Procdesc.get_proc_name proc_desc in
+  if is_not_implicit_or_copy_ctor_assignment pname then
+    PulseNonDisjunctiveDomain.get_copied non_disj_astate
+    |> List.iter ~f:(fun (copied_into, source_typ, location, copied_location, from) ->
+           let copy_name = Format.asprintf "%a" Attribute.CopiedInto.pp copied_into in
+           let is_suppressed = PulseNonDisjunctiveOperations.has_copy_in copy_name in
+           let diagnostic =
+             Diagnostic.UnnecessaryCopy {copied_into; source_typ; location; copied_location; from}
+           in
+           PulseReport.report ~is_suppressed ~latent:false proc_desc err_log diagnostic )
 
 
 let report_unnecessary_parameter_copies proc_desc err_log non_disj_astate =
-  PulseNonDisjunctiveDomain.get_const_refable_parameters non_disj_astate
-  |> List.iter ~f:(fun (param, typ, location) ->
-         let diagnostic =
-           if Typ.is_shared_pointer typ then
-             if NonDisjDomain.is_lifetime_extended param non_disj_astate then None
-             else
-               let used_locations = NonDisjDomain.get_loaded_locations param non_disj_astate in
-               Some (Diagnostic.ReadonlySharedPtrParameter {param; typ; location; used_locations})
-           else Some (Diagnostic.ConstRefableParameter {param; typ; location})
-         in
-         Option.iter diagnostic ~f:(fun diagnostic ->
-             PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic ) )
+  let pname = Procdesc.get_proc_name proc_desc in
+  if is_not_implicit_or_copy_ctor_assignment pname then
+    PulseNonDisjunctiveDomain.get_const_refable_parameters non_disj_astate
+    |> List.iter ~f:(fun (param, typ, location) ->
+           let diagnostic =
+             if Typ.is_shared_pointer typ then
+               if NonDisjDomain.is_lifetime_extended param non_disj_astate then None
+               else
+                 let used_locations = NonDisjDomain.get_loaded_locations param non_disj_astate in
+                 Some (Diagnostic.ReadonlySharedPtrParameter {param; typ; location; used_locations})
+             else Some (Diagnostic.ConstRefableParameter {param; typ; location})
+           in
+           Option.iter diagnostic ~f:(fun diagnostic ->
+               PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log diagnostic ) )
 
 
 let heap_size () = (Gc.quick_stat ()).heap_words
@@ -355,6 +365,11 @@ module PulseTransferFunctions = struct
             proc_name )
 
 
+  type model_search_result =
+    | DoliModel of Procname.t
+    | OcamlModel of (PulseModelsImport.model * Procname.t)
+    | NoModel
+
   let rec dispatch_call_eval_args
       ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) path ret call_exp
       actuals func_args call_loc flags astate callee_pname =
@@ -370,20 +385,34 @@ module PulseTransferFunctions = struct
       | _, _ ->
           astate
     in
+    let astate =
+      List.fold func_args ~init:astate
+        ~f:(fun acc {ProcnameDispatcher.Call.FuncArg.arg_payload= arg, _; exp} ->
+          match exp with
+          | Cast (typ, _) when Typ.is_rvalue_reference typ ->
+              AddressAttributes.add_one arg StdMoved acc
+          | _ ->
+              acc )
+    in
     let model =
       match callee_pname with
-      | Some callee_pname ->
-          PulseModels.dispatch tenv callee_pname func_args
-          |> Option.map ~f:(fun model -> (model, callee_pname))
+      | Some callee_pname -> (
+        match DoliToTextual.matcher callee_pname with
+        | Some procname ->
+            DoliModel procname
+        | None ->
+            PulseModels.dispatch tenv callee_pname func_args
+            |> Option.value_map ~default:NoModel ~f:(fun model -> OcamlModel (model, callee_pname))
+        )
       | None ->
           (* unresolved function pointer, etc.: skip *)
-          None
+          NoModel
     in
     (* do interprocedural call then destroy objects going out of scope *)
     let exec_states_res, call_was_unknown =
       match model with
-      | Some (model, callee_procname) ->
-          L.d_printfln "Found model for call@\n" ;
+      | OcamlModel (model, callee_procname) ->
+          L.d_printfln "Found ocaml model for call@\n" ;
           let astate =
             let arg_values =
               List.map func_args ~f:(fun {ProcnameDispatcher.Call.FuncArg.arg_payload= value, _} ->
@@ -400,7 +429,16 @@ module PulseTransferFunctions = struct
               ; ret }
               astate
           , `KnownCall )
-      | None ->
+      | DoliModel callee_pname ->
+          L.d_printfln "Found doli model %a for call@\n" Procname.pp callee_pname ;
+          PerfEvent.(log (fun logger -> log_begin_event logger ~name:"pulse interproc call" ())) ;
+          let r =
+            interprocedural_call analysis_data path ret (Some callee_pname) call_exp func_args
+              call_loc flags astate
+          in
+          PerfEvent.(log (fun logger -> log_end_event logger ())) ;
+          r
+      | NoModel ->
           PerfEvent.(log (fun logger -> log_begin_event logger ~name:"pulse interproc call" ())) ;
           let r =
             interprocedural_call analysis_data path ret callee_pname call_exp func_args call_loc
@@ -677,20 +715,58 @@ module PulseTransferFunctions = struct
     | (Const (Cfun proc_name) | Closure {name= proc_name}), (Exp.Lvar pvar, _) :: _
       when Procname.is_destructor proc_name ->
         let var = Var.of_pvar pvar in
-        PulseNonDisjunctiveOperations.mark_modified_copies_and_parameters_with [var] ~astate
+        PulseNonDisjunctiveOperations.mark_modified_copies_and_parameters_on_abductive [var] astate
           astate_n
         |> NonDisjDomain.checked_via_dtor var
     | _ ->
         astate_n
 
 
-  let check_config_usage {InterproceduralAnalysis.proc_desc; err_log} loc exp astate =
+  let check_config_usage {InterproceduralAnalysis.proc_desc} loc exp astate =
     let pname = Procdesc.get_proc_name proc_desc in
-    Sequence.iter (Exp.free_vars exp) ~f:(fun var ->
-        Option.iter (PulseOperations.read_id var astate) ~f:(fun (addr, _) ->
-            Option.iter (AddressAttributes.get_config_usage addr astate) ~f:(fun config ->
-                PulseReport.report ~is_suppressed:false ~latent:false proc_desc err_log
-                  (ConfigUsage {pname; config; location= loc}) ) ) )
+    let trace = Trace.Immediate {location= loc; history= ValueHistory.epoch} in
+    Sequence.fold (Exp.free_vars exp) ~init:(Ok astate) ~f:(fun acc var ->
+        Option.value_map (PulseOperations.read_id var astate) ~default:acc ~f:(fun addr_hist ->
+            let* acc in
+            PulseOperations.check_used_as_branch_cond addr_hist ~pname_using_config:pname
+              ~branch_location:loc ~location:loc trace acc ) )
+
+
+  let set_global_astates path ({InterproceduralAnalysis.proc_desc} as analysis_data) exp typ loc
+      astate =
+    let is_global_constant pvar =
+      Pvar.(is_global pvar && (is_const pvar || is_compile_constant pvar))
+    in
+    let is_global_func_pointer pvar =
+      Pvar.is_global pvar && Typ.is_pointer_to_function typ
+      && Config.pulse_inline_global_init_func_pointer
+    in
+    match (exp : Exp.t) with
+    | Lvar pvar when is_global_constant pvar || is_global_func_pointer pvar -> (
+      (* Inline initializers of global constants or globals function pointers when they are being used.
+         This addresses nullptr false positives by pruning infeasable paths global_var != global_constant_value,
+         where global_constant_value is the value of global_var *)
+      (* TODO: Initial global constants only once *)
+      match Pvar.get_initializer_pname pvar with
+      | Some init_pname when not (Procname.equal (Procdesc.get_proc_name proc_desc) init_pname) ->
+          L.d_printfln_escaped "Found initializer for %a" (Pvar.pp Pp.text) pvar ;
+          let call_flags = CallFlags.default in
+          let ret_id_void = (Ident.create_fresh Ident.knormal, StdTyp.void) in
+          let no_error_states =
+            dispatch_call analysis_data path ret_id_void (Const (Cfun init_pname)) [] loc call_flags
+              astate
+            |> List.filter_map ~f:(function
+                 | Ok (ContinueProgram astate) ->
+                     Some astate
+                 | _ ->
+                     (* ignore errors in global initializers *)
+                     None )
+          in
+          if List.is_empty no_error_states then [astate] else no_error_states
+      | _ ->
+          [astate] )
+    | _ ->
+        [astate]
 
 
   let exec_instr_aux ({PathContext.timestamp} as path) (astate : ExecutionDomain.t)
@@ -717,49 +793,15 @@ module PulseTransferFunctions = struct
             |> SatUnsat.to_list
             |> PulseReport.report_results tenv proc_desc err_log loc
           in
-          let set_global_astates =
-            let is_global_constant pvar =
-              Pvar.(is_global pvar && (is_const pvar || is_compile_constant pvar))
-            in
-            let is_global_func_pointer pvar =
-              Pvar.is_global pvar && Typ.is_pointer_to_function typ
-              && Config.pulse_inline_global_init_func_pointer
-            in
-            match rhs_exp with
-            | Lvar pvar when is_global_constant pvar || is_global_func_pointer pvar -> (
-              (* Inline initializers of global constants or globals function pointers when they are being used.
-                 This addresses nullptr false positives by pruning infeasable paths global_var != global_constant_value,
-                 where global_constant_value is the value of global_var *)
-              (* TODO: Initial global constants only once *)
-              match Pvar.get_initializer_pname pvar with
-              | Some proc_name ->
-                  L.d_printfln_escaped "Found initializer for %a" (Pvar.pp Pp.text) pvar ;
-                  let call_flags = CallFlags.default in
-                  let ret_id_void = (Ident.create_fresh Ident.knormal, StdTyp.void) in
-                  let no_error_states =
-                    dispatch_call analysis_data path ret_id_void (Const (Cfun proc_name)) [] loc
-                      call_flags astate
-                    |> List.filter_map ~f:(function
-                         | Ok (ContinueProgram astate) ->
-                             Some astate
-                         | _ ->
-                             (* ignore errors in global initializers *)
-                             None )
-                  in
-                  if List.is_empty no_error_states then [astate] else no_error_states
-              | None ->
-                  [astate] )
-            | _ ->
-                [astate]
-          in
+          let astates = set_global_astates path analysis_data rhs_exp typ loc astate in
           let astate_n =
             match rhs_exp with
             | Lvar pvar ->
-                NonDisjDomain.set_load loc lhs_id (Var.of_pvar pvar) astate_n
+                NonDisjDomain.set_load loc timestamp lhs_id (Var.of_pvar pvar) astate_n
             | _ ->
                 astate_n
           in
-          (List.concat_map set_global_astates ~f:deref_rhs, path, astate_n)
+          (List.concat_map astates ~f:deref_rhs, path, astate_n)
       | Store {e1= lhs_exp; e2= rhs_exp; loc; typ} ->
           (* [*lhs_exp := rhs_exp] *)
           let event =
@@ -768,6 +810,11 @@ module PulseTransferFunctions = struct
                 ValueHistory.Returned (loc, timestamp)
             | _ ->
                 ValueHistory.Assignment (loc, timestamp)
+          in
+          let astate_n =
+            Exp.program_vars lhs_exp
+            |> Sequence.fold ~init:astate_n ~f:(fun astate_n pvar ->
+                   NonDisjDomain.set_store loc timestamp pvar astate_n )
           in
           let result =
             let<**> astate, (rhs_addr, rhs_history) =
@@ -805,21 +852,26 @@ module PulseTransferFunctions = struct
       | Call (ret, call_exp, actuals, loc, call_flags) ->
           let astate_n = check_modified_before_dtor actuals call_exp astate astate_n in
           let astates =
-            dispatch_call analysis_data path ret call_exp actuals loc call_flags astate
+            List.fold actuals ~init:[astate] ~f:(fun astates (exp, typ) ->
+                List.concat_map astates ~f:(fun astate ->
+                    set_global_astates path analysis_data exp typ loc astate ) )
+          in
+          let astates =
+            List.concat_map astates ~f:(fun astate ->
+                dispatch_call analysis_data path ret call_exp actuals loc call_flags astate )
             |> PulseReport.report_exec_results tenv proc_desc err_log loc
           in
           let astate_n, astates =
-            PulseNonDisjunctiveOperations.add_copies tenv proc_desc path loc call_exp actuals
-              astates astate_n
-          in
-          let astate_n, astates =
-            PulseNonDisjunctiveOperations.add_copied_return path loc call_exp actuals astates
+            PulseNonDisjunctiveOperations.call tenv proc_desc path loc ~call_exp ~actuals astates
               astate_n
           in
-          let astate_n = NonDisjDomain.set_passed_to loc call_exp actuals astate_n in
+          let astate_n = NonDisjDomain.set_passed_to loc timestamp call_exp actuals astate_n in
           (astates, path, astate_n)
       | Prune (condition, loc, is_then_branch, if_kind) ->
-          let prune_result = PulseOperations.prune path loc ~condition astate in
+          let prune_result =
+            let=* astate = check_config_usage analysis_data loc condition astate in
+            PulseOperations.prune path loc ~condition astate
+          in
           let path =
             match PulseOperationResult.sat_ok prune_result with
             | None ->
@@ -838,7 +890,6 @@ module PulseTransferFunctions = struct
             let<++> astate, _ = prune_result in
             astate
           in
-          check_config_usage analysis_data loc condition astate ;
           (PulseReport.report_exec_results tenv proc_desc err_log loc results, path, astate_n)
       | Metadata EndBranches ->
           (* We assume that terminated conditions are well-parenthesised, hence an [EndBranches]
@@ -874,6 +925,9 @@ module PulseTransferFunctions = struct
           "OOM danger: heap size is %d words, more than the specified threshold of %d words. \
            Aborting the analysis of the procedure %a to avoid running out of memory.@\n"
           heap_size max_heap_size Procname.pp pname ;
+        (* If we'd not compact, then heap remains big, and we'll keep skipping procedures until
+           the runtime decides to compact. *)
+        Gc.compact () ;
         raise_notrace AboutToOOM
     | _ ->
         () ) ;
@@ -885,6 +939,27 @@ module PulseTransferFunctions = struct
 
 
   let pp_session_name _node fmt = F.pp_print_string fmt "Pulse"
+end
+
+module Out = struct
+  let channel_ref = ref None
+
+  let channel () =
+    let output_dir = Filename.concat Config.results_dir "pulse" in
+    Unix.mkdir_p output_dir ;
+    match !channel_ref with
+    | None ->
+        let filename = Format.asprintf "pulse-summary-count-%a.txt" Pid.pp (Unix.getpid ()) in
+        let channel = Filename.concat output_dir filename |> Out_channel.create in
+        let close_channel () =
+          Option.iter !channel_ref ~f:Out_channel.close_no_err ;
+          channel_ref := None
+        in
+        Epilogues.register ~f:close_channel ~description:"close output channel for Pulse" ;
+        channel_ref := Some channel ;
+        channel
+    | Some channel ->
+        channel
 end
 
 module DisjunctiveAnalyzer =
@@ -952,14 +1027,16 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
     PulseTopl.Debug.dropped_disjuncts_count := 0 ;
     let proc_name = Procdesc.get_proc_name proc_desc in
     let proc_attrs = Procdesc.get_attributes proc_desc in
-    let initial_disjuncts = initial tenv proc_name proc_attrs in
-    let initial_non_disj =
-      PulseNonDisjunctiveOperations.add_const_refable_parameters proc_desc tenv initial_disjuncts
-        NonDisjDomain.bottom
-    in
     let initial =
       with_html_debug_node (Procdesc.get_start_node proc_desc) ~desc:"initial state creation"
-        ~f:(fun () -> (initial_disjuncts, initial_non_disj))
+        ~f:(fun () ->
+          let initial_disjuncts = initial tenv proc_name proc_attrs in
+          let initial_non_disj =
+            PulseNonDisjunctiveOperations.init_const_refable_parameters proc_desc tenv
+              (List.map initial_disjuncts ~f:fst)
+              NonDisjDomain.bottom
+          in
+          (initial_disjuncts, initial_non_disj) )
     in
     let exit_summaries_opt, exn_sink_summaries_opt =
       DisjunctiveAnalyzer.compute_post_including_exceptional analysis_data ~initial proc_desc
@@ -1008,7 +1085,11 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
           (Procdesc.get_proc_name proc_desc) ;
       if Config.pulse_scuba_logging then
         ScubaLogging.log_count ~label:"pulse_summary" ~value:(List.length summary) ;
-      Stats.add_pulse_summaries_count (List.length summary) ;
+      let summary_count = List.length summary in
+      Stats.add_pulse_summaries_count summary_count ;
+      ( if Config.pulse_log_summary_count then
+        let name = F.asprintf "%a" Procname.pp_verbose proc_name in
+        Printf.fprintf (Out.channel ()) "%s summaries: %d\n" name summary_count ) ;
       Some summary
     in
     let exn_sink_node_opt = Procdesc.get_exn_sink proc_desc in

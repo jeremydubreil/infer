@@ -275,7 +275,10 @@ val get_nodes : t -> Node.t list
 val get_proc_name : t -> Procname.t
 
 val get_ret_type : t -> Typ.t
-(** Return the return type of the procedure and type string *)
+(** Return the return type of the procedure *)
+
+val get_ret_param_type : t -> Typ.t option
+(** Return the return param type of the procedure, which is found from formals *)
 
 val get_ret_var : t -> Pvar.t
 
@@ -376,3 +379,6 @@ val is_too_big : Checker.t -> max_cfg_size:int -> t -> bool
 module SQLite : SqliteUtils.Data with type t = t option
 
 val load : Procname.t -> t option
+
+val mark_if_unchanged : old_pdesc:t -> new_pdesc:t -> unit
+(** Record the [changed] attribute in-place on [new_pdesc] if it is unchanged wrt [old_pdsec] *)

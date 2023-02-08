@@ -6,21 +6,33 @@
  *)
 
 open! IStd
+module L = Logging
 
-let run path =
-  if String.is_suffix path ~suffix:".doli" then (
-    let cin = In_channel.create path in
-    let filebuf = Lexing.from_channel cin in
-    let filename = Filename.basename path in
-    ( try
-        let lexer = DoliLexer.read in
-        let _ = DoliCombined.doliProgram lexer filebuf in
-        Printf.printf "doli parsing of %s succeeded.\n" filename
-      with DoliCombined.Error ->
-        let pos = filebuf.Lexing.lex_curr_p in
-        let buf_length = Lexing.lexeme_end filebuf - Lexing.lexeme_start filebuf in
-        let line = pos.Lexing.pos_lnum in
-        let col = pos.Lexing.pos_cnum - pos.Lexing.pos_bol - buf_length in
-        Printf.eprintf "doli syntax error in file %s at line %d, column %d.\n%!" filename line col
-    ) ;
-    In_channel.close cin )
+let parse_buf (filebuf : CombinedLexer.lexbuf) =
+  try
+    let lexer = CombinedLexer.Lexbuf.with_tokenizer CombinedLexer.mainlex filebuf in
+    let doliProgram =
+      MenhirLib.Convert.Simplified.traditional2revised CombinedMenhir.doliProgram lexer
+    in
+    Ok doliProgram
+  with
+  | CombinedMenhir.Error ->
+      let token = CombinedLexer.Lexbuf.lexeme filebuf in
+      let Lexing.{pos_lnum; pos_cnum; pos_bol}, _ = CombinedLexer.Lexbuf.lexing_positions filebuf in
+      let loc = Textual.Location.known ~line:pos_lnum ~col:(pos_cnum - pos_bol) in
+      Error [TextualParser.SyntaxError {loc; msg= "unexpected token " ^ token}]
+  | CombinedLexer.LexingError (loc, lexeme) ->
+      Error [TextualParser.SyntaxError {loc; msg= "unexpected token " ^ lexeme}]
+
+
+let just_parse path =
+  Utils.with_file_in path ~f:(fun cin ->
+      let filebuf = CombinedLexer.Lexbuf.from_channel cin in
+      match parse_buf filebuf with
+      | Ok _ ->
+          L.progress "%s, parsing succeeded.\n" (Filename.basename path)
+      | Error errs ->
+          List.iter errs ~f:(fun error ->
+              L.external_error "%a@\n"
+                (TextualParser.pp_error (Textual.SourceFile.create path))
+                error ) )

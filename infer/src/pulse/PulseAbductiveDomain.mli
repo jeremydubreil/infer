@@ -106,9 +106,12 @@ module Memory : sig
   val find_edge_opt : AbstractValue.t -> Access.t -> t -> (AbstractValue.t * ValueHistory.t) option
 end
 
-(** attribute operations like {!BaseAddressAttributes} but that also take care of propagating facts
-    to the precondition *)
+(** attribute operations like {!PulseBaseAddressAttributes} but that also take care of propagating
+    facts to the precondition *)
 module AddressAttributes : sig
+  val abduce_attribute : AbstractValue.t -> Attribute.t -> t -> t
+  (** add the attribute to the pre, if the address is in pre *)
+
   val abduce_and_add : AbstractValue.t -> Attributes.t -> t -> t
   (** add the attributes to both the current state and, if meaningful, the pre *)
 
@@ -196,7 +199,7 @@ module AddressAttributes : sig
     -> t
     -> t
 
-  val get_config_usage : AbstractValue.t -> t -> FbPulseConfigName.t option
+  val get_config_usage : AbstractValue.t -> t -> Attribute.ConfigUsage.t option
 
   val get_const_string : AbstractValue.t -> t -> string option
 
@@ -240,6 +243,9 @@ val set_post_edges : AbstractValue.t -> BaseMemory.Edges.t -> t -> t
 val set_post_cell :
   PathContext.t -> AbstractValue.t * ValueHistory.t -> BaseDomain.cell -> Location.t -> t -> t
 (** directly set the edges and attributes for the given address, bypassing abduction altogether *)
+
+val remove_from_post : AbstractValue.t -> t -> t
+(** remove any association from the given address, bypassing abduction altogether *)
 
 val incorporate_new_eqs :
      Formula.new_eqs
