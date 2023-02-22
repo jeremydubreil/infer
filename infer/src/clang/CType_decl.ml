@@ -187,6 +187,7 @@ module BuildMethodSignature = struct
     let is_cpp_virtual = CMethodProperties.is_cpp_virtual method_decl in
     let is_cpp_copy_assignment = CMethodProperties.is_cpp_copy_assignment method_decl in
     let is_cpp_copy_ctor = CMethodProperties.is_cpp_copy_ctor method_decl in
+    let is_cpp_deleted = CMethodProperties.is_cpp_deleted method_decl in
     let is_cpp_implicit = CAst_utils.is_cpp_implicit_decl method_decl in
     let is_no_return = CMethodProperties.is_no_return method_decl in
     let is_variadic = CMethodProperties.is_variadic method_decl in
@@ -198,6 +199,7 @@ module BuildMethodSignature = struct
     ; params
     ; is_cpp_copy_assignment
     ; is_cpp_copy_ctor
+    ; is_cpp_deleted
     ; is_cpp_implicit
     ; ret_type= (ret_type, ret_typ_annot)
     ; is_ret_type_pod
@@ -658,11 +660,11 @@ and get_class_typename ?tenv method_decl_info =
         "Expecting class declaration when getting the class typename"
 
 
-and objc_method_procname ?tenv decl_info method_name mdi =
+and objc_method_procname ?tenv decl_info method_name parameters mdi =
   let class_typename = get_class_typename ?tenv decl_info in
   let is_instance = mdi.Clang_ast_t.omdi_is_instance_method in
   let method_kind = Procname.ObjC_Cpp.objc_method_kind_of_bool is_instance in
-  mk_objc_method class_typename method_name method_kind
+  mk_objc_method class_typename method_name method_kind parameters
 
 
 and objc_block_procname outer_proc_opt parameters =
@@ -719,7 +721,7 @@ and procname_from_decl ?tenv ?block_return_type ?outer_proc meth_decl =
   | CXXDestructorDecl (decl_info, name_info, _, fdi, mdi) ->
       mk_cpp_method decl_info name_info fdi mdi
   | ObjCMethodDecl (decl_info, name_info, mdi) ->
-      objc_method_procname ?tenv decl_info name_info.Clang_ast_t.ni_name mdi parameters
+      objc_method_procname ?tenv decl_info name_info.Clang_ast_t.ni_name parameters mdi
   | BlockDecl _ ->
       objc_block_procname outer_proc parameters
   | _ ->
@@ -789,7 +791,7 @@ and get_record_struct_type tenv definition_decl : Typ.desc =
           else (
             (* There is no definition for that struct in whole translation unit.
                Put empty struct into tenv to prevent backend problems *)
-            ignore (Tenv.mk_struct tenv ~fields:[] sil_typename) ;
+            ignore (Tenv.mk_struct tenv ~dummy:true sil_typename) ;
             CAst_utils.update_sil_types_map type_ptr sil_desc ;
             sil_desc ) )
   | _ ->
@@ -819,8 +821,8 @@ module CProcname = struct
       mk_cpp_method ~tenv class_name method_name None []
 
 
-    let objc_method_of_string_kind class_name method_name method_kind =
-      mk_objc_method class_name method_name method_kind []
+    let objc_method_of_string_kind class_name method_name method_kind parameters =
+      mk_objc_method class_name method_name method_kind parameters
   end
 end
 

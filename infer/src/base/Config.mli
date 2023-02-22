@@ -185,6 +185,10 @@ val buck2_build_args : string list
 
 val buck2_build_args_no_inline : string list
 
+val buck2_bxl_target : string option
+
+val buck2_use_bxl : bool
+
 val buck_block_list : string list
 
 val buck_build_args : string list
@@ -586,7 +590,7 @@ val pulse_model_return_nonnull : Str.regexp option
 
 val pulse_model_skip_pattern : Str.regexp option
 
-val pulse_models_for_erlang : Yojson.Basic.t
+val pulse_models_for_erlang : string list
 
 val pulse_prevent_non_disj_top : bool
 
@@ -807,12 +811,6 @@ val trace_events : bool
 val trace_ondemand : bool
 
 val trace_topl : bool
-
-val tv_commit : string option
-
-val tv_limit : int
-
-val tv_limit_filtered : int
 
 val uninit_interproc : bool
 

@@ -19,6 +19,12 @@ module PPNode = struct
   let pp fmt node = pp_id fmt (id node)
 end
 
+module Fields = struct
+  type t = Fieldname.t list [@@deriving compare, equal, sexp]
+
+  let pp = Fmt.(list ~sep:nop (any "#" ++ Fieldname.pp))
+end
+
 module VariableIndex : sig
   (** A [VariableIndex] is a variable and a possibly empty list of subscripted fields. *)
 
@@ -40,7 +46,7 @@ module VariableIndex : sig
 
   val get_var : _ t -> Var.t
 
-  val make : Var.t -> Fieldname.t list -> transient t
+  val make : Var.t -> Fields.t -> transient t
 
   val pvar : Pvar.t -> transient t
 
@@ -82,7 +88,7 @@ end = struct
 
   type transient
 
-  type _ t = Var.t * Fieldname.t list
+  type _ t = Var.t * Fields.t
   (* The field list is in syntactic order: x#a#b is represented as (x, [a, b]) *)
   [@@deriving compare, equal]
 
@@ -96,10 +102,7 @@ end = struct
 
   let ident id = var (Var.of_id id)
 
-  let pp fmt (var, fields) =
-    let pp_fields = Fmt.(list ~sep:nop (any "#" ++ Fieldname.pp)) in
-    Format.fprintf fmt "%a%a" Var.pp var pp_fields fields
-
+  let pp fmt (var, fields) = Format.fprintf fmt "%a%a" Var.pp var Fields.pp fields
 
   let var_appears_in_source_code (var, _) = Var.appears_in_source_code var
 
@@ -1195,13 +1198,12 @@ module TransferFunctions = struct
 
   (* Add the relevant Summary/Direct call edges from concrete arguments to the destination, depending
      on the presence of a summary. *)
-  let add_summary_flows shapes node (kind : LineageGraph.FlowKind.t)
-      (callee : (Procdesc.t * Summary.t) option) (argument_list : Exp.t list) (ret_id : Ident.t)
-      (astate : Domain.t) : Domain.t =
+  let add_summary_flows shapes node (kind : LineageGraph.FlowKind.t) (callee : Summary.t option)
+      (argument_list : Exp.t list) (ret_id : Ident.t) (astate : Domain.t) : Domain.t =
     match callee with
     | None ->
         add_tito_all shapes node kind argument_list ret_id astate
-    | Some (_callee_pdesc, {Summary.tito_arguments}) ->
+    | Some {Summary.tito_arguments} ->
         add_tito shapes node kind tito_arguments argument_list ret_id astate
 
 
