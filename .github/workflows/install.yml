@@ -56,7 +56,7 @@ jobs:
           - macOS-latest
           - ubuntu-latest
         ocaml-compiler:
-          - ocaml-variants.4.14.0+options,ocaml-option-flambda
+          - 4.14.x
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -83,13 +83,11 @@ jobs:
         uses: sersoft-gmbh/os-version-action@v1
         id: os-version
 
-      - name: Force the use of test dependencies
-        run: cp opam/infer-tests.opam.locked opam/infer.opam.locked
-
       - name: Use OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v2
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          dune-cache: true
 
       - name: Compute hash of clang installation
         id: clang-hash
