@@ -83,8 +83,8 @@ jobs:
         uses: sersoft-gmbh/os-version-action@v1
         id: os-version
 
-      - name: Force the use of test dependencies
-        run: cp opam/infer-tests.opam.locked opam/infer.opam.locked
+      # - name: Force the use of test dependencies
+      #   run: cp opam/infer-tests.opam.locked opam/infer.opam.locked
 
       - name: Use OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v2
