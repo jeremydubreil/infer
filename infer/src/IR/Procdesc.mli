@@ -81,7 +81,7 @@ module Node : sig
     | OutOfBound
     | ReturnStmt
     | Scope of string
-    | Skip of string
+    | Skip
     | SwitchStmt
     | ThisNotNull
     | Throw
@@ -343,6 +343,8 @@ val set_exit_node : t -> Node.t -> unit
 (** Set the exit node of the procedure *)
 
 val set_start_node : t -> Node.t -> unit
+
+val init_wto : t -> unit
 
 val get_wto : t -> Node.t WeakTopologicalOrder.Partition.t
 

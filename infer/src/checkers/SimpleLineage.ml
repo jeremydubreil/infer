@@ -20,7 +20,20 @@ module PPNode = struct
 end
 
 module Fields = struct
-  type t = Fieldname.t list [@@deriving compare, equal, sexp]
+  (** A module to help manipulating lists of (nested) fields. *)
+
+  (** We define a type alias to be able use our own json exporting function *)
+  type fieldname = Fieldname.t [@@deriving compare, equal, sexp]
+
+  let yojson_of_fieldname fieldname =
+    (* The ppx-generated [yojson_of] is unnecessarily complex for our purposes (it's a record that
+       involves "class_name", which incidentally seems to always be "_".) *)
+    `String (Fieldname.to_string fieldname)
+
+
+  (* The list is to be understood in "syntactic order": [["a"; "b"]] represents the field part of
+     [X#a#b].*)
+  type t = fieldname list [@@deriving compare, equal, sexp, yojson_of]
 
   let pp = Fmt.(list ~sep:nop (any "#" ++ Fieldname.pp))
 end
@@ -44,7 +57,12 @@ module VariableIndex : sig
 
   val var : Var.t -> transient t
 
+  val subfield : _ t -> Fields.t -> transient t
+  (** Sub-field of an index. *)
+
   val get_var : _ t -> Var.t
+
+  val get_fields : terminal t -> Fields.t
 
   val make : Var.t -> Fields.t -> transient t
 
@@ -88,15 +106,17 @@ end = struct
 
   type transient
 
-  type _ t = Var.t * Fields.t
-  (* The field list is in syntactic order: x#a#b is represented as (x, [a, b]) *)
-  [@@deriving compare, equal]
+  type _ t = Var.t * Fields.t [@@deriving compare, equal]
 
   let var v = (v, [])
+
+  let subfield (var, fields) subfields = (var, fields @ subfields)
 
   let make var fields = (var, fields)
 
   let get_var (v, _) = v
+
+  let get_fields (_, fields) = fields
 
   let pvar pvar = var (Var.of_pvar pvar)
 
@@ -153,7 +173,7 @@ module LineageGraph = struct
 
   type data =
     | Local of ((local * PPNode.t)[@sexp.opaque])
-    | Argument of int
+    | Argument of int * Fields.t
     | ArgumentOf of int * (Procname.t[@sexp.opaque])
     | Captured of int
     | CapturedBy of int * (Procname.t[@sexp.opaque])
@@ -170,8 +190,10 @@ module LineageGraph = struct
           - INV2: There is no loop, because they don't mean anything. *)
       type t =
         | Direct  (** Immediate copy; e.g., assigment or passing an argument *)
-        | Call  (** Target is ArgumentOf *)
-        | Return  (** Source is ReturnOf *)
+        | Inject of Fields.t
+        | Project of Fields.t
+        | Call of Fields.t  (** Target is ArgumentOf, fields are injected into arg *)
+        | Return of Fields.t  (** Source is ReturnOf, fields are projected from return *)
         | Capture  (** [X=1, F=fun()->X end] has Capture flow from X to F *)
         | Summary  (** Summarizes the effect of a procedure call *)
         | DynamicCallFunction
@@ -218,8 +240,8 @@ module LineageGraph = struct
     match data with
     | Local (local, node) ->
         Format.fprintf fmt "%a@@%a" pp_local local PPNode.pp node
-    | Argument index ->
-        Format.fprintf fmt "arg%d" index
+    | Argument (index, fields) ->
+        Format.fprintf fmt "arg%d%a" index Fields.pp fields
     | Captured index ->
         Format.fprintf fmt "cap%d" index
     | Return ->
@@ -242,10 +264,14 @@ module LineageGraph = struct
         Format.fprintf fmt "Capture"
     | Direct ->
         Format.fprintf fmt "Direct"
-    | Call ->
-        Format.fprintf fmt "Call"
-    | Return ->
-        Format.fprintf fmt "Return"
+    | Call fields ->
+        Format.fprintf fmt "Call%a" Fields.pp fields
+    | Inject fields ->
+        Format.fprintf fmt "Inject%a" Fields.pp fields
+    | Project fields ->
+        Format.fprintf fmt "Project%a" Fields.pp fields
+    | Return fields ->
+        Format.fprintf fmt "Return%a" Fields.pp fields
     | Summary ->
         Format.fprintf fmt "Summary"
     | DynamicCallFunction ->
@@ -280,13 +306,13 @@ module LineageGraph = struct
         graph (* skip Summary loops*)
     | _, true, _, _ ->
         L.die InternalError "There shall be no fancy (%a) loops!" pp_flow_kind kind
-    | Call, _, ArgumentOf _, _ ->
+    | Call _, _, ArgumentOf _, _ ->
         added
-    | Call, _, _, _ ->
+    | Call _, _, _, _ ->
         L.die InternalError "Call edges shall return ArgumentOf!"
-    | Return, _, _, ReturnOf _ ->
+    | Return _, _, _, ReturnOf _ ->
         added
-    | Return, _, _, _ ->
+    | Return _, _, _, _ ->
         L.die InternalError "Return edges shall come form ReturnOf!"
     | _ ->
         added
@@ -371,6 +397,15 @@ module LineageGraph = struct
         | DynamicCallModule
         | Return
 
+      type edge_metadata =
+        { inject: Fields.t [@default []] [@yojson_drop_default.equal]
+        ; project: Fields.t [@default []] [@yojson_drop_default.equal] }
+      [@@deriving yojson_of]
+
+      let metadata_inject fields = {inject= fields; project= []}
+
+      let metadata_project fields = {inject= []; project= fields}
+
       let yojson_of_edge_type typ =
         match typ with
         | Capture ->
@@ -389,7 +424,12 @@ module LineageGraph = struct
             `String "Return"
 
 
-      type _edge = {source: node_id; target: node_id; edge_type: edge_type; location: location_id}
+      type _edge =
+        { source: node_id
+        ; target: node_id
+        ; edge_type: edge_type
+        ; edge_metadata: edge_metadata option [@yojson.option]
+        ; location: location_id }
       [@@deriving yojson_of]
 
       type edge = {edge: _edge} [@@deriving yojson_of]
@@ -424,8 +464,12 @@ module LineageGraph = struct
 
     type state_local = Start of Location.t | Exit of Location.t | Normal of PPNode.t
 
-    (** Like [LineageGraph.data], but without the ability to refer to other procedures, which makes
-        it "local". *)
+    (** Like [LineageGraph.data], but :
+
+        - Without the ability to refer to other procedures, which makes it "local".
+        - With some information lost/summarised, such as fields of procedure arguments (although the
+          Derive edges will be generated taking fields into account, we only output one node for
+          each argument in the Json graph to denote function calls). *)
     type data_local = Argument of int | Captured of int | Return | Normal of local | Function
 
     module Id = struct
@@ -498,9 +542,9 @@ module LineageGraph = struct
       let term_data =
         match data with
         | Argument index ->
-            Printf.sprintf "$arg%d" index
+            Format.asprintf "$arg%d" index
         | Captured index ->
-            Printf.sprintf "$cap%d" index
+            Format.asprintf "$cap%d" index
         | Return ->
             "$ret"
         | Normal (VariableIndex x) ->
@@ -601,7 +645,9 @@ module LineageGraph = struct
       match data with
       | Local (var, node) ->
           save procname (Normal node) (Normal var)
-      | Argument index ->
+      | Argument (index, _fields) ->
+          (* We don't distinguish the fields of arguments when generating Argument nodes. See
+             {!type:data_local}. *)
           save procname start (Argument index)
       | ArgumentOf (index, callee_procname) ->
           save callee_procname (Start Location.dummy) (Argument index)
@@ -630,11 +676,15 @@ module LineageGraph = struct
       let edge_id = Id.of_list [source_id; target_id; kind_id; location_id] in
       let edge_type =
         match kind with
-        | Call ->
+        | Call _ ->
             Json.Call
         | Capture ->
             Json.Capture
         | Direct ->
+            Json.Copy
+        | Inject _ ->
+            Json.Copy
+        | Project _ ->
             Json.Copy
         | Summary ->
             Json.Derive
@@ -642,8 +692,20 @@ module LineageGraph = struct
             Json.DynamicCallFunction
         | DynamicCallModule ->
             Json.DynamicCallModule
-        | Return ->
+        | Return _ ->
             Json.Return
+      in
+      let edge_metadata =
+        match kind with
+        | Direct | Capture | Summary | DynamicCallFunction | DynamicCallModule ->
+            None
+        | Call [] | Return [] ->
+            (* Don't generate "trivial" metadata *)
+            None
+        | Call fields | Inject fields ->
+            Some (Json.metadata_inject fields)
+        | Return fields | Project fields ->
+            Some (Json.metadata_project fields)
       in
       write_json Edge edge_id
         (Json.yojson_of_edge
@@ -651,6 +713,7 @@ module LineageGraph = struct
                { source= Id.out source_id
                ; target= Id.out target_id
                ; edge_type
+               ; edge_metadata
                ; location= Id.out location_id } } ) ;
       edge_id
 
@@ -683,19 +746,62 @@ let get_captured proc_desc : Var.t list =
   List.map ~f (Procdesc.get_captured proc_desc)
 
 
-module Summary = struct
+module Tito = struct
   (** TITO stands for "taint-in taint-out". In this context a tito argument is one that has a path
-      to the return node, without going through call edges; more precisely, [i] is a tito argument
-      if there is a path from [Argument i] to [Return] not going through [ArgumentOf _] nodes. *)
-  type tito_arguments = IntSet.t
+      to the return node, without going through call edges; more precisely, [i#foo#bar] is a tito
+      argument if there is a path from [Argument (i, \[foo, bar\])] to [Return] not going through
+      [ArgumentOf _] nodes. *)
+
+  module FieldSet = struct
+    include Caml.Set.Make (Fields)
+
+    let pp = Fmt.iter iter Fields.pp
+  end
+
+  module IntMap = struct
+    include Caml.Map.Make (Int)
+
+    let pp pp_data =
+      let sep = Fmt.any ":@ " in
+      Fmt.iter_bindings ~sep:Fmt.comma iter Fmt.(pair ~sep int pp_data)
+  end
+
+  (** A [Tito.t] is a map from arguments indexes [i] to the set of [fields] field sequences such
+      that [i#fields] is a Tito argument. Note: for any sequence of [fields], if [i#fields] is a
+      Tito argument, then every [i#fields#foo] subfield of should be considered as also being one
+      (even if not explicitly present in the map). *)
+  type t = FieldSet.t IntMap.t
+  (* Note: making this an array could improve the performance (arguments indexes are small and
+     contiguous). *)
+
+  let pp = IntMap.pp FieldSet.pp
+
+  let empty = IntMap.empty
+
+  let get i arguments = IntMap.find_opt i arguments |> Option.value ~default:FieldSet.empty
+
+  let add i fields arguments =
+    IntMap.update i
+      (function
+        | None ->
+            Some (FieldSet.singleton fields)
+        | Some fieldset ->
+            Some (FieldSet.add fields fieldset) )
+      arguments
+
+
+  (** Returns a TITO map holding every field of every parameter of a function having the given arity *)
+  let all_arguments arity =
+    IntMap.of_seq @@ Seq.init arity (fun arg_index -> (arg_index, FieldSet.singleton []))
+end
+
+module Summary = struct
+  type tito_arguments = Tito.t
 
   type t = {graph: LineageGraph.t; tito_arguments: tito_arguments; has_unsupported_features: bool}
 
   let pp_tito_arguments fmt arguments =
-    let pp_sep fmt () = Format.fprintf fmt ",@;" in
-    Format.fprintf fmt "@;@[<2>TitoArguments@;%a@]"
-      (Format.pp_print_list ~pp_sep Int.pp)
-      (IntSet.elements arguments)
+    Format.fprintf fmt "@;@[<2>TitoArguments@;%a@]" Tito.pp arguments
 
 
   let pp fmt {graph; tito_arguments} =
@@ -727,9 +833,9 @@ module Summary = struct
     (* Collect reachable arguments. *)
     let tito_arguments =
       let add_node args (node : LineageGraph.data) =
-        match node with Argument i -> IntSet.add i args | _ -> args
+        match node with Argument (i, fields) -> Tito.add i fields args | _ -> args
       in
-      Set.fold reachable ~init:IntSet.empty ~f:add_node
+      Set.fold reachable ~init:Tito.empty ~f:add_node
     in
     tito_arguments
 
@@ -785,7 +891,14 @@ module Summary = struct
       match kind with
       | Direct ->
           false
-      | Call | Return | Capture | Summary | DynamicCallFunction | DynamicCallModule ->
+      | Call _
+      | Return _
+      | Capture
+      | Summary
+      | DynamicCallFunction
+      | DynamicCallModule
+      | Inject _
+      | Project _ ->
           true
     in
     (* The set [todo] contains vertices considered for removal. We initialize this set with all
@@ -924,10 +1037,36 @@ module TransferFunctions = struct
 
     (** Make [LineageGraph.local] usable in Maps/Sets. *)
     include Comparable.Make (T)
+
+    module Set = struct
+      include Set
+
+      (** Shortcut for adding a VariableIndex-variant local *)
+      let add_variable_index set index = add set (VariableIndex index)
+    end
   end
 
+  (** If an expression is made of a single variable, return it *)
+  let exp_as_single_var (e : Exp.t) : Var.t option =
+    match e with
+    | Exp.Lvar pvar ->
+        Some (Var.of_pvar pvar)
+    | Exp.Var id ->
+        Some (Var.of_id id)
+    | Exp.Lfield (_, _, _)
+    | Exp.UnOp (_, _, _)
+    | Exp.BinOp (_, _, _)
+    | Exp.Exn _
+    | Exp.Closure _
+    | Exp.Const _
+    | Exp.Cast (_, _)
+    | Exp.Lindex (_, _)
+    | Exp.Sizeof _ ->
+        None
+
+
   (** If an expression is made of a single variable index, return it *)
-  let single_var_index_of_exp (e : Exp.t) : _ VariableIndex.t option =
+  let exp_as_single_var_index (e : Exp.t) : _ VariableIndex.t option =
     let rec aux fields_acc = function
       | Exp.Lvar pvar ->
           Some (VariableIndex.make (Var.of_pvar pvar) fields_acc)
@@ -950,9 +1089,7 @@ module TransferFunctions = struct
 
   (** Return the terminal free indices that can be derived from an index *)
   let terminal_free_locals_from_index shapes index =
-    VariableIndex.fold_terminal shapes index
-      ~f:(fun acc index -> Local.Set.add acc (VariableIndex index))
-      ~init:Local.Set.empty
+    VariableIndex.fold_terminal shapes index ~f:Local.Set.add_variable_index ~init:Local.Set.empty
 
 
   (** Return constants and free terminal indices that occur in [e]. *)
@@ -964,7 +1101,7 @@ module TransferFunctions = struct
         terminal_free_locals_from_index shapes (VariableIndex.ident id)
     | Lfield _ -> (
       (* We only allow (sequences of) fields to be "applied" to a single variable, yielding a single index  *)
-      match single_var_index_of_exp e with
+      match exp_as_single_var_index e with
       | None ->
           (* Debugging hint: if you run into this assertion, the easiest is likely to change the
              frontend to introduce a temporary variable. *)
@@ -1001,10 +1138,6 @@ module TransferFunctions = struct
   let lambdas_of_exp (e : Exp.t) : Procname.Set.t =
     let add procnames {Exp.name} = Procname.Set.add name procnames in
     Sequence.fold ~init:Procname.Set.empty ~f:add (Exp.closures e)
-
-
-  let free_locals_of_exp_list shapes (es : Exp.t list) : Local.Set.t =
-    Local.Set.union_list (List.rev_map ~f:(free_locals_of_exp shapes) es)
 
 
   type read_set =
@@ -1063,33 +1196,61 @@ module TransferFunctions = struct
     List.fold ~init:astate ~f:one_exp (Sil.exps_of_instr instr)
 
 
-  (* Add flow from the concrete arguments to the special ArgumentOf nodes *)
+  let warn_on_complex_arg arg_exp =
+    L.debug Analysis Verbose
+      "SimpleLineage: the analysis assumes that the frontend uses only single-var expressions as \
+       actual arguments, otherwise it will lose precision (found actual argument `%a` instead).@;"
+      Exp.pp arg_exp
+
+
+  (* Add Call flow from the concrete arguments to the special ArgumentOf nodes *)
   let add_arg_flows shapes (call_node : PPNode.t) (callee_pname : Procname.t)
       (argument_list : Exp.t list) (astate : Domain.t) : Domain.t =
-    let add_flows_all_to_arg index ((last_writes, has_unsupported_features), local_edges) arg =
-      let read_set = free_locals_of_exp shapes arg in
-      let add_flows_local_to_arg local_edges (local : Local.t) =
-        let sources = sources_of_local call_node last_writes local in
-        let add_one_flow local_edges source =
-          LineageGraph.add_flow ~kind:Call ~node:call_node ~source
-            ~target:(ArgumentOf (index, callee_pname))
-            local_edges
-        in
-        List.fold sources ~f:add_one_flow ~init:local_edges
+    let add_one_arg_flows index ((last_writes, has_unsupported_features), local_edges) arg =
+      let add_one_source_edge local_edges source ~injected_arg_field =
+        LineageGraph.add_flow ~kind:(Call injected_arg_field) ~node:call_node ~source
+          ~target:(ArgumentOf (index, callee_pname))
+          local_edges
       in
-      let local_edges = Set.fold read_set ~init:local_edges ~f:add_flows_local_to_arg in
+      let add_one_local_flows local_edges (local : Local.t) ~injected_arg_field =
+        let sources = sources_of_local call_node last_writes local in
+        List.fold sources ~f:(add_one_source_edge ~injected_arg_field) ~init:local_edges
+      in
+      let local_edges =
+        match exp_as_single_var arg with
+        | None ->
+            (* The Erlang frontend probably doesn't generate non-single-var arguments. If that
+               happens however, we may simply collect all the locals from the actual argument and
+               have them flow on the full formal parameter (that is inject into the empty list of
+               nested fields) *)
+            warn_on_complex_arg arg ;
+            let read_set = free_locals_of_exp shapes arg in
+            Set.fold read_set ~init:local_edges ~f:(add_one_local_flows ~injected_arg_field:[])
+        | Some arg_var ->
+            (* The concrete argument is a single var: we collect all its terminal fields and have
+               them flow onto the corresponding field of the formal parameter. *)
+            let arg_as_index = VariableIndex.var arg_var in
+            VariableIndex.fold_terminal shapes arg_as_index
+              ~f:(fun acc arg_terminal ->
+                add_one_local_flows acc (VariableIndex arg_terminal)
+                  ~injected_arg_field:(VariableIndex.get_fields arg_terminal) )
+              ~init:local_edges
+      in
       ((last_writes, has_unsupported_features), local_edges)
     in
-    List.foldi argument_list ~init:astate ~f:add_flows_all_to_arg
+    List.foldi argument_list ~init:astate ~f:add_one_arg_flows
 
 
-  (* Add flow from the special Return nodes to the destination variable of a call *)
+  (* Add Return flow from the special ReturnOf nodes to the destination variable of a call *)
   let add_ret_flows shapes node (callee_pname : Procname.t) (ret_id : Ident.t) (astate : Domain.t) :
       Domain.t =
     let last_writes, local_edges = astate in
-    let add_one_return_edge local_edges target_index =
-      LineageGraph.add_flow ~kind:Return ~node ~source:(ReturnOf callee_pname)
-        ~target:(Local (VariableIndex target_index, node))
+    let add_one_return_edge local_edges ret_terminal_index =
+      (* Add flow from the formal return to a terminal subfield of the actual ret_id: project the
+         return into the corresponding fields. *)
+      let target_field = VariableIndex.get_fields ret_terminal_index in
+      LineageGraph.add_flow ~kind:(Return target_field) ~node ~source:(ReturnOf callee_pname)
+        ~target:(Local (VariableIndex ret_terminal_index, node))
         local_edges
     in
     let local_edges =
@@ -1118,14 +1279,7 @@ module TransferFunctions = struct
       (((last_writes, has_unsupported_features), local_edges) : Domain.t) : Domain.t =
     let target = LineageGraph.Local (VariableIndex write_var, node) in
     let add_read local_edges (read_local : Local.t) =
-      let sources =
-        match read_local with
-        | ConstantAtom _ | ConstantInt _ | ConstantString _ ->
-            [LineageGraph.Local (read_local, node)]
-        | VariableIndex read_var ->
-            let source_nodes = Domain.Real.LastWrites.get_all read_var last_writes in
-            List.map ~f:(fun node -> LineageGraph.Local (read_local, node)) source_nodes
-      in
+      let sources = sources_of_local node last_writes read_local in
       let add_edge local_edges source =
         LineageGraph.add_flow ~node ~kind ~source ~target local_edges
       in
@@ -1157,7 +1311,7 @@ module TransferFunctions = struct
 
 
   let exec_assignment shapes node dst_index src_exp astate =
-    match single_var_index_of_exp src_exp with
+    match exp_as_single_var_index src_exp with
     | Some src_index ->
         (* Simple assignment of the form [dst := src_index]: we copy the fields of [src_index] into
            the corresponding fields of [dst]. *)
@@ -1175,15 +1329,28 @@ module TransferFunctions = struct
 
   (* Add Summary (or Direct if this is a suppressed builtin call) edges from the concrete parameters
      to the concrete destination variable of a call, as specified by the tito_arguments summary information *)
-  let add_tito (shapes : SimpleShape.Summary.t) node (kind : LineageGraph.FlowKind.t) tito_arguments
-      (argument_list : Exp.t list) (ret_id : Ident.t) (astate : Domain.t) : Domain.t =
+  let add_tito (shapes : SimpleShape.Summary.t) node (kind : LineageGraph.FlowKind.t)
+      (tito_arguments : Tito.t) (argument_list : Exp.t list) (ret_id : Ident.t) (astate : Domain.t)
+      : Domain.t =
+    let collect_one_index var_index tito_subfields acc =
+      VariableIndex.fold_terminal shapes
+        (VariableIndex.subfield var_index tito_subfields)
+        ~f:Local.Set.add_variable_index ~init:acc
+    in
     let tito_locals =
-      let tito_exps =
-        List.filter_mapi
-          ~f:(fun index arg -> if IntSet.mem index tito_arguments then Some arg else None)
-          argument_list
-      in
-      free_locals_of_exp_list shapes tito_exps
+      List.foldi ~init:Local.Set.empty
+        ~f:(fun index acc arg ->
+          match exp_as_single_var_index arg with
+          | None ->
+              (* The Erlang frontend probably doesn't generate arguments that are not put in
+                 intermediate variables first, but in any case we can just add edges from all
+                 occurring locals and soundly not use the TITO information. *)
+              warn_on_complex_arg arg ;
+              Local.Set.union acc (free_locals_of_exp shapes arg)
+          | Some var_index ->
+              Tito.FieldSet.fold (collect_one_index var_index) (Tito.get index tito_arguments) acc
+          )
+        argument_list
     in
     update_write shapes node kind (VariableIndex.ident ret_id) tito_locals astate
 
@@ -1192,8 +1359,9 @@ module TransferFunctions = struct
      when no summary is available. *)
   let add_tito_all (shapes : SimpleShape.Summary.t) node (kind : LineageGraph.FlowKind.t)
       (argument_list : Exp.t list) (ret_id : Ident.t) (astate : Domain.t) : Domain.t =
-    let all = IntSet.of_list (List.mapi argument_list ~f:(fun index _ -> index)) in
-    add_tito shapes node kind all argument_list ret_id astate
+    let arity = List.length argument_list in
+    let tito_all_arguments = Tito.all_arguments arity in
+    add_tito shapes node kind tito_all_arguments argument_list ret_id astate
 
 
   (* Add the relevant Summary/Direct call edges from concrete arguments to the destination, depending
@@ -1366,17 +1534,29 @@ let unskipped_checker ({InterproceduralAnalysis.proc_desc} as analysis) shapes_o
       List.fold ~init:Domain.Real.LastWrites.bottom ~f:add_arg (captured @ formals)
     in
     let local_edges =
-      let add_index_flow ~source local_edges var_index =
-        LineageGraph.add_flow ~kind:Direct ~node:start_node ~source
+      let add_proc_start_flow ~source ~kind local_edges var_index =
+        LineageGraph.add_flow ~kind ~node:start_node ~source
           ~target:(Local (VariableIndex var_index, start_node))
           local_edges
       in
-      let add_flow ~source local_edges var =
-        VariableIndex.fold_terminal ~f:(add_index_flow ~source) ~init:local_edges shapes
-          (VariableIndex.var var)
+      let arg_edge_kind arg_fields : LineageGraph.FlowKind.t =
+        (* Record that edges from fields of a formal parameter will represent a Projection of those
+           fields from the eventual summarised Argument node *)
+        match arg_fields with [] -> Direct | subfields -> Project subfields
       in
-      let add_arg_flow i = add_flow ~source:(Argument i) in
-      let add_cap_flow i = add_flow ~source:(Captured i) in
+      let add_arg_flow i local_edges arg_var =
+        VariableIndex.fold_terminal
+          ~f:(fun acc idx ->
+            let fields = VariableIndex.get_fields idx in
+            add_proc_start_flow ~kind:(arg_edge_kind fields) ~source:(Argument (i, fields)) acc idx
+            )
+          ~init:local_edges shapes (VariableIndex.var arg_var)
+      in
+      let add_cap_flow i local_edges var =
+        VariableIndex.fold_terminal
+          ~f:(add_proc_start_flow ~kind:Direct ~source:(Captured i))
+          ~init:local_edges shapes (VariableIndex.var var)
+      in
       let local_edges = [] in
       let local_edges = List.foldi ~init:local_edges ~f:add_arg_flow formals in
       let local_edges = List.foldi ~init:local_edges ~f:add_cap_flow captured in
@@ -1399,8 +1579,17 @@ let unskipped_checker ({InterproceduralAnalysis.proc_desc} as analysis) shapes_o
       post_edges :: edges
     in
     let ret_var = VariableIndex.pvar (Procdesc.get_ret_var proc_desc) in
+    let ret_edge_kind into_ret_index : LineageGraph.FlowKind.t =
+      (* Record that edges into fields of the formal return will represent an Injection of those
+         fields into the eventual summarised Return node *)
+      match VariableIndex.get_fields into_ret_index with
+      | [] ->
+          Direct
+      | subfields ->
+          Inject subfields
+    in
     let add_one_ret_index_edge local_edges ret_index ret_node =
-      LineageGraph.add_flow ~kind:Direct ~node:ret_node
+      LineageGraph.add_flow ~kind:(ret_edge_kind ret_index) ~node:ret_node
         ~source:(Local (VariableIndex ret_index, ret_node))
         ~target:Return local_edges
     in

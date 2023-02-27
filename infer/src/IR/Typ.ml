@@ -422,22 +422,15 @@ let desc_to_string desc =
   F.asprintf "%t" pp
 
 
+let is_template_spec_info_empty = function
+  | NoTemplate | Template {args= []} ->
+      true
+  | Template {args= _ :: _} ->
+      false
+
+
 module Name = struct
   type t = name [@@deriving compare, equal, yojson_of, sexp, hash]
-
-  (* NOTE: When a same struct type is used in C/C++/ObjC/ObjC++, their struct types may different,
-     eg [CStruct] in C, but [CppClass] in C++.  On the other hand, since [Fieldname.t] includes the
-     class names, even for the same field, its field name used in C and C++ can be different.
-     However, in analyses, we may want to *not* distinguish fieldnames of the same struct type.  For
-     that, we can use these loosened compare functions instead. *)
-  let loose_compare x y =
-    match (x, y) with
-    | ( (CStruct name1 | CppClass {name= name1; template_spec_info= NoTemplate})
-      , (CStruct name2 | CppClass {name= name2; template_spec_info= NoTemplate}) ) ->
-        QualifiedCppName.compare name1 name2
-    | _ ->
-        compare x y
-
 
   let compare_name x y =
     match (x, y) with

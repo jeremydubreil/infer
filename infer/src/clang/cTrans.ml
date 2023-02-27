@@ -27,7 +27,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
       if is_instance then ClangMethodKind.OBJC_INSTANCE else ClangMethodKind.OBJC_CLASS
     in
     let proc_name =
-      match CMethod_trans.get_method_name_from_clang context.tenv callee_ms_opt with
+      match CMethod_trans.get_method_name_from_clang callee_ms_opt with
       | Some name ->
           name
       | None ->
@@ -3140,7 +3140,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     let rec aux : decl list -> trans_result option = function
       | [] ->
           None
-      | (VarDecl (_, _, qt, vdi) as var_decl) :: var_decls' ->
+      | ((VarDecl (_, _, qt, vdi) | VarTemplateSpecializationDecl (_, _, _, qt, vdi)) as var_decl)
+        :: var_decls' ->
           (* Var are defined when procdesc is created, here we only take care of initialization *)
           let res_trans_tl = aux var_decls' in
           let root_nodes_tl, instrs_tl, initd_exps_tl, markers_tl =
@@ -3185,7 +3186,10 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
   and declStmt_trans trans_state decl_list stmt_info : trans_result =
     let succ_nodes = trans_state.succ_nodes in
     match (decl_list : Clang_ast_t.decl list) with
-    | VarDecl _ :: _ | CXXRecordDecl _ :: _ | RecordDecl _ :: _ ->
+    | VarDecl _ :: _
+    | VarTemplateSpecializationDecl _ :: _
+    | CXXRecordDecl _ :: _
+    | RecordDecl _ :: _ ->
         collect_all_decl trans_state decl_list succ_nodes stmt_info
     | (NamespaceAliasDecl _ | TypedefDecl _ | TypeAliasDecl _ | UsingDecl _ | UsingDirectiveDecl _)
       :: _ ->
@@ -4657,9 +4661,10 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
 
   (** no-op translated for unsupported instructions that will at least translate subexpressions *)
-  and skip_unimplemented ~reason trans_state stmt_info ret_typ stmts =
-    call_function_with_args (Procdesc.Node.Skip reason) BuiltinDecl.__infer_skip trans_state
-      stmt_info ret_typ stmts
+  and skip_unimplemented ~pp_unimplemented trans_state stmt_info ret_typ stmts =
+    L.debug Capture Medium "Skipping unimplemented %t" pp_unimplemented ;
+    call_function_with_args Procdesc.Node.Skip BuiltinDecl.__infer_skip trans_state stmt_info
+      ret_typ stmts
 
 
   and instruction trans_state instr = instruction_log trans_state instr
@@ -5195,10 +5200,10 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
               (stmt_tuple, StdTyp.void)
         in
         skip_unimplemented
-          ~reason:
-            (Printf.sprintf "unimplemented construct: %s, found at %s"
-               (Clang_ast_proj.get_stmt_kind_string instr)
-               (Clang_ast_j.string_of_source_range stmt_info.Clang_ast_t.si_source_range) )
+          ~pp_unimplemented:(fun fmt ->
+            Format.fprintf fmt "%s, found at %s"
+              (Clang_ast_proj.get_stmt_kind_string instr)
+              (Clang_ast_j.string_of_source_range stmt_info.Clang_ast_t.si_source_range) )
           trans_state stmt_info ret_typ stmts
 
 
