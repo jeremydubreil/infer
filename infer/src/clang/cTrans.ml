@@ -1525,8 +1525,6 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
   and callExpr_trans trans_state si stmt_list expr_info =
     let context = trans_state.context in
-    let fn_type_no_ref = CType_decl.get_type_from_expr_info expr_info context.CContext.tenv in
-    let function_type = add_reference_if_glvalue fn_type_no_ref expr_info in
     let sil_loc = CLocation.location_of_stmt_info context.translation_unit_context.source_file si in
     (* First stmt is the function expr and the rest are params *)
     let fun_exp_stmt, params_stmt =
@@ -1572,11 +1570,11 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
         builtin
     | None ->
         let act_params = collect_returns result_trans_params in
+        let ret_type_no_ref = CType_decl.get_type_from_expr_info expr_info context.CContext.tenv in
+        let ret_type = add_reference_if_glvalue ret_type_no_ref expr_info in
         let res_trans_call =
-          let is_call_to_block = objc_exp_of_type_block fun_exp_stmt in
-          let call_flags = {CallFlags.default with CallFlags.cf_is_objc_block= is_call_to_block} in
-          create_call_instr trans_state function_type sil_fe act_params sil_loc call_flags
-            ~is_inherited_ctor:false
+          create_call_instr trans_state ret_type sil_fe act_params sil_loc ~is_inherited_ctor:false
+            {CallFlags.default with cf_is_objc_block= objc_exp_of_type_block fun_exp_stmt}
         in
         let node_name = Procdesc.Node.Call (Exp.to_string sil_fe) in
         let all_res_trans = res_trans_callee :: (result_trans_params @ [res_trans_call]) in
@@ -1765,14 +1763,16 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
             let find_arg j _ = Int.equal i j in
             List.findi ~f:find_arg callee_ms.CMethodSignature.params
           in
-          let passed_as_noescape_block_to =
+          let block_as_arg_attributes =
             match ms_param_type_i with
-            | Some (_, {CMethodSignature.is_no_escape_block_arg}) ->
-                if is_no_escape_block_arg then Some callee_ms.CMethodSignature.name else None
+            | Some (_, {is_no_escape_block_arg}) ->
+                Some
+                  { ProcAttributes.passed_to= callee_ms.CMethodSignature.name
+                  ; passed_as_noescape_block= is_no_escape_block_arg }
             | None ->
                 None
           in
-          {trans_state_param with passed_as_noescape_block_to}
+          {trans_state_param with block_as_arg_attributes}
       | _ ->
           trans_state_param
     in
@@ -2425,7 +2425,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
     let[@warning "-partial-match"] [body] = default_stmt_list in
     let body_trans_result = instruction trans_state body in
     (let open SwitchCase in
-    add {condition= Default; stmt_info; root_nodes= body_trans_result.control.root_nodes}) ;
+     add {condition= Default; stmt_info; root_nodes= body_trans_result.control.root_nodes} ) ;
     body_trans_result
 
 
@@ -3849,7 +3849,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
           CVar_decl.captured_vars_from_block_info context stmt_info.Clang_ast_t.si_source_range
             block_decl_info.Clang_ast_t.bdi_captured_variables
         in
-        let passed_as_noescape_block_to = trans_state.passed_as_noescape_block_to in
+        let block_as_arg_attributes = trans_state.block_as_arg_attributes in
         let captured_vars =
           List.map captured_vars_no_mode ~f:(fun (var, typ, modify_in_block) ->
               let mode, typ =
@@ -3861,8 +3861,7 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
         in
         let res = closure_trans procname captured_vars context stmt_info expr_info in
         let block_data =
-          Some
-            {CModule_type.captured_vars; context; passed_as_noescape_block_to; procname; return_type}
+          Some {CModule_type.captured_vars; context; block_as_arg_attributes; procname; return_type}
         in
         F.function_decl context.translation_unit_context context.tenv context.cfg decl block_data ;
         res
@@ -3961,8 +3960,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
         | `LCK_ByRef (* explicit with [&x] or implicit with [&] *)
         | `LCK_This (* explicit with [this] or implicit with [&] *)
         | `LCK_VLAType
-        (* capture a variable-length array by reference. we probably don't handle
-           this correctly elsewhere, but it's definitely not captured by value! *) ->
+          (* capture a variable-length array by reference. we probably don't handle
+             this correctly elsewhere, but it's definitely not captured by value! *) ->
             true
         | `LCK_ByCopy (* explicit with [x] or implicit with [=] *) ->
             (* [=] captures this by reference and everything else by value *)
@@ -4653,6 +4652,32 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
       {result with control= {result.control with cxx_temporary_markers_set= []}}
 
 
+  and coroutineBodyStmt_trans trans_state stmt_info body_ptr promise_ptr return_value =
+    let source_range = stmt_info.Clang_ast_t.si_source_range in
+    let body = CAst_utils.get_stmt_exn body_ptr source_range in
+    let promise = CAst_utils.get_stmt_exn promise_ptr source_range in
+    exec_with_node_creation Procdesc.Node.DefineBody trans_state ~f:instruction
+      (CompoundStmt (stmt_info, [promise; body; Clang_ast_t.ReturnStmt (stmt_info, [return_value])]))
+
+
+  and coreturnStmt_trans trans_state stmt_info operand_opt promise_call_opt =
+    let args =
+      match promise_call_opt with Some expr -> [expr] | None -> Option.to_list operand_opt
+    in
+    call_function_with_args Procdesc.Node.ReturnStmt BuiltinDecl.__builtin_cxx_co_return trans_state
+      stmt_info StdTyp.void args
+
+
+  and coroutineSuspendExpr_trans trans_state stmt_info expr_info cse_operand =
+    (* confuse [co_await] and [co_yield] because for now we don't care about their accurate
+       semantics anywhere *)
+    let return_type =
+      CType_decl.qual_type_to_sil_type trans_state.context.tenv expr_info.Clang_ast_t.ei_qual_type
+    in
+    call_function_with_args Procdesc.Node.ReturnStmt BuiltinDecl.__builtin_cxx_co_await trans_state
+      stmt_info return_type [cse_operand]
+
+
   (* Expect that this doesn't happen *)
   and undefined_expr trans_state expr_info =
     let tenv = trans_state.context.CContext.tenv in
@@ -4662,9 +4687,17 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
 
   (** no-op translated for unsupported instructions that will at least translate subexpressions *)
   and skip_unimplemented ~pp_unimplemented trans_state stmt_info ret_typ stmts =
+    let has_args =
+      (* if the sub-statements are expressions then they can reasonably be assumed to be arguments
+         to some unknown effect that the unimplemented statement kind has; if not then said
+         statement is something else. In any case if the sub-statements are *not* expressions then
+         treating them as arguments in [call_function_with_args] below will crash. *)
+      List.for_all stmts ~f:(fun stmt -> Clang_ast_proj.get_expr_tuple stmt |> Option.is_some)
+    in
+    let args = if has_args then stmts else [] in
     L.debug Capture Medium "Skipping unimplemented %t" pp_unimplemented ;
     call_function_with_args Procdesc.Node.Skip BuiltinDecl.__infer_skip trans_state stmt_info
-      ret_typ stmts
+      ret_typ args
 
 
   and instruction trans_state instr = instruction_log trans_state instr
@@ -5068,17 +5101,23 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
           instr
           (Pp.of_string ~f:Clang_ast_j.string_of_stmt)
           instr
+    | CoroutineBodyStmt (stmt_info, _, {cbs_body; cbs_promise_decl_stmt; cbs_return_value}) ->
+        coroutineBodyStmt_trans trans_state stmt_info cbs_body cbs_promise_decl_stmt
+          cbs_return_value
+    | CoreturnStmt (stmt_info, _, {coret_operand; coret_promise_call}) ->
+        coreturnStmt_trans trans_state stmt_info coret_operand coret_promise_call
+    | CoawaitExpr (stmt_info, operand :: _, expr_info)
+    | CoyieldExpr (stmt_info, operand :: _, expr_info) ->
+        coroutineSuspendExpr_trans trans_state stmt_info expr_info operand
     | AddrLabelExpr _
     | ArrayTypeTraitExpr _
     | AsTypeExpr _
     | CapturedStmt _
     | ChooseExpr _
-    | CoawaitExpr _
+    | CoawaitExpr (_, [], _)
     | ConceptSpecializationExpr _
     | ConvertVectorExpr _
-    | CoreturnStmt _
-    | CoroutineBodyStmt _
-    | CoyieldExpr _
+    | CoyieldExpr (_, [], _)
     | CUDAKernelCallExpr _
     | CXXAddrspaceCastExpr _
     | CXXFoldExpr _
@@ -5272,8 +5311,8 @@ module CTrans_funct (F : CModule_type.CFrontend) : CModule_type.CTranslation = s
           ( { root_nodes= control_tail_rev.root_nodes
             ; leaf_nodes=
                 ( if not (List.is_empty res_trans_s.control.leaf_nodes) then
-                  res_trans_s.control.leaf_nodes
-                else control_tail_rev.leaf_nodes )
+                    res_trans_s.control.leaf_nodes
+                  else control_tail_rev.leaf_nodes )
             ; instrs= List.rev_append res_trans_s.control.instrs control_tail_rev.instrs
             ; initd_exps= List.rev_append res_trans_s.control.initd_exps control_tail_rev.initd_exps
             ; cxx_temporary_markers_set=

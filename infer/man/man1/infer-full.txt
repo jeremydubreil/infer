@@ -46,8 +46,8 @@ OPTIONS
        as argument. The format is one option per line, and enclosing single '
        and double " quotes are ignored.
 
-       Options without a default value (e.g., --linter) and options with
-       list-like values (e.g., --Xbuck) all have a corresponding
+       Options without a default value (e.g., --changed-files-index) and
+       options with list-like values (e.g., --Xbuck) all have a corresponding
        --option-reset flag that resets their values to nothing or the empty
        list, respectively. For instance, --Xbuck-reset will cancel any
        previous --Xbuck option passed to infer.
@@ -79,8 +79,6 @@ OPTIONS
            specify "overrides" (by symbol or path prefix) that block the
            reachability analysis when hit. Example:           {
                "ISOLATED_REACHING_CONNECT": {
-                 "doc_url":
-           "http:://example.com/issue/doc/optional_link.html",
                  "sources": {
                    "desc": "Code that should not call connect [optional]",
                    "paths": [ "isolated/" ]
@@ -145,6 +143,11 @@ OPTIONS
 
        --bo-debug int
            Debug level for buffer-overrun checker (0-4)           See also infer-analyze(1).
+
+       --bo-exit-frontend-gener-vars
+           Activates: Put frontend generated variables out of scope when they
+           are listed in exit scope instruction. (Conversely:
+           --no-bo-exit-frontend-gener-vars)           See also infer-analyze(1).
 
        --bo-field-depth-limit int
            Limit of field depth of abstract location in buffer-overrun
@@ -244,9 +247,15 @@ OPTIONS
            Activates: Enable bufferoverrun and disable all other checkers
            (Conversely: --no-bufferoverrun-only)           See also infer-analyze(1).
 
-       --capture-block-list regex
-           Skip capture of files matched by the specified OCaml regular
-           expression (only supported by the javac integration for now).       
+       --bxl-file-capture
+           Activates: Given an --changed-file-index file, capture the owning
+           buck2 targets and their dependencies using the BXL script
+           specified by --buck2_bxl_target. (Conversely:
+           --no-bxl-file-capture)           See also infer-capture(1).
+
+       --capture-block-list json
+           Matcher or list of matchers for names of files that should not be
+           captured, hence not analyzed either. Clang and Java only.       
     See also infer-capture(1) and infer-run(1).
 
        --no-censor-report +issue_type_regex
@@ -408,8 +417,7 @@ OPTIONS
 
        --debug-level level
            Debug level (sets --bo-debug level, --debug-level-analysis level,
-           --debug-level-capture level, --debug-level-linters level):       
-      - 0: only basic debugging enabled
+           --debug-level-capture level):             - 0: only basic debugging enabled
              - 1: verbose debugging enabled
              - 2: very verbose debugging enabled
            See also infer-analyze(1), infer-capture(1), infer-compile(1),
@@ -425,11 +433,6 @@ OPTIONS
            values.           See also infer-analyze(1), infer-capture(1), infer-compile(1),
            infer-report(1), infer-reportdiff(1), and infer-run(1).
 
-       --debug-level-linters int
-           Debug level for the linters. See --debug-level for accepted
-           values.           See also infer-analyze(1), infer-capture(1), infer-compile(1),
-           infer-report(1), infer-reportdiff(1), and infer-run(1).
-
        --no-deduplicate
            Deactivates: Apply issue-specific deduplication during analysis
            and/or reporting. (Conversely: --deduplicate)           See also infer-analyze(1), infer-report(1), and
@@ -437,7 +440,7 @@ OPTIONS
 
        --no-default-checkers
            Deactivates: Default checkers: --biabduction,
-           --fragment-retains-view, --inefficient-keyset-iterator, --linters,
+           --fragment-retains-view, --inefficient-keyset-iterator,
            --liveness, --parameter-not-null-checked, --racerd, --siof,
            --self-in-block, --starvation (Conversely: --default-checkers)       
     See also infer-analyze(1).
@@ -464,7 +467,6 @@ OPTIONS
              ARRAY_OUT_OF_BOUNDS_L1 (disabled by default),
              ARRAY_OUT_OF_BOUNDS_L2 (disabled by default),
              ARRAY_OUT_OF_BOUNDS_L3 (disabled by default),
-             ASSIGN_POINTER_WARNING (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE_UI_THREAD (enabled by
            default),
@@ -478,7 +480,6 @@ OPTIONS
              BAD_KEY_LATENT (disabled by default),
              BAD_MAP (enabled by default),
              BAD_MAP_LATENT (disabled by default),
-             BAD_POINTER_COMPARISON (enabled by default),
              BAD_RECORD (enabled by default),
              BAD_RECORD_LATENT (disabled by default),
              BAD_RETURN (enabled by default),
@@ -514,7 +515,6 @@ OPTIONS
              CONSTANT_ADDRESS_DEREFERENCE_LATENT (disabled by default),
              CREATE_INTENT_FROM_URI (enabled by default),
              CROSS_SITE_SCRIPTING (enabled by default),
-             CXX_REFERENCE_CAPTURED_IN_OBJC_BLOCK (enabled by default),
              Cannot_star (enabled by default),
              DANGLING_POINTER_DEREFERENCE (disabled by default),
              DANGLING_POINTER_DEREFERENCE_MAYBE (disabled by default),
@@ -522,8 +522,6 @@ OPTIONS
              DATA_FLOW_TO_SINK (disabled by default),
              DEADLOCK (enabled by default),
              DEAD_STORE (enabled by default),
-             DIRECT_ATOMIC_PROPERTY_ACCESS (enabled by default),
-             DISCOURAGED_WEAK_PROPERTY_CUSTOM_SETTER (enabled by default),
              DIVIDE_BY_ZERO (disabled by default),
              DO_NOT_REPORT (enabled by default),
              EMPTY_VECTOR_ACCESS (enabled by default),
@@ -558,8 +556,6 @@ OPTIONS
              EXPENSIVE_LOOP_INVARIANT_CALL (enabled by default),
              EXPOSED_INSECURE_INTENT_HANDLING (enabled by default),
              Failure_exe (enabled by default),
-             GLOBAL_VARIABLE_INITIALIZED_WITH_FUNCTION_OR_METHOD_CALL
-           (disabled by default),
              GUARDEDBY_VIOLATION (enabled by default),
              IMPURE_FUNCTION (enabled by default),
              INEFFICIENT_KEYSET_ITERATOR (enabled by default),
@@ -618,11 +614,10 @@ OPTIONS
              NULL_DEREFERENCE (enabled by default),
              OPTIONAL_EMPTY_ACCESS (enabled by default),
              OPTIONAL_EMPTY_ACCESS_LATENT (disabled by default),
-             POINTER_TO_CONST_OBJC_CLASS (enabled by default),
              PRECONDITION_NOT_FOUND (enabled by default),
              PRECONDITION_NOT_MET (enabled by default),
              PREMATURE_NIL_TERMINATION_ARGUMENT (enabled by default),
-             PULSE_CONST_REFABLE (disabled by default),
+             PULSE_CONST_REFABLE (enabled by default),
              PULSE_READONLY_SHARED_PTR_PARAM (enabled by default),
              PULSE_RESOURCE_LEAK (enabled by default),
              PULSE_UNINITIALIZED_VALUE (enabled by default),
@@ -635,7 +630,7 @@ OPTIONS
              PULSE_UNNECESSARY_COPY_INTERMEDIATE_CONST (disabled by
            default),
              PULSE_UNNECESSARY_COPY_MOVABLE (enabled by default),
-             PULSE_UNNECESSARY_COPY_OPTIONAL (disabled by default),
+             PULSE_UNNECESSARY_COPY_OPTIONAL (enabled by default),
              PULSE_UNNECESSARY_COPY_OPTIONAL_CONST (disabled by default),
              PULSE_UNNECESSARY_COPY_RETURN (disabled by default),
              PURE_FUNCTION (enabled by default),
@@ -654,12 +649,12 @@ OPTIONS
              STARVATION (enabled by default),
              STATIC_INITIALIZATION_ORDER_FIASCO (enabled by default),
              STRICT_MODE_VIOLATION (enabled by default),
-             STRONG_DELEGATE_WARNING (enabled by default),
              STRONG_SELF_NOT_CHECKED (enabled by default),
              Symexec_memory_error (enabled by default),
              TAINT_ERROR (enabled by default),
              THREAD_SAFETY_VIOLATION (enabled by default),
              TOPL_ERROR (enabled by default),
+             TOPL_ERROR_LATENT (disabled by default),
              UNINITIALIZED_VALUE (enabled by default),
              UNREACHABLE_CODE (enabled by default),
              UNTRUSTED_BUFFER_ACCESS (disabled by default),
@@ -881,6 +876,12 @@ OPTIONS
            other checkers (Conversely: --no-inefficient-keyset-iterator-only)       
     See also infer-analyze(1).
 
+       --inline-func-pointer-for-testing string
+           Enables substituting global function pointers used for testing
+           with the real function calls in the clang frontend. Pass the
+           prefix used to build the global function pointers used for
+           testing.           See also infer-analyze(1).
+
        --issues-tests file
            Write a list of issues in a format suitable for tests to file       
     See also infer-report(1).
@@ -910,18 +911,6 @@ OPTIONS
        --kotlin-capture
            Activates: Enable Kotlin capture (experimental, do not use).
            (Conversely: --no-kotlin-capture)           See also infer-capture(1).
-
-       --no-linters
-           Deactivates: checker linters: Declarative linting framework over
-           the Clang AST. (Conversely: --linters)           See also infer-analyze(1).
-
-       --linters-ignore-clang-failures
-           Activates: Continue linting files even if some compilation fails.
-           (Conversely: --no-linters-ignore-clang-failures)           See also infer-capture(1).
-
-       --linters-only
-           Activates: Enable linters and disable all other checkers
-           (Conversely: --no-linters-only)           See also infer-analyze(1).
 
        --list-checkers
            Activates: Show the list of all available checkers. (Conversely:
@@ -996,10 +985,6 @@ OPTIONS
            Sampling rate for Memtrace allocation profiling. Default is 1e-6.       
     See also infer-analyze(1).
 
-       --merge
-           Activates: Merge the captured results directories specified in the
-           dependency file. (Conversely: --no-merge)           See also infer-analyze(1).
-
        --merge-capture +string
            Specifies an Infer results directory. The files and procedures
            captured in it will be merged together into the results directory
@@ -1017,6 +1002,14 @@ OPTIONS
            specified results directories will be merged together and
            deduplicated before reporting is done.           See also infer-report(1).
 
+       --modeled-expensive json
+           Matcher or list of matchers for methods that should be considered
+           expensive by the performance critical checker.           See also infer-analyze(1).
+
+       --never-returning-null json
+           [Java only, all analyses] Matcher or list of matchers for
+           functions that never return null.           See also infer-analyze(1), infer-capture(1), and infer-run(1).
+
        --no-parameter-not-null-checked
            Deactivates: checker parameter-not-null-checked: An
            Objective-C-specific analysis to detect when a block parameter is
@@ -1031,6 +1024,12 @@ OPTIONS
        --pmd-xml
            Activates: Output issues in (PMD) XML format in
            infer-out/report.xml (Conversely: --no-pmd-xml)           See also infer-run(1).
+
+       --preanalysis-html
+           Activates: Whether the HTML node printing for preanalysis is
+           enabled or not. Set to false by default since this helps focus on
+           debugging just the enabled analyses. (Conversely:
+           --no-preanalysis-html)           See also infer-debug(1).
 
        --print-active-checkers
            Activates: Print the active checkers before starting the analysis
@@ -1099,12 +1098,20 @@ OPTIONS
 
        --procedures-summary
            Activates: Print the summaries of each procedure in the output of
-           --procedures (Conversely: --no-procedures-summary)           See also infer-debug(1).
+           --procedures. See also --procedures-summary-nonempty. (Conversely:
+           --no-procedures-summary)           See also infer-debug(1).
 
        --procedures-summary-json
            Activates: Emit the summaries of each procedure in the output of
            --procedures as JSON (Conversely: --no-procedures-summary-json)       
     See also infer-debug(1).
+
+       --procedures-summary-skip-empty
+           Activates: Completely skip procedures that do not have summaries.
+           Useful when analyzing a small part of a big project. (To use in
+           conjunction with --procedures-summary or
+           --procedures-summary-json. See also --changed-files-index.)
+           (Conversely: --no-procedures-summary-skip-empty)           See also infer-debug(1).
 
        --no-progress-bar,-P
            Deactivates: Show a progress bar (Conversely: --progress-bar | -p)       
@@ -1336,13 +1343,21 @@ OPTIONS
            the following combinations of fields to identify relevant
            procedures:             - "procedure": match a substring of the procedure name
              - "procedure_regex": as above, but match using an OCaml regex
+             - "class_name_regex": match all methods of classes whose names
+           match the OCaml regex
              - "class_names" and "method_names":
                  match exact uses of methods of particular classes
+             - "class_names" and "method_return_type_names":
+                 match exact uses of methods with particular return types of
+           particular classes
              - "overrides_of_class_with_annotation":
                  match all procedures defined in classes which inherit
                  from a superclass with the specified annotation
              - "allocation": (for taint sources only)
                  match allocations of the exact class name supplied
+             - "block_passed_to": (for taint sources only)
+                match a substring of the procedure name that the block is
+           passed to
            
              Each object can also optionally specify:
              - "kinds": the kinds of taint, used in --pulse-taint-policies
@@ -1363,8 +1378,6 @@ OPTIONS
                      fields given by name in return value, arguments or
            other fields
                N.B. for methods, index 0 is this/self.
-             - "match_objc_blocks": boolean, "false" by default
-                 "true" if only Objective-C blocks should be matched.
            See also infer-analyze(1).
 
        --pulse-widen-threshold int
@@ -1937,9 +1950,6 @@ INTERNAL OPTIONS
            Deactivates: capture and translate source files into infer's
            intermediate language for analysis (Conversely: --capture)
 
-       --capture-block-list-reset
-           Cancel the effect of --capture-block-list.
-
        --capture-doli +path
            Generate a SIL program from doli representations given in .doli
            files.
@@ -2301,6 +2311,9 @@ INTERNAL OPTIONS
            file is read) first. In addition, this option will not function
            properly if used inside a  .inferconfig file.
 
+       --inline-func-pointer-for-testing-reset
+           Cancel the effect of --inline-func-pointer-for-testing.
+
        --issues-tests-reset
            Cancel the effect of --issues-tests.
 
@@ -2369,19 +2382,12 @@ INTERNAL OPTIONS
        --method-decls-info-reset
            Cancel the effect of --method-decls-info.
 
-       --modeled-expensive json
-           Matcher or list of matchers for methods that should be considered
-           expensive by the performance critical checker.
-
        --modified-lines path
            Specifies the file containing the modified lines when Infer is run
            Test Determinator mode with --test-determinator.
 
        --modified-lines-reset
            Cancel the effect of --modified-lines.
-
-       --never-returning-null json
-           Matcher or list of matchers for functions that never return null.
 
        --nullable-annotation-name string
            Specify a custom nullable annotation name.
@@ -2492,6 +2498,18 @@ INTERNAL OPTIONS
 
        --pulse-cut-to-one-path-procedures-pattern-reset
            Cancel the effect of --pulse-cut-to-one-path-procedures-pattern.
+
+       --pulse-force_continue
+           Activates: The code coming after a function call is not analyzed
+           if the callee has no summary of type ContinueProgram, which may
+           happen if the callee implementation was hard to analyze. With this
+           option, we force the analysis to continue, treating the callee as
+           an unknown function. (Note that if the callee had latent issues,
+           those keep being surfaced, as appropriate.) Activating this option
+           will increase the coverage of code that is analyzed, but may
+           introduce false positives. It is intended to be used for
+           debugging, to quickly assess if a false negative may be caused by
+           lack of coverage. (Conversely: --no-pulse-force_continue)
 
        --pulse-intraprocedural-only
            Activates: Disable inter-procedural analysis in Pulse. Used for
@@ -2673,6 +2691,12 @@ INTERNAL OPTIONS
            }
                
 
+       --scuba-execution-id int64
+           Execution ID attached to all samples logged to scuba
+
+       --scuba-execution-id-reset
+           Cancel the effect of --scuba-execution-id.
+
        --scuba-logging
            Activates: (direct) logging to scuba (Conversely:
            --no-scuba-logging)
@@ -2704,10 +2728,6 @@ INTERNAL OPTIONS
 
        --skip-analysis-in-path-reset
            Set --skip-analysis-in-path to the empty list.
-
-       --skip-translation json
-           Matcher or list of matchers for names of files that should not be
-           analyzed at all.
 
        --skip-translation-headers-reset
            Set --skip-translation-headers to the empty list.
@@ -2798,6 +2818,12 @@ INTERNAL OPTIONS
 
        --topl-properties-reset
            Set --topl-properties to the empty list.
+
+       --no-topl-report-latent-issues
+           Deactivates: Report latent issues instead of waiting for them to
+           become manifest, when the latent issue itself is enabled. (Similar
+           to --pulse-report-latent-issues.) (Conversely:
+           --topl-report-latent-issues)
 
        --trace-error
            Activates: Detailed tracing information during error explanation

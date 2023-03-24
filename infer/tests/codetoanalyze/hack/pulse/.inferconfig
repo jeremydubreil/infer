@@ -1,10 +1,24 @@
 {
   "pulse-taint-sources": [
     { "procedure": "$root.taintSource" },
-    { "procedure": "Level5Base.getSuperContext" }
+    { "procedure": "OuterFile$static.taintSource" },
+    { "procedure": "OuterFileSuper$static.superTaintSource" },
+    { "procedure": "Level5Base.getSuperContext" },
+    {
+      "procedure_regex": ".*",
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "SensitiveClass"
+        ]
+      ]
+    }
   ],
   "pulse-taint-sinks": [
     { "procedure": "$root.taintSink" },
-    { "procedure": "DaoQueries.query" }
+    { "procedure": "OuterFile$static.taintSink" },
+    { "procedure": "DaoQueries.query" },
+    { "procedure": "explicitSinkAllArgs" },
+    { "class_name_regex": "Logger.*" }
   ]
 }

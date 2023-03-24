@@ -8,7 +8,7 @@
 -export([
     test_1_Ok/0,
     test_2_Bad/0,
-    fp_test_3_Ok/0
+    test_3_Ok/0
 ]).
 
 f() -> ok.
@@ -29,9 +29,7 @@ test_2_Bad() ->
     % This is to make it crash during runtime
     erlang:error(expected_crash).
 
-% Pulse/topl doesn't know that each spawn is unique,
-% we will need a model similar to 'new' in Java
-fp_test_3_Ok() ->
+test_3_Ok() ->
     P1 = spawn(),
     P2 = spawn(),
     message(P1),

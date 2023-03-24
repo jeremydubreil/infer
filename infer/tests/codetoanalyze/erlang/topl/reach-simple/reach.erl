@@ -9,11 +9,12 @@
     test_c_Bad/0,
     test_d_Bad/0,
     test_e_Bad/0,
-    fn_test_f_Bad/0,
-    fn_test_g_Bad/0,
+    test_f_Bad/0,
+    test_g_Bad/0,
     fn_test_h_Bad/0,
     fn_test_i_Bad/0,
-    fn_test_j_Bad/0
+    test_j_Bad/0,
+    test_k_Bad/0
 ]).
 
 test_a_Bad() ->
@@ -31,12 +32,10 @@ test_d_Bad() ->
 test_e_Bad() ->
     sink({id({source()})}).
 
-% T142413251
-fn_test_f_Bad() ->
+test_f_Bad() ->
     indirect_sink(source()).
 
-% T142413251
-fn_test_g_Bad() ->
+test_g_Bad() ->
     indirect_sink({source()}).
 
 % T142413251
@@ -47,12 +46,15 @@ fn_test_h_Bad() ->
 fn_test_i_Bad() ->
     indirect_wrapping_sink({source()}).
 
-% T142413251 (probably)
-fn_test_j_Bad() ->
+test_j_Bad() ->
     {X} = getD(),
     {Y} = id(X),
     Z = [Y, Y],
     go(Z).
+
+test_k_Bad() ->
+    X = source(),
+    sink(#{"X" => X}).
 
 go(Z) ->
     gogo({[], Z}).

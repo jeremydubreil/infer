@@ -17,6 +17,8 @@ module F = Format
 (** Current formatter for the html output *)
 let curr_html_formatter = ref F.std_formatter
 
+let () = AnalysisGlobalState.register_ref ~init:(fun () -> F.std_formatter) curr_html_formatter
+
 (** Return true if the node was visited during analysis *)
 let is_visited node =
   match Summary.OnDisk.get ~lazy_payloads:true (Procdesc.Node.get_proc_name node) with
@@ -92,7 +94,7 @@ end = struct
       pp_node_link_seq fmt (Procdesc.Node.get_exn node) ;
       F.fprintf fmt "<br>@\n" ;
       F.fprintf fmt "<LISTING class='%s'>%a</LISTING>" (Pp.color_string Green)
-        (Instrs.pp (Pp.html Green))
+        (Instrs.pp ~indent:false (Pp.html Green))
         (Procdesc.Node.get_instrs node) ) ;
     F.fprintf fmt "%a%a %t" Io_infer.Html.pp_hline ()
       (Io_infer.Html.pp_session_link source ~with_name:true [".."] ~proc_name)

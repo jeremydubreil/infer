@@ -31,7 +31,7 @@ module BuildMethodSignature = struct
       if Mangled.is_this name && is_const_member_function then Typ.set_ptr_to_const typ else typ
     in
     let annot = CAst_utils.sil_annot_of_type qual_type in
-    Some (CMethodSignature.mk_param_type ~is_pointer_to_const ~annot name typ)
+    CMethodSignature.mk_param_type ~is_pointer_to_const ~annot name typ
 
 
   let get_class_param qual_type_to_sil_type tenv method_decl =
@@ -43,8 +43,9 @@ module BuildMethodSignature = struct
         | Some name, Some parent_pointer ->
             let qual_type = CAst_utils.qual_type_of_decl_ptr parent_pointer in
             let pointer_qual_type = Ast_expressions.create_pointer_qual_type qual_type in
-            param_type_of_qual_type ~is_const_member_function qual_type_to_sil_type tenv name
-              pointer_qual_type
+            Some
+              (param_type_of_qual_type ~is_const_member_function qual_type_to_sil_type tenv name
+                 pointer_qual_type )
         | _ ->
             None )
       | _ ->
@@ -69,7 +70,7 @@ module BuildMethodSignature = struct
     match return_type.Typ.desc with Tstruct _ -> true | _ -> false
 
 
-  let get_return_param qual_type_to_sil_type tenv ~block_return_type method_decl =
+  let get_return_type_and_param_type qual_type_to_sil_type tenv ~block_return_type method_decl =
     let return_qual_type =
       match block_return_type with
       | Some return_type ->
@@ -78,11 +79,14 @@ module BuildMethodSignature = struct
           CMethodProperties.get_return_type method_decl
     in
     let return_typ = qual_type_to_sil_type tenv return_qual_type in
-    if should_add_return_param return_typ then
-      let name = Mangled.from_string CFrontend_config.return_param in
-      let return_qual_type = Ast_expressions.create_pointer_qual_type return_qual_type in
-      param_type_of_qual_type qual_type_to_sil_type tenv name return_qual_type
-    else None
+    let return_param =
+      if should_add_return_param return_typ then
+        let name = Mangled.from_string CFrontend_config.return_param in
+        let return_qual_type = Ast_expressions.create_pointer_qual_type return_qual_type in
+        Some (param_type_of_qual_type qual_type_to_sil_type tenv name return_qual_type)
+      else None
+    in
+    (return_typ, return_qual_type, return_param)
 
 
   (** Returns parameters of a function/method. They will have following order:
@@ -117,7 +121,9 @@ module BuildMethodSignature = struct
     in
     let params = List.map ~f:par_to_ms_par (CMethodProperties.get_param_decls method_decl) in
     let return_param =
-      Option.to_list (get_return_param qual_type_to_sil_type tenv ~block_return_type method_decl)
+      Option.to_list
+        ( get_return_type_and_param_type qual_type_to_sil_type tenv ~block_return_type method_decl
+        |> trd3 )
     in
     params @ return_param
 
@@ -152,27 +158,24 @@ module BuildMethodSignature = struct
 
   (** get return type of the function and optionally type of function's return parameter *)
   let get_return_val_and_param_types qual_type_to_sil_type tenv ~block_return_type method_decl =
-    let return_qual_type =
-      match block_return_type with
-      | Some return_type ->
-          CType.return_type_of_function_type return_type
-      | None ->
-          CMethodProperties.get_return_type method_decl
+    let return_typ, return_qual_type, return_param_type =
+      get_return_type_and_param_type qual_type_to_sil_type tenv ~block_return_type method_decl
     in
-    let return_typ = qual_type_to_sil_type tenv return_qual_type in
-    let return_typ_annot = CAst_utils.sil_annot_of_type return_qual_type in
     let is_ret_typ_pod = CGeneral_utils.is_type_pod return_qual_type in
-    if should_add_return_param return_typ then
-      ( StdTyp.void
-      , Some (CType.add_pointer_to_typ return_typ)
-      , Annot.Item.empty
-      , true
-      , is_ret_typ_pod )
-    else (return_typ, None, return_typ_annot, false, is_ret_typ_pod)
+    match return_param_type with
+    | Some _ ->
+        ( StdTyp.void
+        , Some (CType.add_pointer_to_typ return_typ)
+        , Annot.Item.empty
+        , true
+        , is_ret_typ_pod )
+    | None ->
+        let return_typ_annot = CAst_utils.sil_annot_of_type return_qual_type in
+        (return_typ, None, return_typ_annot, false, is_ret_typ_pod)
 
 
   let method_signature_of_decl qual_type_to_sil_type tenv method_decl ?block_return_type
-      ?(passed_as_noescape_block_to = None) procname =
+      ?(block_as_arg_attributes = None) procname =
     let decl_info = Clang_ast_proj.get_decl_tuple method_decl in
     let loc = decl_info.Clang_ast_t.di_source_range in
     let ret_type, return_param_typ, ret_typ_annot, has_added_return_param, is_ret_type_pod =
@@ -209,7 +212,7 @@ module BuildMethodSignature = struct
     ; loc
     ; method_kind
     ; is_cpp_virtual
-    ; passed_as_noescape_block_to
+    ; block_as_arg_attributes
     ; is_no_return
     ; is_variadic
     ; pointer_to_parent
@@ -218,105 +221,18 @@ module BuildMethodSignature = struct
 
 
   let method_signature_body_of_decl qual_type_to_sil_type tenv method_decl ?block_return_type
-      ?passed_as_noescape_block_to procname =
+      ?block_as_arg_attributes procname =
     let body = CMethodProperties.get_method_body method_decl in
     let init_list_instrs = CMethodProperties.get_init_list_instrs method_decl in
     let ms =
       method_signature_of_decl qual_type_to_sil_type tenv method_decl ?block_return_type
-        ?passed_as_noescape_block_to procname
+        ?block_as_arg_attributes procname
     in
     (ms, body, init_list_instrs)
 end
 
 let get_struct_decls decl =
-  let open Clang_ast_t in
-  match decl with
-  | CapturedDecl (_, decl_list, _)
-  | ClassTemplatePartialSpecializationDecl (_, _, _, decl_list, _, _, _, _, _, _, _)
-  | ClassTemplateSpecializationDecl (_, _, _, decl_list, _, _, _, _, _, _, _)
-  | CXXRecordDecl (_, _, _, decl_list, _, _, _, _)
-  | EnumDecl (_, _, _, decl_list, _, _, _)
-  | LinkageSpecDecl (_, decl_list, _)
-  | NamespaceDecl (_, _, decl_list, _, _)
-  | ObjCCategoryDecl (_, _, decl_list, _, _)
-  | ObjCCategoryImplDecl (_, _, decl_list, _, _)
-  | ObjCImplementationDecl (_, _, decl_list, _, _)
-  | ObjCInterfaceDecl (_, _, decl_list, _, _)
-  | ObjCProtocolDecl (_, _, decl_list, _, _)
-  | RecordDecl (_, _, _, decl_list, _, _, _)
-  | TranslationUnitDecl (_, decl_list, _, _) ->
-      decl_list
-  | AccessSpecDecl _
-  | BindingDecl _
-  | BlockDecl _
-  | BuiltinTemplateDecl _
-  | ClassScopeFunctionSpecializationDecl _
-  | ClassTemplateDecl _
-  | ConceptDecl _
-  | ConstructorUsingShadowDecl _
-  | CXXConstructorDecl _
-  | CXXConversionDecl _
-  | CXXDeductionGuideDecl _
-  | CXXDestructorDecl _
-  | CXXMethodDecl _
-  | DecompositionDecl _
-  | EmptyDecl _
-  | EnumConstantDecl _
-  | ExportDecl _
-  | ExternCContextDecl _
-  | FieldDecl _
-  | FileScopeAsmDecl _
-  | FriendDecl _
-  | FriendTemplateDecl _
-  | FunctionDecl _
-  | FunctionTemplateDecl _
-  | ImplicitParamDecl _
-  | ImportDecl _
-  | IndirectFieldDecl _
-  | LabelDecl _
-  | LifetimeExtendedTemporaryDecl _
-  | MSGuidDecl _
-  | MSPropertyDecl _
-  | NamespaceAliasDecl _
-  | NonTypeTemplateParmDecl _
-  | ObjCAtDefsFieldDecl _
-  | ObjCCompatibleAliasDecl _
-  | ObjCIvarDecl _
-  | ObjCMethodDecl _
-  | ObjCPropertyDecl _
-  | ObjCPropertyImplDecl _
-  | ObjCTypeParamDecl _
-  | OMPAllocateDecl _
-  | OMPCapturedExprDecl _
-  | OMPDeclareMapperDecl _
-  | OMPDeclareReductionDecl _
-  | OMPRequiresDecl _
-  | OMPThreadPrivateDecl _
-  | ParmVarDecl _
-  | PragmaCommentDecl _
-  | PragmaDetectMismatchDecl _
-  | RequiresExprBodyDecl _
-  | StaticAssertDecl _
-  | TemplateParamObjectDecl _
-  | TemplateTemplateParmDecl _
-  | TemplateTypeParmDecl _
-  | TypeAliasDecl _
-  | TypeAliasTemplateDecl _
-  | TypedefDecl _
-  | UnnamedGlobalConstantDecl _
-  | UnresolvedUsingIfExistsDecl _
-  | UnresolvedUsingTypenameDecl _
-  | UnresolvedUsingValueDecl _
-  | UsingDecl _
-  | UsingDirectiveDecl _
-  | UsingEnumDecl _
-  | UsingPackDecl _
-  | UsingShadowDecl _
-  | VarDecl _
-  | VarTemplateDecl _
-  | VarTemplatePartialSpecializationDecl _
-  | VarTemplateSpecializationDecl _ ->
-      []
+  Clang_ast_proj.get_decl_context_tuple decl |> Option.value_map ~f:fst ~default:[]
 
 
 let add_predefined_objc_types tenv =

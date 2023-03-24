@@ -4,10 +4,11 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include <vector>
+#include <list>
+#include <map>
 #include <set>
 #include <string>
-#include <list>
+#include <vector>
 #include "header.h"
 
 struct Arr {
@@ -255,6 +256,12 @@ void modified_before_custom_destructor_ok(String s) {
   cpy.set_size(10);
 }
 
+int get_size(String s) { return s.x; }
+void check_no_move_op_bad(String arg) {
+  int x = get_size(std::move(arg)); // String has no auto-generated move
+                                    // constructor so there is no move here!
+}
+
 void copy_vec_name_contains_copy_ok(std::vector<int> vec) {
   auto copy_vec = vec;
 } // variable contains "copy", hence warning should be suppressed
@@ -293,7 +300,7 @@ struct SimpleS {
 
 struct SwapSimple {
   SimpleS v;
-  void swap_bad(SwapSimple& x) {
+  void swap_bad_FN(SwapSimple& x) {
     const auto temp = v;
     v = x.v;
     x.v = temp; // report copy assignment from const
@@ -302,7 +309,7 @@ struct SwapSimple {
 
 struct SwapVector {
   std::vector<int> v;
-  void swap_bad(SwapVector& x) {
+  void swap_bad_FN(SwapVector& x) {
     const auto temp = v;
     v = x.v;
     x.v = temp; // report copy assignment from const
@@ -679,13 +686,45 @@ void call_templated_func_specialized_string(
   copy_in_header_bad(arg);
 }
 
+class NonTrivialCopyClass {
+
+ public:
+  NonTrivialCopyClass& operator=(const NonTrivialCopyClass& rhs) {
+    if (this == &rhs) {
+      return *this;
+    }
+    return *this;
+  }
+};
+
 class FieldCopyClass {
 
  public:
   Arr my_arr1_;
   Arr my_arr2_;
+  NonTrivialCopyClass nt_;
 
   void set_field_ok(Arr arg) {
     my_arr1_ = my_arr2_; // rhs is a field, we cannot suggest move
   }
+
+  void copy_assign_bad(NonTrivialCopyClass arg) { nt_ = arg; }
+  void copy_assign_from_global_ok() {
+    my_arr1_ = global; // rhs is a global, we cannot suggest move
+  }
 };
+
+void intermediate_copy_global_ok() {
+  get_first_elem(global); // we cannot suggest moving global
+}
+
+std::map<std::string, std::string> unreliable_source_ok(
+    const std::map<std::string, std::string>& input) {
+  auto modified = input; // the source of `modified` was `input` in the copy map
+  for (const auto& elem : input) {
+    modified[elem.first] = "abc";
+  }
+  return modified;
+  // the source of `modified` was `__range` from the for loop iteration, thus it
+  // did not correctly check `modified` is modified.
+}

@@ -603,21 +603,21 @@ module LineageGraph = struct
       let state_local_id = Id.of_state_local state_local in
       let location_id = Id.of_list [procname_id; state_local_id] in
       ( if write then
-        let location =
-          match state_local with
-          | Start location | Exit location ->
-              location
-          | Normal node ->
-              PPNode.loc node
-        in
-        let function_ = Procname.hashable_name procname in
-        let file =
-          if Location.equal Location.dummy location then "unknown"
-          else SourceFile.to_rel_path location.Location.file
-        in
-        let line = if location.Location.line < 0 then None else Some location.Location.line in
-        write_json Location location_id
-          (Json.yojson_of_location {location= {id= Id.out location_id; function_; file; line}}) ) ;
+          let location =
+            match state_local with
+            | Start location | Exit location ->
+                location
+            | Normal node ->
+                PPNode.loc node
+          in
+          let function_ = Procname.hashable_name procname in
+          let file =
+            if Location.equal Location.dummy location then "unknown"
+            else SourceFile.to_rel_path location.Location.file
+          in
+          let line = if location.Location.line < 0 then None else Some location.Location.line in
+          write_json Location location_id
+            (Json.yojson_of_location {location= {id= Id.out location_id; function_; file; line}}) ) ;
       location_id
 
 
@@ -946,7 +946,7 @@ module Summary = struct
             let parents, children = List.fold ~init:(parents, children) ~f:remove_flow after in
             let do_pair (todo, (parents, children))
                 ((flow_ab : LineageGraph.flow), (flow_bc : LineageGraph.flow)) =
-              let keep = if is_interesting_flow flow_bc then flow_bc else flow_ab in
+              let keep = if is_interesting_flow flow_ab then flow_ab else flow_bc in
               let keep : LineageGraph.flow =
                 {keep with LineageGraph.source= flow_ab.source; target= flow_bc.target}
               in
@@ -1566,8 +1566,9 @@ let unskipped_checker ({InterproceduralAnalysis.proc_desc} as analysis) shapes_o
     ((last_writes, has_unsupported_features), local_edges)
   in
   let invmap = Analyzer.exec_pdesc analysis_data ~initial proc_desc in
+  let exit_node = CFG.exit_node cfg in
   let (exit_last_writes, exit_has_unsupported_features), _ =
-    match Analyzer.InvariantMap.find_opt (PPNode.id (CFG.exit_node cfg)) invmap with
+    match Analyzer.InvariantMap.find_opt (PPNode.id exit_node) invmap with
     | None ->
         L.die InternalError "no post for exit_node?"
     | Some {AbstractInterpreter.State.post} ->
@@ -1588,9 +1589,9 @@ let unskipped_checker ({InterproceduralAnalysis.proc_desc} as analysis) shapes_o
       | subfields ->
           Inject subfields
     in
-    let add_one_ret_index_edge local_edges ret_index ret_node =
-      LineageGraph.add_flow ~kind:(ret_edge_kind ret_index) ~node:ret_node
-        ~source:(Local (VariableIndex ret_index, ret_node))
+    let add_one_ret_index_edge local_edges ret_index ret_source_node =
+      LineageGraph.add_flow ~kind:(ret_edge_kind ret_index) ~node:exit_node
+        ~source:(Local (VariableIndex ret_index, ret_source_node))
         ~target:Return local_edges
     in
     let add_ret_index_edges local_edges ret_index =

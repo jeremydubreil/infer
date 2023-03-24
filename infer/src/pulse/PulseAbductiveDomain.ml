@@ -1330,7 +1330,7 @@ let filter_for_summary tenv proc_name astate0 =
      to restore their initial values at the end of the function. Removing them altogether achieves
      this. *)
   let astate = restore_formals_for_summary astate_before_filter in
-  let astate = {astate with topl= PulseTopl.filter_for_summary (topl_view astate) astate.topl} in
+  let astate = {astate with topl= PulseTopl.simplify (topl_view astate) astate.topl} in
   let astate, pre_live_addresses, post_live_addresses, dead_addresses =
     discard_unreachable_ ~for_summary:true astate
   in
@@ -1349,7 +1349,7 @@ let filter_for_summary tenv proc_name astate0 =
       astate.path_condition
   in
   let live_addresses = AbstractValue.Set.union live_addresses live_via_arithmetic in
-  ( {astate with path_condition; topl= PulseTopl.simplify (topl_view astate) astate.topl}
+  ( {astate with path_condition; topl= PulseTopl.filter_for_summary (topl_view astate) astate.topl}
   , live_addresses
   , (* we could filter out the [live_addresses] if needed; right now they might overlap *)
     dead_addresses
@@ -1477,14 +1477,16 @@ module Topl = struct
     {astate with topl= PulseTopl.small_step loc (topl_view astate) event astate.topl}
 
 
-  let large_step ~call_location ~callee_proc_name ~substitution ~callee_summary astate =
+  let large_step ~call_location ~callee_proc_name ~substitution ~callee_summary ~callee_is_manifest
+      astate =
     { astate with
       topl=
         PulseTopl.large_step ~call_location ~callee_proc_name ~substitution (topl_view astate)
-          ~callee_summary astate.topl }
+          ~callee_summary ~callee_is_manifest astate.topl }
 
 
-  let get {topl} = topl
+  let report_errors proc_desc err_log ~pulse_is_manifest astate =
+    PulseTopl.report_errors proc_desc err_log ~pulse_is_manifest astate.topl
 end
 
 (* re-exported for mli *)

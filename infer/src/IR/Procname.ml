@@ -183,8 +183,8 @@ module Java = struct
         F.fprintf fmt "%a%s" (pp_return_type ~verbose) j separator ;
         pp_package_method_and_params fmt j
     | Simple ->
-        (* [methodname(...)] or without ... if there are no parameters *)
         let params = match j.parameters with [] -> "" | _ -> "..." in
+        (* [methodname(...)] or without ... if there are no parameters *)
         let pp_method_name fmt j =
           if String.equal j.method_name constructor_method_name then
             F.pp_print_string fmt (get_simple_class_name j)
@@ -420,7 +420,7 @@ module ObjC_Cpp = struct
     | Non_verbose | NameOnly ->
         F.fprintf fmt "%s%s%s" (Typ.Name.name osig.class_name) sep osig.method_name
     | Verbose ->
-        F.fprintf fmt "%s%s%s%a%a" (Typ.Name.name osig.class_name) sep osig.method_name
+        F.fprintf fmt "%a%s%s%a%a" Typ.Name.pp osig.class_name sep osig.method_name
           Parameter.pp_parameters osig.parameters pp_verbose_kind osig.kind
 
 
@@ -655,19 +655,24 @@ module FunctionParameters = struct
 end
 
 module Hack = struct
-  type t = {class_name: string option; function_name: string}
+  type t = {class_name: HackClassName.t option; function_name: string}
   [@@deriving compare, equal, yojson_of, sexp, hash]
+
+  let get_class_type_name {class_name} = Option.map class_name ~f:(fun cn -> Typ.HackClass cn)
 
   let pp verbosity fmt t =
     match verbosity with
-    | Simple | Non_verbose | NameOnly ->
+    | NameOnly ->
         F.fprintf fmt "%s" t.function_name
-    | Verbose -> (
+    | Simple | Non_verbose | Verbose -> (
       match t.class_name with
       | Some class_name ->
-          F.fprintf fmt "%s.%s" class_name t.function_name
+          F.fprintf fmt "%a.%s" HackClassName.pp class_name t.function_name
       | _ ->
           F.fprintf fmt "%s" t.function_name )
+
+
+  let get_class_name {class_name} = Option.map class_name ~f:HackClassName.classname
 end
 
 (** Type of procedure names. *)
@@ -900,11 +905,20 @@ let rec replace_class t (new_class : Typ.Name.t) =
       CSharp {cs with class_name= new_class}
   | ObjC_Cpp osig ->
       ObjC_Cpp {osig with class_name= new_class}
+  | Hack h ->
+      let name =
+        match new_class with
+        | HackClass name ->
+            name
+        | _ ->
+            L.die InternalError "replace_class on ill-formed Hack type"
+      in
+      Hack {h with class_name= Some name}
   | WithAliasingParameters (base, aliases) ->
       WithAliasingParameters (replace_class base new_class, aliases)
   | WithFunctionParameters (base, functions) ->
       WithFunctionParameters (replace_class base new_class, functions)
-  | C _ | Block _ | Erlang _ | Hack _ | Linters_dummy_method ->
+  | C _ | Block _ | Erlang _ | Linters_dummy_method ->
       t
 
 
@@ -918,7 +932,9 @@ let get_class_type_name t =
       Some (ObjC_Cpp.get_class_type_name objc_pname)
   | Block block ->
       Block.get_class_type_name block
-  | _ ->
+  | Hack hack ->
+      Hack.get_class_type_name hack
+  | C _ | Erlang _ | WithAliasingParameters _ | WithFunctionParameters _ | Linters_dummy_method ->
       None
 
 
@@ -932,7 +948,9 @@ let get_class_name t =
       Some (ObjC_Cpp.get_class_name objc_pname)
   | Block block ->
       Block.get_class_name block
-  | _ ->
+  | Hack hack_pname ->
+      Hack.get_class_name hack_pname
+  | C _ | Erlang _ | WithAliasingParameters _ | WithFunctionParameters _ | Linters_dummy_method ->
       None
 
 
