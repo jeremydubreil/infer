@@ -192,7 +192,11 @@ module C : sig
     ; template_args: Typ.template_spec_info }
 
   val c :
-    QualifiedCppName.t -> string -> Parameter.clang_parameter list -> Typ.template_spec_info -> t
+       QualifiedCppName.t
+    -> ?mangled:string
+    -> Parameter.clang_parameter list
+    -> Typ.template_spec_info
+    -> t
   (** Create a C procedure name from plain and mangled name. *)
 
   val is_make_shared : t -> bool
@@ -221,7 +225,7 @@ module FunctionParameters : sig
 end
 
 module Hack : sig
-  type t = private {class_name: string option; function_name: string}
+  type t = private {class_name: HackClassName.t option; function_name: string}
 end
 
 (** Type of procedure names. WithFunctionParameters is used for creating an instantiation of a
@@ -341,7 +345,7 @@ val make_csharp :
 val make_erlang : module_name:string -> function_name:string -> arity:int -> t
 (** Create an Erlang procedure name. *)
 
-val make_hack : class_name:string option -> function_name:string -> t
+val make_hack : class_name:HackClassName.t option -> function_name:string -> t
 (** Create a Hack procedure name. *)
 
 val make_objc_dealloc : Typ.Name.t -> t

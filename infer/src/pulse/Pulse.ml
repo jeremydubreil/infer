@@ -20,7 +20,8 @@ exception AboutToOOM
 let report_topl_errors proc_desc err_log summary =
   let f = function
     | ContinueProgram astate ->
-        PulseTopl.report_errors proc_desc err_log (AbductiveDomain.Topl.get astate)
+        let pulse_is_manifest = PulseArithmetic.is_manifest astate in
+        AbductiveDomain.Topl.report_errors proc_desc err_log ~pulse_is_manifest astate
     | _ ->
         ()
   in
@@ -60,13 +61,19 @@ let report_unnecessary_copies proc_desc err_log non_disj_astate =
   let pname = Procdesc.get_proc_name proc_desc in
   if is_not_implicit_or_copy_ctor_assignment pname then
     PulseNonDisjunctiveDomain.get_copied non_disj_astate
-    |> List.iter ~f:(fun (copied_into, source_typ, location, copied_location, from) ->
+    |> List.iter ~f:(fun (copied_into, source_typ, source_opt, location, copied_location, from) ->
            let copy_name = Format.asprintf "%a" Attribute.CopiedInto.pp copied_into in
            let is_suppressed = PulseNonDisjunctiveOperations.has_copy_in copy_name in
            let location_instantiated = get_loc_instantiated pname in
            let diagnostic =
              Diagnostic.UnnecessaryCopy
-               {copied_into; source_typ; location; copied_location; location_instantiated; from}
+               { copied_into
+               ; source_typ
+               ; source_opt
+               ; location
+               ; copied_location
+               ; location_instantiated
+               ; from }
            in
            PulseReport.report ~is_suppressed ~latent:false proc_desc err_log diagnostic )
 
@@ -812,14 +819,28 @@ module PulseTransferFunctions = struct
       match instr with
       | Load {id= lhs_id; e= rhs_exp; loc; typ} ->
           (* [lhs_id := *rhs_exp] *)
+          let model_opt = PulseLoadInstrModels.dispatch ~load:rhs_exp in
           let deref_rhs astate =
-            (let** astate, rhs_addr_hist = PulseOperations.eval_deref path loc rhs_exp astate in
+            (let** astate, rhs_addr_hist =
+               match model_opt with
+               | None ->
+                   (* no model found: evaluate the expression as normal *)
+                   PulseOperations.eval_deref path loc rhs_exp astate
+               | Some model ->
+                   (* we are loading from something modelled; apply the model *)
+                   model {path; location= loc} astate
+             in
              and_is_int_if_integer_type typ (fst rhs_addr_hist) astate
              >>|| PulseOperations.write_id lhs_id rhs_addr_hist )
             |> SatUnsat.to_list
             |> PulseReport.report_results tenv proc_desc err_log loc
           in
-          let astates = set_global_astates path analysis_data rhs_exp typ loc astate in
+          let astates =
+            (* call the initializer for certain globals to populate their values, unless we already
+               have a model for it *)
+            if Option.is_some model_opt then [astate]
+            else set_global_astates path analysis_data rhs_exp typ loc astate
+          in
           let astate_n =
             match rhs_exp with
             | Lvar pvar ->
@@ -967,26 +988,16 @@ module PulseTransferFunctions = struct
   let pp_session_name _node fmt = F.pp_print_string fmt "Pulse"
 end
 
-module Out = struct
-  let channel_ref = ref None
+let summary_count_channel =
+  lazy
+    (let output_dir = Filename.concat Config.results_dir "pulse" in
+     Unix.mkdir_p output_dir ;
+     let filename = Format.asprintf "pulse-summary-count-%a.txt" Pid.pp (Unix.getpid ()) in
+     let channel = Filename.concat output_dir filename |> Out_channel.create in
+     let close_channel () = Out_channel.close_no_err channel in
+     Epilogues.register ~f:close_channel ~description:"close summary_count_channel for Pulse" ;
+     channel )
 
-  let channel () =
-    let output_dir = Filename.concat Config.results_dir "pulse" in
-    Unix.mkdir_p output_dir ;
-    match !channel_ref with
-    | None ->
-        let filename = Format.asprintf "pulse-summary-count-%a.txt" Pid.pp (Unix.getpid ()) in
-        let channel = Filename.concat output_dir filename |> Out_channel.create in
-        let close_channel () =
-          Option.iter !channel_ref ~f:Out_channel.close_no_err ;
-          channel_ref := None
-        in
-        Epilogues.register ~f:close_channel ~description:"close output channel for Pulse" ;
-        channel_ref := Some channel ;
-        channel
-    | Some channel ->
-        channel
-end
 
 module DisjunctiveAnalyzer =
   AbstractInterpreter.MakeDisjunctive
@@ -1047,10 +1058,24 @@ let exit_function analysis_data location posts non_disj_astate =
   (List.rev astates, astate_n)
 
 
+let log_summary_count proc_name summary =
+  let counts =
+    let summary_kinds = List.map ~f:ExecutionDomain.to_name summary in
+    let map =
+      let incr_or_one val_opt = match val_opt with Some v -> v + 1 | None -> 1 in
+      let update acc s = String.Map.update acc s ~f:incr_or_one in
+      List.fold summary_kinds ~init:String.Map.empty ~f:update
+    in
+    let alist = List.map ~f:(fun (s, i) -> (s, `Int i)) (String.Map.to_alist map) in
+    let pname = F.asprintf "%a" Procname.pp_verbose proc_name in
+    `Assoc (("procname", `String pname) :: alist)
+  in
+  Yojson.Basic.to_channel (Lazy.force summary_count_channel) counts ;
+  Out_channel.output_char (Lazy.force summary_count_channel) '\n'
+
+
 let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) =
-  if should_analyze proc_desc then (
-    AbstractValue.State.reset () ;
-    PulseTopl.Debug.dropped_disjuncts_count := 0 ;
+  if should_analyze proc_desc then
     let proc_name = Procdesc.get_proc_name proc_desc in
     let proc_attrs = Procdesc.get_attributes proc_desc in
     let initial =
@@ -1106,16 +1131,14 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
         ExecutionDomain.summary list option =
       if Config.trace_topl then
         L.debug Analysis Quiet "ToplTrace: dropped %d disjuncts in %a@\n"
-          !PulseTopl.Debug.dropped_disjuncts_count
+          (PulseTopl.Debug.get_dropped_disjuncts_count ())
           Procname.pp_unique_id
           (Procdesc.get_proc_name proc_desc) ;
-      if Config.pulse_scuba_logging then
-        ScubaLogging.log_count ~label:"pulse_summary" ~value:(List.length summary) ;
       let summary_count = List.length summary in
+      if Config.pulse_scuba_logging then
+        ScubaLogging.log_count ~label:"pulse_summary" ~value:summary_count ;
       Stats.add_pulse_summaries_count summary_count ;
-      ( if Config.pulse_log_summary_count then
-        let name = F.asprintf "%a" Procname.pp_verbose proc_name in
-        Printf.fprintf (Out.channel ()) "%s summaries: %d\n" name summary_count ) ;
+      if Config.pulse_log_summary_count then log_summary_count proc_name summary ;
       Some summary
     in
     let exn_sink_node_opt = Procdesc.get_exn_sink proc_desc in
@@ -1136,7 +1159,7 @@ let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data
           process_postconditions exit_node exit_summaries_opt ~convert_normal_to_exceptional:false
         in
         let exit_esink_summaries = summaries_for_exit @ summaries_at_exn_sink in
-        report_on_and_return_summaries exit_esink_summaries ) )
+        report_on_and_return_summaries exit_esink_summaries )
   else None
 
 

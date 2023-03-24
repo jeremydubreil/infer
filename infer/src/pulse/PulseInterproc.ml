@@ -237,9 +237,9 @@ let deref_non_c_struct addr typ astate =
 let materialize_pre_from_actual ~pre ~formal:(formal, typ) ~actual:(actual, _) call_state =
   L.d_printfln "Materializing PRE from [%a <- %a]" Var.pp formal AbstractValue.pp (fst actual) ;
   (let open IOption.Let_syntax in
-  let* addr_formal_pre, _ = BaseStack.find_opt formal pre.BaseDomain.stack in
-  let+ formal_pre = deref_non_c_struct addr_formal_pre typ pre.BaseDomain.heap in
-  materialize_pre_from_address ~pre ~addr_pre:formal_pre ~addr_hist_caller:actual call_state)
+   let* addr_formal_pre, _ = BaseStack.find_opt formal pre.BaseDomain.stack in
+   let+ formal_pre = deref_non_c_struct addr_formal_pre typ pre.BaseDomain.heap in
+   materialize_pre_from_address ~pre ~addr_pre:formal_pre ~addr_hist_caller:actual call_state )
   |> function Some result -> result | None -> Ok call_state
 
 
@@ -1024,10 +1024,11 @@ let apply_summary path callee_proc_name call_location ~callee_summary ~captured_
         in
         let astate =
           if Topl.is_active () then
+            let callee_is_manifest = PulseArithmetic.is_manifest callee_summary in
             AbductiveDomain.Topl.large_step ~call_location ~callee_proc_name
               ~substitution:call_state.subst
               ~callee_summary:(AbductiveDomain.Summary.get_topl callee_summary)
-              call_state.astate
+              ~callee_is_manifest call_state.astate
           else call_state.astate
         in
         let astate =

@@ -30,8 +30,8 @@ let do_source_file program tenv source_basename package_opt source_file =
   init_global_state source_file ;
   let cfg = JFrontend.compute_source_icfg program tenv source_basename package_opt source_file in
   ( if Config.dump_textual then
-    let filename = Filename.chop_extension (SourceFile.to_abs_path source_file) ^ ".sil" in
-    TextualSil.from_java ~filename tenv cfg ) ;
+      let filename = Filename.chop_extension (SourceFile.to_abs_path source_file) ^ ".sil" in
+      TextualSil.from_java ~filename tenv cfg ) ;
   store_icfg source_file cfg
 
 
@@ -87,7 +87,7 @@ let do_all_files sources program =
       Option.exists ~f:(fun re -> Str.string_match re path 0) Config.skip_analysis_in_path
     in
     is_path_matching (SourceFile.to_rel_path source_file)
-    || Inferconfig.skip_translation_matcher source_file Procname.empty_block
+    || Inferconfig.capture_block_list_file_matcher source_file
   in
   let translate_source_file basename package_opt source_file =
     if not (skip source_file) then do_source_file program tenv basename package_opt source_file

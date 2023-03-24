@@ -150,11 +150,11 @@ let config =
       "*//cxx.modules_default=false"
     ; "*//cxx.modules=false" ]
     @ ( if Config.buck_clang_use_toolchain_config then []
-      else
-        [ "*//infer.infer_bin=" ^ Config.bin_dir
-        ; "*//infer.binary=" ^ Config.infer_binary
-        ; "*//infer.clang_compiler=" ^ clang_path
-        ; "*//infer.clang_plugin=" ^ Config.clang_plugin_path ] )
+        else
+          [ "*//infer.infer_bin=" ^ Config.bin_dir
+          ; "*//infer.binary=" ^ Config.infer_binary
+          ; "*//infer.clang_compiler=" ^ clang_path
+          ; "*//infer.clang_plugin=" ^ Config.clang_plugin_path ] )
     @ ( match Config.xcode_developer_dir with
       | Some d ->
           [Printf.sprintf "apple.xcode_developer_dir=%s" d]
@@ -450,7 +450,7 @@ let parse_command_and_targets (buck_mode : BuckMode.t) (version : version) origi
     match (buck_mode, version, parsed_args) with
     | Clang, V1, {pattern_targets= []; alias_targets= []; normal_targets} ->
         normal_targets
-    | Clang, V2, {pattern_targets; alias_targets; normal_targets} ->
+    | Clang, V2, {pattern_targets; alias_targets; normal_targets} when Config.buck2_use_bxl ->
         pattern_targets |> List.rev_append alias_targets |> List.rev_append normal_targets
     | _, _, {pattern_targets; alias_targets; normal_targets} ->
         pattern_targets |> List.rev_append alias_targets |> List.rev_append normal_targets

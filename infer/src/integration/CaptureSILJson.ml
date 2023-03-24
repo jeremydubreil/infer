@@ -47,7 +47,7 @@ let parse_cil_type_name (str : string) : Typ.t =
     Typ.(
       mk_ptr
         (mk_struct
-           (CSharpClass (CSharpClassName.make ~namespace:(Some _namespace) ~classname:_name)) ))
+           (CSharpClass (CSharpClassName.make ~namespace:(Some _namespace) ~classname:_name)) ) )
   with _ ->
     Typ.(mk_ptr (mk_struct (CSharpClass (CSharpClassName.make ~namespace:None ~classname:str))))
 
@@ -580,7 +580,7 @@ let parse_stmt_nodekind (json : Safe.t) : Procdesc.Node.stmt_nodekind =
   | "ReturnStmt" ->
       Procdesc.Node.ReturnStmt
   | "Skip" ->
-      Procdesc.Node.Skip (to_string nk_comment)
+      Procdesc.Node.Skip
   | "SwitchStmt" ->
       Procdesc.Node.SwitchStmt
   | "ThisNotNull" ->
@@ -661,12 +661,10 @@ let parse_cfg (json : Safe.t) =
   List.iter
     ~f:(fun (_, pdjson) -> parse_pdesc cfg pd_id_to_pd pd_id_to_start_node pd_id_to_exit_node pdjson)
     (to_assoc (member "procs" json)) ;
-  let _ =
-    parse_list
-      (parse_node pd_id_to_pd nd_id_to_node nd_id_to_exn_nodes nd_id_to_pred_nodes
-         nd_id_to_succ_nodes )
-      (member "nodes" json)
-  in
+  parse_list
+    (parse_node pd_id_to_pd nd_id_to_node nd_id_to_exn_nodes nd_id_to_pred_nodes nd_id_to_succ_nodes)
+    (member "nodes" json)
+  |> ignore ;
   (* Now fix up the dangling ends *)
   IntTbl.iter
     (fun pd_id pd ->

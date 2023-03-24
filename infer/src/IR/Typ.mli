@@ -131,6 +131,8 @@ and template_spec_info =
 val pp_template_spec_info : Pp.env -> F.formatter -> template_spec_info -> unit
   [@@warning "-unused-value-declaration"]
 
+val is_template_spec_info_empty : template_spec_info -> bool
+
 val mk : ?default:t -> ?quals:type_quals -> desc -> t
 (** Create Typ.t from given desc. if [default] is passed then use its value to set other fields such
     as quals *)
@@ -161,9 +163,6 @@ val is_strong_pointer : t -> bool
 module Name : sig
   (** Named types. *)
   type t = name [@@deriving compare, yojson_of, sexp, hash]
-
-  val loose_compare : t -> t -> int
-  (** Similar to compare, but addresses [CStruct x] and [CppClass x] as equal. *)
 
   val compare_name : t -> t -> int
   (** Similar to compare, but compares only names, except template arguments. *)

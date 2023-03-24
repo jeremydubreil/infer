@@ -11,23 +11,22 @@ open! IStd
 
 module L = Logging
 module F = Format
+open Option.Monad_infix
 
 (* always incremented before use *)
 let nesting = ref (-1)
 
+let () = AnalysisGlobalState.register_ref nesting ~init:(fun () -> -1)
+
 let max_nesting_to_print = 8
 
-(* Remember what the last status sent was so that we can update the status correctly when entering
-   and exiting nested ondemand analyses. In particular we need to remember the original time.*)
-let current_taskbar_status : (Mtime.t * string) option ref = ref None
-
 let is_active, add_active, remove_active, clear_actives =
-  let currently_analyzed = ref Procname.Set.empty in
-  let is_active proc_name = Procname.Set.mem proc_name !currently_analyzed
-  and add_active proc_name = currently_analyzed := Procname.Set.add proc_name !currently_analyzed
-  and remove_active proc_name =
-    currently_analyzed := Procname.Set.remove proc_name !currently_analyzed
-  and clear_actives () = currently_analyzed := Procname.Set.empty in
+  let open Procname.HashSet in
+  let currently_analyzed = create 0 in
+  let is_active proc_name = mem currently_analyzed proc_name in
+  let add_active proc_name = add proc_name currently_analyzed in
+  let remove_active proc_name = remove proc_name currently_analyzed in
+  let clear_actives () = clear currently_analyzed in
   (is_active, add_active, remove_active, clear_actives)
 
 
@@ -36,67 +35,34 @@ let procedure_should_be_analyzed proc_name =
   |> Option.exists ~f:(fun proc_attributes -> proc_attributes.ProcAttributes.is_defined)
 
 
-type global_state =
-  { abs_val: int
-  ; abstraction_rules: Abs.rules
-  ; delayed_prints: L.delayed_prints
-  ; disjunctive_demo_state: int
-  ; footprint_mode: bool
-  ; html_formatter: F.formatter
-  ; name_generator: Ident.NameGenerator.t
-  ; proc_analysis_time: (Mtime.Span.t * string) option
-        (** the time elapsed doing [status] so far *)
-  ; pulse_address_generator: PulseAbstractValue.State.t
-  ; absint_state: AnalysisState.t
-  ; biabduction_state: State.t
-  ; current_procname: Procname.t option
-  ; taskbar_nesting: int
-  ; checker_timer_state: Timer.state }
+(* Remember what the last status sent was so that we can update the status correctly when entering
+   and exiting nested ondemand analyses. In particular we need to remember the original time.*)
+let current_taskbar_status : (Mtime.t * string) option ref = ref None
 
-let save_global_state () =
-  Timeout.suspend_existing_timeout ~keep_symop_total:false ;
-  (* use a new global counter for the callee *)
-  { abs_val= !BiabductionConfig.abs_val
-  ; abstraction_rules= Abs.get_current_rules ()
-  ; delayed_prints= L.get_and_reset_delayed_prints ()
-  ; disjunctive_demo_state= !DisjunctiveDemo.node_id
-  ; footprint_mode= !BiabductionConfig.footprint
-  ; html_formatter= !Printer.curr_html_formatter
-  ; name_generator= Ident.NameGenerator.get_current ()
-  ; proc_analysis_time=
-      Option.map !current_taskbar_status ~f:(fun (t0, status) ->
-          (Mtime.span t0 (Mtime_clock.now ()), status) )
-  ; pulse_address_generator= PulseAbstractValue.State.get ()
-  ; absint_state= AnalysisState.save ()
-  ; biabduction_state= State.save_state ()
-  ; current_procname= Tenv.Deps.get_current_proc ()
-  ; taskbar_nesting= !nesting
-  ; checker_timer_state= Timer.suspend () }
-
-
-let restore_global_state st =
-  BiabductionConfig.abs_val := st.abs_val ;
-  Abs.set_current_rules st.abstraction_rules ;
-  L.set_delayed_prints st.delayed_prints ;
-  BiabductionConfig.footprint := st.footprint_mode ;
-  Printer.curr_html_formatter := st.html_formatter ;
-  DisjunctiveDemo.node_id := st.disjunctive_demo_state ;
-  Ident.NameGenerator.set_current st.name_generator ;
-  PulseAbstractValue.State.set st.pulse_address_generator ;
-  AnalysisState.restore st.absint_state ;
-  Tenv.Deps.set_current_proc st.current_procname ;
-  State.restore_state st.biabduction_state ;
-  current_taskbar_status :=
-    Option.map st.proc_analysis_time ~f:(fun (suspended_span, status) ->
+let () =
+  let open IOption.Let_syntax in
+  AnalysisGlobalState.register
+    ~save:(fun () ->
+      let+ t0, status = !current_taskbar_status in
+      (* the time elapsed doing [status] so far *)
+      (Mtime.span t0 (Mtime_clock.now ()), status) )
+    ~restore:(fun proc_analysis_time ->
+      current_taskbar_status :=
+        let+ suspended_span, status = proc_analysis_time in
         (* forget about the time spent doing a nested analysis and resend the status of the outer
            analysis with the updated "original" start time *)
-        let new_t0 = Mtime.sub_span (Mtime_clock.now ()) suspended_span in
-        let new_t0 = Option.value_exn new_t0 in
+        let new_t0 = Mtime.sub_span (Mtime_clock.now ()) suspended_span |> Option.value_exn in
         !ProcessPoolState.update_status new_t0 status ;
-        (new_t0, status) ) ;
-  Timeout.resume_previous_timeout () ;
-  nesting := st.taskbar_nesting ;
-  Timer.resume st.checker_timer_state
+        (new_t0, status) )
+    ~init:(fun _ -> current_taskbar_status := None)
+
+
+let () =
+  (* register [Logging] and [Timer]'s global states here because this requires knowing about [Procname.t] but
+     they live in base/ which is too low in the dependency tree *)
+  AnalysisGlobalState.register ~save:L.get_and_reset_delayed_prints ~restore:L.set_delayed_prints
+    ~init:L.reset_delayed_prints ;
+  AnalysisGlobalState.register ~save:Timer.suspend ~restore:Timer.resume ~init:(fun () -> ())
 
 
 (** reference to log errors only at the innermost recursive call *)
@@ -129,9 +95,8 @@ let analyze exe_env callee_summary callee_pdesc =
   summary
 
 
-let run_proc_analysis exe_env ~caller_pdesc callee_pdesc =
+let run_proc_analysis exe_env ?caller_pname callee_pdesc =
   let callee_pname = Procdesc.get_proc_name callee_pdesc in
-  Tenv.Deps.set_current_proc (Some callee_pname) ;
   let callee_attributes = Procdesc.get_attributes callee_pdesc in
   let log_elapsed_time =
     let start_time = Mtime_clock.counter () in
@@ -143,17 +108,16 @@ let run_proc_analysis exe_env ~caller_pdesc callee_pdesc =
         "Elapsed analysis time: %a: %a@\n" Procname.pp callee_pname Mtime.Span.pp elapsed
   in
   if Config.trace_ondemand then
-    L.progress "[%d] run_proc_analysis %a -> %a@." !nesting (Pp.option Procname.pp)
-      (Option.map caller_pdesc ~f:Procdesc.get_proc_name)
+    L.progress "[%d] run_proc_analysis %a -> %a@." !nesting (Pp.option Procname.pp) caller_pname
       Procname.pp callee_pname ;
   let preprocess () =
     incr nesting ;
     let source_file = callee_attributes.ProcAttributes.translation_unit in
     update_taskbar (Some callee_pname) (Some source_file) ;
+    let initial_callee_summary = Summary.OnDisk.reset callee_pname in
     Preanal.do_preanalysis exe_env callee_pdesc ;
     if Config.debug_mode then
       DotCfg.emit_proc_desc callee_attributes.translation_unit callee_pdesc |> ignore ;
-    let initial_callee_summary = Summary.OnDisk.reset callee_pname in
     add_active callee_pname ;
     initial_callee_summary
   in
@@ -223,14 +187,14 @@ let run_proc_analysis exe_env ~caller_pdesc callee_pdesc =
 
 
 (* shadowed for tracing *)
-let run_proc_analysis exe_env ~caller_pdesc callee_pdesc =
+let run_proc_analysis exe_env ?caller_pname callee_pdesc =
   PerfEvent.(
     log (fun logger ->
         let callee_pname = Procdesc.get_proc_name callee_pdesc in
         log_begin_event logger ~name:"ondemand" ~categories:["backend"]
           ~arguments:[("proc", `String (Procname.to_string callee_pname))]
-          () )) ;
-  let summary = run_proc_analysis exe_env ~caller_pdesc callee_pdesc in
+          () ) ) ;
+  let summary = run_proc_analysis exe_env ?caller_pname callee_pdesc in
   PerfEvent.(log (fun logger -> log_end_event logger ())) ;
   summary
 
@@ -266,9 +230,9 @@ let dump_duplicate_procs source_file procs =
   if not (List.is_empty duplicate_procs) then output_to_file duplicate_procs
 
 
-let register_callee ?caller_summary callee_pname =
-  Option.iter caller_summary
-    ~f:Summary.(fun {dependencies} -> Deps.add_exn dependencies callee_pname)
+let register_callee ?caller_summary callee =
+  Option.iter caller_summary ~f:(fun {Summary.proc_name= caller} ->
+      Dependencies.record_pname_dep ~caller callee )
 
 
 let analyze_callee exe_env ~lazy_payloads ?caller_summary callee_pname =
@@ -280,32 +244,28 @@ let analyze_callee exe_env ~lazy_payloads ?caller_summary callee_pname =
         summ_opt
     | None when procedure_should_be_analyzed callee_pname ->
         Procdesc.load callee_pname
-        |> Option.bind ~f:(fun callee_pdesc ->
-               RestartScheduler.lock_exn callee_pname ;
-               let previous_global_state = save_global_state () in
-               let callee_summary =
-                 protect
-                   ~f:(fun () ->
-                     Timer.time Preanalysis
-                       ~f:(fun () ->
-                         let caller_pdesc =
-                           Option.bind
-                             ~f:(fun {Summary.proc_name} -> Procdesc.load proc_name)
-                             caller_summary
-                         in
-                         Some (run_proc_analysis exe_env ~caller_pdesc callee_pdesc) )
-                       ~on_timeout:(fun span ->
-                         L.debug Analysis Quiet
-                           "TIMEOUT after %fs of CPU time analyzing %a:%a, outside of any checkers \
-                            (pre-analysis timeout?)@\n"
-                           span SourceFile.pp
-                           (Procdesc.get_attributes callee_pdesc).translation_unit Procname.pp
-                           callee_pname ;
-                         None ) )
-                   ~finally:(fun () -> restore_global_state previous_global_state)
-               in
-               RestartScheduler.unlock callee_pname ;
-               callee_summary )
+        >>= fun callee_pdesc ->
+        RestartScheduler.lock_exn callee_pname ;
+        let previous_global_state = AnalysisGlobalState.save () in
+        AnalysisGlobalState.initialize callee_pname ;
+        let callee_summary =
+          protect
+            ~f:(fun () ->
+              Timer.time Preanalysis
+                ~f:(fun () ->
+                  let caller_pname = caller_summary >>| fun summ -> summ.Summary.proc_name in
+                  Some (run_proc_analysis exe_env ?caller_pname callee_pdesc) )
+                ~on_timeout:(fun span ->
+                  L.debug Analysis Quiet
+                    "TIMEOUT after %fs of CPU time analyzing %a:%a, outside of any checkers \
+                     (pre-analysis timeout?)@\n"
+                    span SourceFile.pp (Procdesc.get_attributes callee_pdesc).translation_unit
+                    Procname.pp callee_pname ;
+                  None ) )
+            ~finally:(fun () -> AnalysisGlobalState.restore previous_global_state)
+        in
+        RestartScheduler.unlock callee_pname ;
+        callee_summary
     | _ ->
         None
 

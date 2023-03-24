@@ -96,8 +96,7 @@ OPTIONS
 
        --debug-level level
            Debug level (sets --bo-debug level, --debug-level-analysis level,
-           --debug-level-capture level, --debug-level-linters level):       
-      - 0: only basic debugging enabled
+           --debug-level-capture level):             - 0: only basic debugging enabled
              - 1: verbose debugging enabled
              - 2: very verbose debugging enabled
 
@@ -109,17 +108,13 @@ OPTIONS
            Debug level for the capture. See --debug-level for accepted
            values.
 
-       --debug-level-linters int
-           Debug level for the linters. See --debug-level for accepted
-           values.
-
        --no-deduplicate
            Deactivates: Apply issue-specific deduplication during analysis
            and/or reporting. (Conversely: --deduplicate)
 
        --no-default-checkers
            Deactivates: Default checkers: --biabduction,
-           --fragment-retains-view, --inefficient-keyset-iterator, --linters,
+           --fragment-retains-view, --inefficient-keyset-iterator,
            --liveness, --parameter-not-null-checked, --racerd, --siof,
            --self-in-block, --starvation (Conversely: --default-checkers)
 
@@ -199,14 +194,6 @@ OPTIONS
            Activates: Keep going when the analysis or capture encounter a
            failure (Conversely: --no-keep-going)
 
-       --no-linters
-           Deactivates: checker linters: Declarative linting framework over
-           the Clang AST. (Conversely: --linters)
-
-       --linters-only
-           Activates: Enable linters and disable all other checkers
-           (Conversely: --no-linters-only)
-
        --litho-required-props
            Activates: checker litho-required-props: Checks that all
            non-optional `@Prop`s have been specified when constructing Litho
@@ -246,6 +233,14 @@ OPTIONS
 
        --memtrace-sampling-rate float
            Sampling rate for Memtrace allocation profiling. Default is 1e-6.
+
+       --modeled-expensive json
+           Matcher or list of matchers for methods that should be considered
+           expensive by the performance critical checker.
+
+       --never-returning-null json
+           [Java only, all analyses] Matcher or list of matchers for
+           functions that never return null.
 
        --no-parameter-not-null-checked
            Deactivates: checker parameter-not-null-checked: An
@@ -448,10 +443,6 @@ OPTIONS
        --xcode-isysroot-suffix string
            Specify the suffix of Xcode isysroot directory, to avoid absolute
            paths in tests
-BUCK OPTIONS
-       --merge
-           Activates: Merge the captured results directories specified in the
-           dependency file. (Conversely: --no-merge)
 BUFFER OVERRUN OPTIONS
        --no-bo-assume-void
            Deactivates: Assume void type as a type of record fields not in
@@ -468,6 +459,11 @@ BUFFER OVERRUN OPTIONS
 
        --bo-debug int
            Debug level for buffer-overrun checker (0-4)
+
+       --bo-exit-frontend-gener-vars
+           Activates: Put frontend generated variables out of scope when they
+           are listed in exit scope instruction. (Conversely:
+           --no-bo-exit-frontend-gener-vars)
 
        --bo-field-depth-limit int
            Limit of field depth of abstract location in buffer-overrun
@@ -490,8 +486,6 @@ CLANG OPTIONS
            specify "overrides" (by symbol or path prefix) that block the
            reachability analysis when hit. Example:           {
                "ISOLATED_REACHING_CONNECT": {
-                 "doc_url":
-           "http:://example.com/issue/doc/optional_link.html",
                  "sources": {
                    "desc": "Code that should not call connect [optional]",
                    "paths": [ "isolated/" ]
@@ -528,6 +522,12 @@ CLANG OPTIONS
        --dynamic-dispatch-json-file-path path
            Dynamic dispatch file path to get the JSON used for method name
            substitution
+
+       --inline-func-pointer-for-testing string
+           Enables substituting global function pointers used for testing
+           with the real function calls in the clang frontend. Pass the
+           prefix used to build the global function pointers used for
+           testing.
 
        --liveness-dangerous-classes json
            Specify classes where the destructor should be ignored when
@@ -735,13 +735,21 @@ PULSE CHECKER OPTIONS
            the following combinations of fields to identify relevant
            procedures:             - "procedure": match a substring of the procedure name
              - "procedure_regex": as above, but match using an OCaml regex
+             - "class_name_regex": match all methods of classes whose names
+           match the OCaml regex
              - "class_names" and "method_names":
                  match exact uses of methods of particular classes
+             - "class_names" and "method_return_type_names":
+                 match exact uses of methods with particular return types of
+           particular classes
              - "overrides_of_class_with_annotation":
                  match all procedures defined in classes which inherit
                  from a superclass with the specified annotation
              - "allocation": (for taint sources only)
                  match allocations of the exact class name supplied
+             - "block_passed_to": (for taint sources only)
+                match a substring of the procedure name that the block is
+           passed to
            
              Each object can also optionally specify:
              - "kinds": the kinds of taint, used in --pulse-taint-policies
@@ -762,8 +770,6 @@ PULSE CHECKER OPTIONS
                      fields given by name in return value, arguments or
            other fields
                N.B. for methods, index 0 is this/self.
-             - "match_objc_blocks": boolean, "false" by default
-                 "true" if only Objective-C blocks should be matched.
 
        --pulse-widen-threshold int
            Stop exploring new paths after int loop iterations

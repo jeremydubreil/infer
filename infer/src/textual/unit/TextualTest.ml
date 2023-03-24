@@ -49,6 +49,7 @@ let%test_module "parsing" =
       F.printf "%s" (Lang.to_string lang) ;
       [%expect {| hack |}]
 
+
     let%expect_test _ =
       let module_ = parse_module text in
       F.printf "%a" Module.pp module_ ;
@@ -65,6 +66,7 @@ let%test_module "parsing" =
               ret null
 
         } |}]
+
 
     let text =
       {|
@@ -96,6 +98,7 @@ let%test_module "parsing" =
 
         } |}]
 
+
     let text =
       {|
        type A = {f1: int; f2: int}
@@ -114,6 +117,7 @@ let%test_module "parsing" =
         type B = {f3: bool}
 
         type C extends A, B = {f4: bool} |}]
+
 
     let%expect_test "ellipsis" =
       let m =
@@ -138,6 +142,7 @@ let%test_module "parsing" =
         declare foo() : *Mixed
 
         declare bar(int, float) : *Mixed |}]
+
 
     let%expect_test "numbers lexing" =
       let text =
@@ -182,6 +187,7 @@ let%test_module "parsing" =
         } |}]
   end )
 
+
 let%test_module "procnames" =
   ( module struct
     let%expect_test _ =
@@ -204,6 +210,7 @@ let%test_module "procnames" =
         toplevel |}]
   end )
 
+
 let%test_module "to_sil" =
   ( module struct
     let%expect_test _ =
@@ -215,12 +222,24 @@ let%test_module "to_sil" =
         [%expect
           {| dummy.sil, <unknown location>: transformation error: Missing or unsupported source_language attribute |}]
 
+
     let%expect_test "undefined types are included in tenv" =
       let source =
         {|
           .source_language = "hack"
           type Foo {}
-          define f(arg1: Foo, arg2: Bar) : void { #n: ret null }
+          define Foo.f(arg1: Foo, arg2: Bar) : void { #n: ret null }
+          declare Foo.undef() : void
+          define Bar.f() : void {
+            #entry:
+              ret null
+          }
+          define g() : void {
+            local l1: *Quux
+            #n:
+              n0 = __sil_allocate(<Baz>)
+              ret null
+          }
           |}
       in
       let m = parse_module source in
@@ -228,7 +247,29 @@ let%test_module "to_sil" =
       F.printf "%a@\n" Tenv.pp tenv ;
       [%expect
         {|
+         hack Quux
+         fields: {}
+         statics: {}
+         supers: {}
+         objc_protocols: {}
+         methods: {}
+         exported_obj_methods: {}
+         annots: {<>}
+         java_class_info: {[None]}
+         dummy: true
          hack Bar
+         fields: {}
+         statics: {}
+         supers: {}
+         objc_protocols: {}
+         methods: {
+                     Bar.f
+                   }
+         exported_obj_methods: {}
+         annots: {<>}
+         java_class_info: {[None]}
+         dummy: false
+         hack Baz
          fields: {}
          statics: {}
          supers: {}
@@ -243,12 +284,59 @@ let%test_module "to_sil" =
          statics: {}
          supers: {}
          objc_protocols: {}
-         methods: {}
+         methods: {
+                     Foo.f
+                     Foo.undef
+                   }
          exported_obj_methods: {}
          annots: {<>}
          java_class_info: {[None]}
          dummy: false |}]
+
+
+    let%expect_test "unknown formal calls" =
+      let source =
+        {|
+         .source_language = "hack"
+         declare unknown(...) : *HackMixed
+         declare known(*HackInt) : void
+
+         define foo(x: *Foo, y: *HackInt) : void {
+         #b0:
+           n0: *HackMixed = load &x
+           n1 = unknown(n0)
+           n2: *HackMixed = load &y
+           n3 = known(n2)
+           ret null
+         }
+         |}
+      in
+      let m = parse_module source in
+      let cfg, _ = TextualSil.module_to_sil m in
+      Cfg.iter_sorted cfg ~f:(fun pdesc ->
+          F.printf "%a" (Procdesc.pp_with_instrs ~print_types:true) pdesc ) ;
+      [%expect
+        {|
+        { proc_name= foo
+        ; translation_unit= dummy.sil
+        ; formals= [(x,Foo*);  (y,HackInt*)]
+        ; is_defined= true
+        ; loc= dummy.sil:6:16
+        ; locals= []
+        ; ret_type= void
+        ; proc_id= foo }
+            #n1:
+
+            #n3:
+              n$0=*&x:HackMixed* [line 8, column 11];
+              n$1=_fun_unknown(n$0:HackMixed*) [line 9, column 11];
+              n$2=*&y:HackMixed* [line 10, column 11];
+              n$3=_fun_known(n$2:HackInt*) [line 11, column 11];
+              *&return:void=0 [line 12, column 11];
+
+            #n2: |}]
   end )
+
 
 let%test_module "remove_internal_calls transformation" =
   ( module struct
@@ -340,6 +428,7 @@ let%test_module "remove_internal_calls transformation" =
         } |}]
   end )
 
+
 let%test_module "let_propagation transformation" =
   ( module struct
     let input_text =
@@ -376,6 +465,7 @@ let%test_module "let_propagation transformation" =
 
         } |}]
   end )
+
 
 let%test_module "out-of-ssa transformation" =
   ( module struct
@@ -436,6 +526,7 @@ let%test_module "out-of-ssa transformation" =
         } |}]
   end )
 
+
 let%test_module "keywords as ident" =
   ( module struct
     let input_text =
@@ -458,6 +549,7 @@ let%test_module "keywords as ident" =
 
           } |}]
   end )
+
 
 let%test_module "line map" =
   ( module struct
