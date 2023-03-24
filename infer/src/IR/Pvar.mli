@@ -123,6 +123,7 @@ val mk_global :
   -> ?is_constant_array:bool
   -> ?is_const:bool
   -> ?translation_unit:SourceFile.t
+  -> ?template_args:Typ.template_spec_info
   -> Mangled.t
   -> t
 (** create a global variable with the given name *)
@@ -171,6 +172,8 @@ val is_local_to_procedure : Procname.t -> t -> bool
 
 val get_initializer_pname : t -> Procname.t option
 (** Get the procname of the initializer function for the given global variable *)
+
+val get_template_args : t -> Typ.template_spec_info
 
 val materialized_cpp_temporary : string
 

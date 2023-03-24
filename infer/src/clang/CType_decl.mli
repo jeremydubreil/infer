@@ -48,11 +48,14 @@ val class_from_pointer_type : Tenv.t -> Clang_ast_t.qual_type -> Typ.Name.t
 
 val get_type_from_expr_info : Clang_ast_t.expr_info -> Tenv.t -> Typ.t
 
+val get_template_args :
+  Tenv.t -> Clang_ast_t.template_instantiation_arg_info list -> Typ.template_arg list
+
 val method_signature_of_decl :
      Tenv.t
   -> Clang_ast_t.decl
   -> ?block_return_type:Clang_ast_t.qual_type
-  -> ?passed_as_noescape_block_to:Procname.t option
+  -> ?block_as_arg_attributes:ProcAttributes.block_as_arg_attributes option
   -> Procname.t
   -> CMethodSignature.t
 
@@ -60,7 +63,7 @@ val method_signature_body_of_decl :
      Tenv.t
   -> Clang_ast_t.decl
   -> ?block_return_type:Clang_ast_t.qual_type
-  -> ?passed_as_noescape_block_to:Procname.t option
+  -> ?block_as_arg_attributes:ProcAttributes.block_as_arg_attributes option
   -> Procname.t
   -> CMethodSignature.t * Clang_ast_t.stmt option * CFrontend_config.instr_type list
 

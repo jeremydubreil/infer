@@ -99,7 +99,7 @@ module Node = struct
     | OutOfBound
     | ReturnStmt
     | Scope of string
-    | Skip of string
+    | Skip
     | SwitchStmt
     | ThisNotNull
     | Throw
@@ -376,8 +376,8 @@ module Node = struct
         F.pp_print_string fmt "Return Stmt"
     | Scope descr ->
         F.fprintf fmt "Scope(%s)" descr
-    | Skip reason ->
-        F.pp_print_string fmt reason
+    | Skip ->
+        F.pp_print_string fmt "Skip"
     | SwitchStmt ->
         F.pp_print_string fmt "SwitchStmt"
     | ThisNotNull ->
@@ -390,11 +390,22 @@ module Node = struct
         F.pp_print_string fmt "UnaryOperator"
 
 
-  let pp_instrs ~highlight pe0 f node =
+  let pp_instrs ?print_types ~highlight pe0 f node =
     let pe =
       match highlight with None -> pe0 | Some instr -> Pp.extend_colormap pe0 (Obj.repr instr) Red
     in
-    Instrs.pp pe f (get_instrs node)
+    Instrs.pp ?print_types pe f (get_instrs node)
+
+
+  let pp_with_instrs ?print_types f node =
+    (* Desired output
+       #n{id}:
+         instr1
+         instr2
+    *)
+    F.fprintf f "@[<v>#n%a:@;<0 2>%a@,@]" pp node
+      (pp_instrs ?print_types ~highlight:None Pp.text)
+      node
 
 
   let d_instrs ~highlight (node : t) = L.d_pp_with_pe ~color:Green (pp_instrs ~highlight) node
@@ -774,19 +785,19 @@ end
 
 module WTO = WeakTopologicalOrder.Bourdoncle_SCC (PreProcCfg)
 
+let init_wto pdesc =
+  let wto = WTO.make pdesc in
+  let (_ : int) =
+    WeakTopologicalOrder.Partition.fold_nodes wto ~init:0 ~f:(fun idx node ->
+        node.Node.wto_index <- idx ;
+        idx + 1 )
+  in
+  pdesc.wto <- Some wto
+
+
 let get_wto pdesc =
-  match pdesc.wto with
-  | Some wto ->
-      wto
-  | None ->
-      let wto = WTO.make pdesc in
-      let (_ : int) =
-        WeakTopologicalOrder.Partition.fold_nodes wto ~init:0 ~f:(fun idx node ->
-            node.Node.wto_index <- idx ;
-            idx + 1 )
-      in
-      pdesc.wto <- Some wto ;
-      wto
+  if Option.is_none pdesc.wto then init_wto pdesc ;
+  Option.value_exn pdesc.wto
 
 
 (** Get loop heads for widening. It collects all target nodes of back-edges in a depth-first
@@ -873,6 +884,18 @@ let pp_signature fmt pdesc =
   if not (Annot.Item.is_empty ret_annots) then
     Format.fprintf fmt ", Return annotations: %a" Annot.Item.pp ret_annots ;
   Format.fprintf fmt "]@]@;"
+
+
+let pp_with_instrs ?print_types fmt pdesc =
+  (* Desired output:
+     {signature}
+       {instrs}
+  *)
+  F.fprintf fmt "%a@;<0 4>@[<v>" ProcAttributes.pp (get_attributes pdesc) ;
+  let wto = get_wto pdesc in
+  WeakTopologicalOrder.Partition.iter_nodes wto ~f:(fun node ->
+      F.fprintf fmt "%a" (Node.pp_with_instrs ?print_types) node ) ;
+  F.fprintf fmt "@,@]"
 
 
 let is_specialized pdesc =

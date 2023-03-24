@@ -22,6 +22,7 @@ type mode =
   | BuckGenrule of {prog: string}
   | BuckJavaFlavor of {build_cmd: string list}
   | BxlClang of {build_cmd: string list}
+  | BxlClangFile
   | Clang of {compiler: Clang.compiler; prog: string; args: string list}
   | ClangCompilationDB of {db_files: [`Escaped of string | `Raw of string] list}
   | Gradle of {prog: string; args: string list}
@@ -32,7 +33,7 @@ type mode =
   | Rebar3 of {args: string list}
   | Erlc of {args: string list}
   | Hackc of {prog: string; args: string list}
-  | Textual of {textualfiles: string list; dolifiles: string list}
+  | Textual of {textualfiles: string list}
   | XcodeBuild of {prog: string; args: string list}
   | XcodeXcpretty of {prog: string; args: string list}
 

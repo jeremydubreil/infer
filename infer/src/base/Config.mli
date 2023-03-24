@@ -177,6 +177,8 @@ val bo_context_sensitive_allocsites : bool
 
 val bo_assume_void : bool
 
+val bo_exit_frontend_gener_vars : bool
+
 val bootclasspath : string option
 
 val buck : bool
@@ -217,15 +219,15 @@ val buck2_root : string
 
 val buck_targets_block_list : string list
 
+val bxl_file_capture : bool
+
 val capture : bool
 
-val capture_block_list : string option
-
-val capture_textual : string list
+val capture_block_list : string * Yojson.Basic.t
 
 val capture_doli : string list
 
-val parse_doli : string option
+val capture_textual : string list
 
 val censor_report : ((bool * Str.regexp) * (bool * Str.regexp) * string) list
 
@@ -316,8 +318,6 @@ val debug_exceptions : bool
 val debug_level_analysis : int
 
 val debug_level_capture : int
-
-val debug_level_linters : int
 
 val debug_level_test_determinator : int
 
@@ -412,6 +412,8 @@ val impurity_report_immutable_modifications : bool
 
 val incremental_analysis : bool
 
+val inline_func_pointer_for_testing : string option
+
 val infer_is_clang : bool
 
 val infer_is_javac : bool
@@ -450,8 +452,6 @@ val keep_going : bool
 
 val kotlin_capture : bool
 
-val linters_ignore_clang_failures : bool
-
 val list_checkers : bool
 
 val list_issue_types : bool
@@ -472,8 +472,6 @@ val memtrace_analysis : bool
 
 val memtrace_sampling_rate : float
 
-val merge : bool
-
 val merge_capture : string list
 
 val merge_report : string list
@@ -482,7 +480,11 @@ val merge_report_summaries : string list
 
 val method_decls_info : string option
 
+val modeled_expensive : string * Yojson.Basic.t
+
 val modified_lines : string option
+
+val never_returning_null : string * Yojson.Basic.t
 
 val no_censor_report : Str.regexp list
 
@@ -506,13 +508,11 @@ val oom_threshold : int option
 
 val only_cheap_debug : bool
 
-val patterns_modeled_expensive : string * Yojson.Basic.t
-
-val patterns_never_returning_null : string * Yojson.Basic.t
-
-val patterns_skip_translation : string * Yojson.Basic.t
+val parse_doli : string option
 
 val pmd_xml : bool
+
+val preanalysis_html : bool
 
 val print_active_checkers : bool
 
@@ -546,6 +546,8 @@ val procedures_summary : bool
 
 val procedures_summary_json : bool
 
+val procedures_summary_skip_empty : bool
+
 val process_clang_ast : bool
 
 val profiler_samples : string option
@@ -555,6 +557,8 @@ val progress_bar : [`MultiLine | `Plain | `Quiet]
 val project_root : string
 
 val pulse_cut_to_one_path_procedures_pattern : Str.regexp option
+
+val pulse_force_continue : bool
 
 val pulse_inline_global_init_func_pointer : bool
 
@@ -801,6 +805,8 @@ val topl_max_conjuncts : int
 val topl_max_disjuncts : int
 
 val topl_properties : ToplAst.t list
+
+val topl_report_latent_issues : bool
 
 val trace_absarray : bool
 

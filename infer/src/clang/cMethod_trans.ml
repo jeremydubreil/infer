@@ -30,19 +30,18 @@ let method_signature_of_pointer tenv pointer =
   with CFrontend_errors.Invalid_declaration -> None
 
 
-let get_method_name_from_clang tenv ms_opt =
+let get_method_name_from_clang ms_opt =
   match ms_opt with
   | Some ms -> (
     match CAst_utils.get_decl_opt ms.CMethodSignature.pointer_to_parent with
     | Some decl -> (
-        ignore (CType_decl.add_types_from_decl_to_tenv tenv decl) ;
-        match ObjcCategory_decl.get_base_class_name_from_category decl with
-        | Some class_typename ->
-            let procname = ms.CMethodSignature.name in
-            let new_procname = Procname.replace_class procname class_typename in
-            Some new_procname
-        | None ->
-            Some ms.CMethodSignature.name )
+      match ObjcCategory_decl.get_base_class_name_from_category decl with
+      | Some class_typename ->
+          let procname = ms.CMethodSignature.name in
+          let new_procname = Procname.replace_class procname class_typename in
+          Some new_procname
+      | None ->
+          Some ms.CMethodSignature.name )
     | None ->
         Some ms.CMethodSignature.name )
   | None ->
@@ -247,7 +246,7 @@ let create_attributes_helper ?loc_instantiated ?(set_objc_accessor_attr = false)
   ; is_cpp_implicit= ms.CMethodSignature.is_cpp_implicit
   ; is_defined= defined
   ; is_biabduction_model= Config.biabduction_models_mode
-  ; passed_as_noescape_block_to= ms.CMethodSignature.passed_as_noescape_block_to
+  ; block_as_arg_attributes= ms.CMethodSignature.block_as_arg_attributes
   ; is_no_return= ms.CMethodSignature.is_no_return
   ; is_objc_arc_on= trans_unit_ctx.CFrontend_config.is_objc_arc_on
   ; is_variadic= ms.CMethodSignature.is_variadic
@@ -326,14 +325,14 @@ let create_local_procdesc ?loc_instantiated ?(set_objc_accessor_attr = false)
        then we want to record captured variables in the previously created procdesc *)
     ignore
       ( if record_lambda_captured then
-        match Procname.Hash.find cfg proc_name with
-        | procdesc_prev ->
-            let new_attributes =
-              {(Procdesc.get_attributes procdesc_prev) with captured= captured_mangled}
-            in
-            Procdesc.set_attributes procdesc_prev new_attributes
-        | exception Caml.Not_found ->
-            () ) ;
+          match Procname.Hash.find cfg proc_name with
+          | procdesc_prev ->
+              let new_attributes =
+                {(Procdesc.get_attributes procdesc_prev) with captured= captured_mangled}
+              in
+              Procdesc.set_attributes procdesc_prev new_attributes
+          | exception Caml.Not_found ->
+              () ) ;
     false )
 
 

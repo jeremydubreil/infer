@@ -294,14 +294,9 @@ class ASTExporter : public ConstDeclVisitor<ASTExporter<ATDWriter>>,
   void dumpDeclarationName(const DeclarationName &Name);
   void dumpNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS);
   void dumpTemplateArgument(const TemplateArgument &Arg);
+  void dumpTemplateArguments(const TemplateArgumentList &Args);
   void dumpTemplateSpecialization(const TemplateDecl *D,
                                   const TemplateArgumentList &Args);
-  //    void dumpTemplateParameters(const TemplateParameterList *TPL);
-  //    void dumpTemplateArgumentListInfo(const TemplateArgumentListInfo &TALI);
-  //    void dumpTemplateArgumentLoc(const TemplateArgumentLoc &A);
-  //    void dumpTemplateArgumentList(const TemplateArgumentList &TAL);
-  //    void dumpTemplateArgument(const TemplateArgument &A,
-  //                              SourceRange R = SourceRange());
   void dumpCXXBaseSpecifier(const CXXBaseSpecifier &Base);
 
 #define DECLARE_VISITOR(NAME) \
@@ -345,39 +340,9 @@ class ASTExporter : public ConstDeclVisitor<ASTExporter<ATDWriter>>,
   DECLARE_VISITOR(ClassTemplateDecl)
   DECLARE_VISITOR(FunctionTemplateDecl)
   DECLARE_VISITOR(FriendDecl)
+  DECLARE_VISITOR(VarTemplateSpecializationDecl)
 
-  //    void VisitTypeAliasDecl(const TypeAliasDecl *D);
-  //    void VisitTypeAliasTemplateDecl(const TypeAliasTemplateDecl *D);
-  //    void VisitStaticAssertDecl(const StaticAssertDecl *D);
-  //    template<typename SpecializationDecl>
-  //    void VisitTemplateDeclSpecialization(ChildDumper &Children,
-  //                                         const SpecializationDecl *D,
-  //                                         bool DumpExplicitInst,
-  //                                         bool DumpRefOnly);
-  //    void VisitFunctionTemplateDecl(const FunctionTemplateDecl *D);
-  //    void VisitClassTemplateSpecializationDecl(
-  //        const ClassTemplateSpecializationDecl *D);
-  //    void VisitClassTemplatePartialSpecializationDecl(
-  //        const ClassTemplatePartialSpecializationDecl *D);
-  //    void VisitClassScopeFunctionSpecializationDecl(
-  //        const ClassScopeFunctionSpecializationDecl *D);
-  //    void VisitVarTemplateDecl(const VarTemplateDecl *D);
-  //    void VisitVarTemplateSpecializationDecl(
-  //        const VarTemplateSpecializationDecl *D);
-  //    void VisitVarTemplatePartialSpecializationDecl(
-  //        const VarTemplatePartialSpecializationDecl *D);
-  //    void VisitTemplateTypeParmDecl(const TemplateTypeParmDecl *D);
-  //    void VisitNonTypeTemplateParmDecl(const NonTypeTemplateParmDecl *D);
-  //    void VisitTemplateTemplateParmDecl(const TemplateTemplateParmDecl *D);
-  //    void VisitUsingDecl(const UsingDecl *D);
-  //    void VisitUnresolvedUsingTypenameDecl(const UnresolvedUsingTypenameDecl
-  //    *D);
-  //    void VisitUnresolvedUsingValueDecl(const UnresolvedUsingValueDecl *D);
-  //    void VisitUsingShadowDecl(const UsingShadowDecl *D);
-  //    void VisitLinkageSpecDecl(const LinkageSpecDecl *D);
-  //    void VisitAccessSpecDecl(const AccessSpecDecl *D);
-  //
-  //    // ObjC Decls
+  // ObjC Decls
   DECLARE_VISITOR(ObjCIvarDecl)
   DECLARE_VISITOR(ObjCMethodDecl)
   DECLARE_VISITOR(ObjCCategoryDecl)
@@ -389,9 +354,11 @@ class ASTExporter : public ConstDeclVisitor<ASTExporter<ATDWriter>>,
   DECLARE_VISITOR(ObjCPropertyDecl)
   DECLARE_VISITOR(ObjCPropertyImplDecl)
 
-  // Stmts.
+  // Stmts
   DECLARE_VISITOR(Stmt)
   DECLARE_VISITOR(AttributedStmt)
+  DECLARE_VISITOR(CoreturnStmt)
+  DECLARE_VISITOR(CoroutineBodyStmt)
   DECLARE_VISITOR(CXXCatchStmt)
   DECLARE_VISITOR(DeclStmt)
   DECLARE_VISITOR(GotoStmt)
@@ -460,11 +427,11 @@ class ASTExporter : public ConstDeclVisitor<ASTExporter<ATDWriter>>,
   DECLARE_VISITOR(ObjCDictionaryLiteral)
   DECLARE_VISITOR(ObjCBridgedCastExpr)
 
-  // Comments.
+  // Comments
   const char *getCommandName(unsigned CommandID);
   void dumpComment(const Comment *C);
 
-  // Inline comments.
+  // Inline comments
   DECLARE_LOWERCASE_VISITOR(Comment)
   // DECLARE_LOWERCASE_VISITOR(TextComment)
   //    void visitInlineCommandComment(const InlineCommandComment *C);
@@ -761,9 +728,7 @@ int ASTExporter<ATDWriter>::DeclContextTupleSize() {
 template <class ATDWriter>
 void ASTExporter<ATDWriter>::VisitDeclContext(const DeclContext *DC) {
   if (!DC) {
-    {
-      ArrayScope Scope(OF, 0);
-    }
+    { ArrayScope Scope(OF, 0); }
     { ObjectScope Scope(OF, 0); }
     return;
   }
@@ -1054,72 +1019,14 @@ void ASTExporter<ATDWriter>::dumpNestedNameSpecifierLoc(
 // TemplateArgumentLoc &A) {
 //  dumpTemplateArgument(A.getArgument(), A.getSourceRange());
 //}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::dumpTemplateArgumentList(const
-// TemplateArgumentList &TAL) {
-//  for (unsigned i = 0, e = TAL.size(); i < e; ++i)
-//    dumpTemplateArgument(TAL[i]);
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::dumpTemplateArgument(const TemplateArgument &A,
-// SourceRange R) {
-//  ObjectScope Scope(OF);
-//  OS << "TemplateArgument";
-//  if (R.isValid())
-//    dumpSourceRange(R);
-//
-//  switch (A.getKind()) {
-//  case TemplateArgument::Null:
-//    OS << " null";
-//    break;
-//  case TemplateArgument::Type:
-//    OS << " type";
-//    dumpQualType(A.getAsType());
-//    break;
-//  case TemplateArgument::Declaration:
-//    OS << " decl";
-//    dumpDeclRef(A.getAsDecl());
-//    break;
-//  case TemplateArgument::NullPtr:
-//    OS << " nullptr";
-//    break;
-//  case TemplateArgument::Integral:
-//    OS << " integral " << A.getAsIntegral();
-//    break;
-//  case TemplateArgument::Template:
-//    OS << " template ";
-//    // FIXME: do not use the local dump method
-//    A.getAsTemplate().dump(OS);
-//    break;
-//  case TemplateArgument::TemplateExpansion:
-//    OS << " template expansion";
-//    // FIXME: do not use the local dump method
-//    A.getAsTemplateOrTemplatePattern().dump(OS);
-//    break;
-//  case TemplateArgument::Expression:
-//    OS << " expr";
-//    dumpStmt(A.getAsExpr());
-//    break;
-//  case TemplateArgument::Pack:
-//    OS << " pack";
-//    for (TemplateArgument::pack_iterator I = A.pack_begin(), E = A.pack_end();
-//         I != E; ++I) {
-//      dumpTemplateArgument(*I);
-//    }
-//    break;
-//  }
-//}
 
 template <class ATDWriter>
 bool ASTExporter<ATDWriter>::alwaysEmitParent(const Decl *D) {
   if (isa<ObjCMethodDecl>(D) || isa<CXXMethodDecl>(D) || isa<FieldDecl>(D) ||
-      isa<ObjCIvarDecl>(D) || isa<BlockDecl>(D) ||
-      isa<ObjCInterfaceDecl>(D) || isa<ObjCImplementationDecl>(D) ||
-      isa<ObjCCategoryDecl>(D) || isa<ObjCCategoryImplDecl>(D) ||
-      isa<ObjCPropertyDecl>(D) || isa<RecordDecl>(D)
-      || isa<ObjCProtocolDecl>(D) ) {
+      isa<ObjCIvarDecl>(D) || isa<BlockDecl>(D) || isa<ObjCInterfaceDecl>(D) ||
+      isa<ObjCImplementationDecl>(D) || isa<ObjCCategoryDecl>(D) ||
+      isa<ObjCCategoryImplDecl>(D) || isa<ObjCPropertyDecl>(D) ||
+      isa<RecordDecl>(D) || isa<ObjCProtocolDecl>(D)) {
     return true;
   }
   return false;
@@ -2126,6 +2033,15 @@ void ASTExporter<ATDWriter>::dumpTemplateArgument(const TemplateArgument &Arg) {
   }
 }
 
+template <class ATDWriter>
+void ASTExporter<ATDWriter>::dumpTemplateArguments(
+    const TemplateArgumentList &Args) {
+  ArrayScope aScope(OF, Args.size());
+  for (size_t i = 0; i < Args.size(); i++) {
+    dumpTemplateArgument(Args[i]);
+  }
+}
+
 //@atd type template_specialization_info = {
 //@atd   template_decl : pointer;
 //@atd   ~specialization_args : template_instantiation_arg_info list;
@@ -2139,10 +2055,7 @@ void ASTExporter<ATDWriter>::dumpTemplateSpecialization(
   dumpPointer(D);
   if (HasTemplateArgs) {
     OF.emitTag("specialization_args");
-    ArrayScope aScope(OF, Args.size());
-    for (size_t i = 0; i < Args.size(); i++) {
-      dumpTemplateArgument(Args[i]);
-    }
+    dumpTemplateArguments(Args);
   }
 }
 
@@ -2169,6 +2082,19 @@ void ASTExporter<ATDWriter>::VisitClassTemplateSpecializationDecl(
   }
   dumpSourceLocation(D->getPointOfInstantiation());
   dumpTemplateSpecialization(D->getSpecializedTemplate(), D->getTemplateArgs());
+}
+
+template <class ATDWriter>
+int ASTExporter<ATDWriter>::VarTemplateSpecializationDeclTupleSize() {
+  return VarDeclTupleSize() + 1;
+}
+
+//@atd #define var_template_specialization_decl_tuple template_instantiation_arg_info list * var_decl_tuple
+template <class ATDWriter>
+void ASTExporter<ATDWriter>::VisitVarTemplateSpecializationDecl(
+    const VarTemplateSpecializationDecl *D) {
+  dumpTemplateArguments(D->getTemplateArgs());
+  VisitVarDecl(D);
 }
 
 template <class ATDWriter>
@@ -2318,229 +2244,7 @@ void ASTExporter<ATDWriter>::VisitFriendDecl(const FriendDecl *D) {
   }
 }
 
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitTypeAliasDecl(const TypeAliasDecl *D) {
-//  dumpName(D);
-//  dumpQualType(D->getUnderlyingType());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitTypeAliasTemplateDecl(const
-// TypeAliasTemplateDecl *D) {
-//  dumpName(D);
-//  dumpTemplateParameters(D->getTemplateParameters());
-//  dumpDecl(D->getTemplatedDecl());
-//}
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitStaticAssertDecl(const StaticAssertDecl *D)
-// {
-//  dumpStmt(D->getAssertExpr());
-//  dumpStmt(D->getMessage());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitFunctionTemplateDecl(const
-// FunctionTemplateDecl *D) {
-//  dumpName(D);
-//  dumpTemplateParameters(D->getTemplateParameters());
-//  dumpDecl(D->getTemplatedDecl());
-//  for (FunctionTemplateDecl::spec_iterator I = D->spec_begin(),
-//                                           E = D->spec_end();
-//       I != E; ++I) {
-//    FunctionTemplateDecl::spec_iterator Next = I;
-//    ++Next;
-//    switch (I->getTemplateSpecializationKind()) {
-//    case TSK_Undeclared:
-//    case TSK_ImplicitInstantiation:
-//    case TSK_ExplicitInstantiationDeclaration:
-//    case TSK_ExplicitInstantiationDefinition:
-//      if (D == D->getCanonicalDecl())
-//        dumpDecl(*I);
-//      else
-//        dumpDeclRef(*I);
-//      break;
-//    case TSK_ExplicitSpecialization:
-//      dumpDeclRef(*I);
-//      break;
-//    }
-//  }
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitClassTemplateDecl(const ClassTemplateDecl
-// *D) {
-//  dumpName(D);
-//  dumpTemplateParameters(D->getTemplateParameters());
-//
-//  ClassTemplateDecl::spec_iterator I = D->spec_begin();
-//  ClassTemplateDecl::spec_iterator E = D->spec_end();
-//  dumpDecl(D->getTemplatedDecl());
-//  for (; I != E; ++I) {
-//    ClassTemplateDecl::spec_iterator Next = I;
-//    ++Next;
-//    switch (I->getTemplateSpecializationKind()) {
-//    case TSK_Undeclared:
-//    case TSK_ImplicitInstantiation:
-//      if (D == D->getCanonicalDecl())
-//        dumpDecl(*I);
-//      else
-//        dumpDeclRef(*I);
-//      break;
-//    case TSK_ExplicitSpecialization:
-//    case TSK_ExplicitInstantiationDeclaration:
-//    case TSK_ExplicitInstantiationDefinition:
-//      dumpDeclRef(*I);
-//      break;
-//    }
-//  }
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitClassTemplateSpecializationDecl(
-//    const ClassTemplateSpecializationDecl *D) {
-//  VisitCXXRecordDecl(D);
-//  dumpTemplateArgumentList(D->getTemplateArgs());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitClassTemplatePartialSpecializationDecl(
-//    const ClassTemplatePartialSpecializationDecl *D) {
-//  VisitClassTemplateSpecializationDecl(D);
-//  dumpTemplateParameters(D->getTemplateParameters());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitClassScopeFunctionSpecializationDecl(
-//    const ClassScopeFunctionSpecializationDecl *D) {
-//  dumpDeclRef(D->getSpecialization());
-//  if (D->hasExplicitTemplateArgs())
-//    dumpTemplateArgumentListInfo(D->templateArgs());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitVarTemplateDecl(const VarTemplateDecl *D) {
-//  dumpName(D);
-//  dumpTemplateParameters(D->getTemplateParameters());
-//
-//  VarTemplateDecl::spec_iterator I = D->spec_begin();
-//  VarTemplateDecl::spec_iterator E = D->spec_end();
-//  dumpDecl(D->getTemplatedDecl());
-//  for (; I != E; ++I) {
-//    VarTemplateDecl::spec_iterator Next = I;
-//    ++Next;
-//    switch (I->getTemplateSpecializationKind()) {
-//    case TSK_Undeclared:
-//    case TSK_ImplicitInstantiation:
-//      if (D == D->getCanonicalDecl())
-//        dumpDecl(*I);
-//      else
-//        dumpDeclRef(*I);
-//      break;
-//    case TSK_ExplicitSpecialization:
-//    case TSK_ExplicitInstantiationDeclaration:
-//    case TSK_ExplicitInstantiationDefinition:
-//      dumpDeclRef(*I);
-//      break;
-//    }
-//  }
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitVarTemplateSpecializationDecl(
-//    const VarTemplateSpecializationDecl *D) {
-//  dumpTemplateArgumentList(D->getTemplateArgs());
-//  VisitVarDecl(D);
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitVarTemplatePartialSpecializationDecl(
-//    const VarTemplatePartialSpecializationDecl *D) {
-//  dumpTemplateParameters(D->getTemplateParameters());
-//  VisitVarTemplateSpecializationDecl(D);
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitTemplateTypeParmDecl(const
-// TemplateTypeParmDecl *D) {
-//  if (D->wasDeclaredWithTypename())
-//    OS << " typename";
-//  else
-//    OS << " class";
-//  if (D->isParameterPack())
-//    OS << " ...";
-//  dumpName(D);
-//  if (D->hasDefaultArgument())
-//    dumpQualType(D->getDefaultArgument());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitNonTypeTemplateParmDecl(const
-// NonTypeTemplateParmDecl *D) {
-//  dumpQualType(D->getType());
-//  if (D->isParameterPack())
-//    OS << " ...";
-//  dumpName(D);
-//  if (D->hasDefaultArgument())
-//    dumpStmt(D->getDefaultArgument());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitTemplateTemplateParmDecl(
-//    const TemplateTemplateParmDecl *D) {
-//  if (D->isParameterPack())
-//    OS << " ...";
-//  dumpName(D);
-//  dumpTemplateParameters(D->getTemplateParameters());
-//  if (D->hasDefaultArgument())
-//    dumpTemplateArgumentLoc(D->getDefaultArgument());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitUsingDecl(const UsingDecl *D) {
-//  OS << ' ';
-//  D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
-//  OS << D->getNameAsString();
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitUnresolvedUsingTypenameDecl(
-//    const UnresolvedUsingTypenameDecl *D) {
-//  OS << ' ';
-//  D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
-//  OS << D->getNameAsString();
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitUnresolvedUsingValueDecl(const
-// UnresolvedUsingValueDecl *D) {
-//  OS << ' ';
-//  D->getQualifier()->print(OS, D->getASTContext().getPrintingPolicy());
-//  OS << D->getNameAsString();
-//  dumpQualType(D->getType());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitUsingShadowDecl(const UsingShadowDecl *D) {
-//  OS << ' ';
-//  dumpDeclRef(D->getTargetDecl());
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitLinkageSpecDecl(const LinkageSpecDecl *D) {
-//  switch (D->getLanguage()) {
-//  case LinkageSpecDecl::lang_c: OS << " C"; break;
-//  case LinkageSpecDecl::lang_cxx: OS << " C++"; break;
-//  }
-//}
-//
-// template <class ATDWriter>
-// void ASTExporter<ATDWriter>::VisitAccessSpecDecl(const AccessSpecDecl *D) {
-//  OS << ' ';
-//  dumpAccessSpecifier(D->getAccess());
-//}
-//
 
-//
 ////===----------------------------------------------------------------------===//
 //// Obj-C Declarations
 ////===----------------------------------------------------------------------===//
@@ -2635,7 +2339,8 @@ void ASTExporter<ATDWriter>::VisitObjCMethodDecl(const ObjCMethodDecl *D) {
 
   SmallString<64> Buf;
   llvm::raw_svector_ostream StrOS(Buf);
-  Mangler->mangleObjCMethodName(D, StrOS,
+  Mangler->mangleObjCMethodName(D,
+                                StrOS,
                                 /*includePrefixByte=*/false,
                                 /*includeCategoryNamespace=*/true);
   std::string MangledName = StrOS.str().str();
@@ -3369,6 +3074,60 @@ void ASTExporter<ATDWriter>::VisitCXXCatchStmt(const CXXCatchStmt *Node) {
   }
 }
 
+template <class ATDWriter>
+int ASTExporter<ATDWriter>::CoreturnStmtTupleSize() {
+  return StmtTupleSize() + 1;
+}
+//@atd #define coreturn_stmt_tuple stmt_tuple * coreturn_stmt_info
+//@atd type coreturn_stmt_info = {
+//@atd   ?operand: stmt option;
+//@atd   ?promise_call: stmt option;
+//@atd } <ocaml field_prefix="coret_">
+template <class ATDWriter>
+void ASTExporter<ATDWriter>::VisitCoreturnStmt(const CoreturnStmt *Node) {
+  VisitStmt(Node);
+  const Expr *Operand = Node->getOperand();
+  const Expr *PromiseCall = Node->getPromiseCall();
+  ObjectScope Scope(OF, (bool)Operand + (bool)PromiseCall);
+  if (Operand) {
+    OF.emitTag("operand");
+    dumpStmt(Operand);
+  }
+  if (PromiseCall) {
+    OF.emitTag("promise_call");
+    dumpStmt(PromiseCall);
+  }
+}
+
+template <class ATDWriter>
+int ASTExporter<ATDWriter>::CoroutineBodyStmtTupleSize() {
+  return StmtTupleSize() + 1;
+}
+//@atd #define coroutine_body_stmt_tuple stmt_tuple * coro_body_stmt_info
+//@atd type coro_body_stmt_info = {
+//@atd   body: pointer;
+//@atd   promise_decl_stmt: pointer;
+//@atd   return_value: stmt;
+//@atd } <ocaml field_prefix="cbs_">
+template <class ATDWriter>
+void ASTExporter<ATDWriter>::VisitCoroutineBodyStmt(
+    const CoroutineBodyStmt *Node) {
+  VisitStmt(Node);
+  const Stmt *Body = Node->getBody();
+  const Stmt *PromiseDeclStmt = Node->getPromiseDeclStmt();
+  // for some reason the ReturnValue() does not return the ReturnValue field of
+  // the coroutine body, i.e. __promise.get_return_object(), but
+  // ReturnValueInit() does
+  const Expr *ReturnValue = Node->getReturnValueInit();
+  ObjectScope Scope(OF, 3);
+  OF.emitTag("body");
+  dumpPointer(Body);
+  OF.emitTag("promise_decl_stmt");
+  dumpPointer(PromiseDeclStmt);
+  OF.emitTag("return_value");
+  dumpStmt(ReturnValue);
+}
+
 ////===----------------------------------------------------------------------===//
 ////  Expr dumping methods.
 ////===----------------------------------------------------------------------===//
@@ -3513,7 +3272,6 @@ template <class ATDWriter>
 int ASTExporter<ATDWriter>::ObjCBridgedCastExprTupleSize() {
   return ExplicitCastExprTupleSize() + 1;
 }
-
 
 //@atd type obj_c_bridge_cast_kind = [
 //@atd   OBC_BridgeRetained
@@ -5178,15 +4936,15 @@ void ASTExporter<ATDWriter>::VisitBuiltinType(const BuiltinType *T) {
   }
 #include <clang/AST/BuiltinTypes.def>
 #define SVE_PREDICATE_TYPE(Name, MangeldName, Id, SingletonId, NumEls) \
-  case BuiltinType::Id: {                                 \
-    type_name = #Id;                                      \
-    break;                                                \
+  case BuiltinType::Id: {                                              \
+    type_name = #Id;                                                   \
+    break;                                                             \
   }
 #define SVE_VECTOR_TYPE(                                                      \
     Name, MangledName, Id, SingletonId, NumEls, ElBits, IsSigned, IsFP, IsBF) \
-  case BuiltinType::Id: {                                                      \
-    type_name = #Id;                                                           \
-    break;                                                                     \
+  case BuiltinType::Id: {                                                     \
+    type_name = #Id;                                                          \
+    break;                                                                    \
   }
 #include <clang/Basic/AArch64SVEACLETypes.def>
 #define IMAGE_TYPE(ImgType, ID, SingletonId, Access, Suffix) \

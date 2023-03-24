@@ -81,7 +81,7 @@ module Node : sig
     | OutOfBound
     | ReturnStmt
     | Scope of string
-    | Skip of string
+    | Skip
     | SwitchStmt
     | ThisNotNull
     | Throw
@@ -192,6 +192,10 @@ module Node : sig
   (** Pretty print a node id *)
 
   val pp_stmt : Format.formatter -> stmt_nodekind -> unit
+
+  val pp_with_instrs : ?print_types:bool -> Format.formatter -> t -> unit
+    [@@warning "-unused-value-declaration"]
+  (** Pretty print the node with instructions *)
 
   val compute_key : t -> NodeKey.t
 end
@@ -344,6 +348,8 @@ val set_exit_node : t -> Node.t -> unit
 
 val set_start_node : t -> Node.t -> unit
 
+val init_wto : t -> unit
+
 val get_wto : t -> Node.t WeakTopologicalOrder.Partition.t
 
 val is_loop_head : t -> Node.t -> bool
@@ -351,6 +357,9 @@ val is_loop_head : t -> Node.t -> bool
 val pp_signature : Format.formatter -> t -> unit
 
 val pp_local : Format.formatter -> ProcAttributes.var_data -> unit
+
+val pp_with_instrs : ?print_types:bool -> Format.formatter -> t -> unit
+  [@@warning "-unused-value-declaration"]
 
 val is_specialized : t -> bool
 

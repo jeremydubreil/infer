@@ -2,11 +2,9 @@
   "force-delete-results-dir": true,
   "never-returning-null": [
     {
-      "language": "Java",
       "source_contains": "_AUTOMATICALLY_GENERATED_"
     },
     {
-      "language": "Java",
       "class": "codetoanalyze.java.infer.SomeLibrary",
       "method": "get"
     }
@@ -17,20 +15,17 @@
   "enable-issue-type": [
       "GLOBAL_VARIABLE_INITIALIZED_WITH_FUNCTION_OR_METHOD_CALL"
     ],
-  "skip-translation": [
+  "capture-block-list": [
     {
-      "language": "Java",
       "source_contains": "_SHOULD_BE_SKIPPED_"
     }
   ],
   "modeled-expensive": [
     {
-      "language": "Java",
       "class": "android.app.Activity",
       "method": "findViewById"
     },
     {
-      "language": "Java",
       "class": "android.view.View",
       "method": "findViewById"
     }
@@ -143,6 +138,20 @@
   ],
   "pulse-taint-sources": [
     { "procedure": "inferSecretSource", "kinds": ["Simple", "UserControlledString"] },
+    { "class_names": ["codetoanalyze.java.pulse.InferBaseSource"],
+      "method_return_type_names": ["java.lang.String"],
+      "kinds": ["Simple"]
+    },
+    { "class_names": ["codetoanalyze.java.pulse.Basics"],
+      "method_names": ["firstParameterTainted"],
+      "taint_target": ["ArgumentPositions", [1]],
+      "kinds": ["Simple"]
+    },
+    { "class_names": ["codetoanalyze.java.pulse.Callback"],
+      "method_names": ["onCompletion"],
+      "taint_target": ["ArgumentPositions", [1]],
+      "kinds": ["Simple"]
+    },
     { "class_names": ["android.app.Activity"],
       "method_names": ["getIntent"],
       "kinds": ["Intent", "IntentForInsecureIntentHandling"]
@@ -258,6 +267,7 @@
   ],
   "pulse-taint-sinks": [
     { "procedure": "inferSensitiveSink" },
+    { "class_name_regex": "codetoanalyze.java.pulse.sinks.*"},
     { "class_names": ["android.app.Activity"],
       "method_names": ["startActivityFromChild", "startActivityFromFragment"],
       "kinds": ["StartComponent"],
