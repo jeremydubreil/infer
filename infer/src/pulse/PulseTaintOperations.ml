@@ -333,8 +333,8 @@ let procedure_matches tenv matchers ?block_passed_to proc_name actuals =
             && List.mem ~equal:String.equal method_names (Procname.get_method proc_name)
         | ClassAndMethodReturnTypeNames {class_names; method_return_type_names} ->
             let procedure_return_type_match method_return_type_names =
-              Option.exists (Procdesc.load proc_name) ~f:(fun procdesc ->
-                  type_matches tenv (Procdesc.get_ret_type procdesc) method_return_type_names )
+              Option.exists (IRAttributes.load proc_name) ~f:(fun attrs ->
+                  type_matches tenv attrs.ProcAttributes.ret_type method_return_type_names )
             in
             class_names_match class_names && procedure_return_type_match method_return_type_names
         | OverridesOfClassWithAnnotation {annotation} ->
@@ -403,7 +403,7 @@ let get_tainted tenv path location matchers return_opt ~has_added_return_param ?
                 match return_as_actual with
                 | Some actual ->
                     let astate, acc = acc in
-                    let taint = {Taint.proc_name; origin= ReturnValue; kinds} in
+                    let taint = {Taint.proc_name; origin= ReturnValue; kinds; block_passed_to} in
                     (astate, (taint, actual) :: acc)
                 | None ->
                     let return = Var.of_id return in
@@ -415,7 +415,9 @@ let get_tainted tenv path location matchers return_opt ~has_added_return_param ?
                     in
                     Stack.find_opt return astate
                     |> Option.fold ~init:acc ~f:(fun (_, tainted) return_value ->
-                           let taint = {Taint.proc_name; origin= ReturnValue; kinds} in
+                           let taint =
+                             {Taint.proc_name; origin= ReturnValue; kinds; block_passed_to}
+                           in
                            (astate, (taint, (return_value, return_typ, None)) :: tainted) ) ) )
         | ( `AllArguments
           | `ArgumentPositions _
@@ -428,7 +430,9 @@ let get_tainted tenv path location matchers return_opt ~has_added_return_param ?
                 if taint_target_matches tenv taint_target i actual_typ && not is_const_exp then (
                   L.d_printfln_escaped "match! tainting actual #%d with type %a" i
                     (Typ.pp_full Pp.text) actual_typ ;
-                  let taint = {Taint.proc_name; origin= Argument {index= i}; kinds} in
+                  let taint =
+                    {Taint.proc_name; origin= Argument {index= i}; kinds; block_passed_to}
+                  in
                   (astate, (taint, actual_hist_and_typ) :: tainted) )
                 else (
                   L.d_printfln_escaped "no match for #%d with type %a" i (Typ.pp_full Pp.text)
@@ -527,7 +531,7 @@ let taint_allocation tenv path location ~typ_desc ~alloc_desc ~allocator v astat
                   let source =
                     let proc_name = Procname.from_string_c_fun alloc_desc in
                     let origin = Taint.Allocation {typ= type_name} in
-                    {Taint.kinds; proc_name; origin}
+                    {Taint.kinds; proc_name; origin; block_passed_to= None}
                   in
                   let hist =
                     ValueHistory.singleton
@@ -803,61 +807,65 @@ let taint_sinks tenv path location return ~has_added_return_param proc_name actu
 
 
 let propagate_to path location v values call astate =
-  let astate =
-    if not (List.is_empty values) then
-      AbductiveDomain.AddressAttributes.add_one v
-        (PropagateTaintFrom
-           (List.map values ~f:(fun {ProcnameDispatcher.Call.FuncArg.arg_payload= v, _hist} ->
-                {Attribute.v} ) ) )
-        astate
-    else astate
-  in
-  taint_and_explore v astate ~taint:(fun v astate ->
-      List.fold values ~init:astate
-        ~f:(fun astate {ProcnameDispatcher.Call.FuncArg.arg_payload= actual, _hist} ->
-          let sources, sanitizers =
-            AbductiveDomain.AddressAttributes.get_taint_sources_and_sanitizers actual astate
-          in
-          if not (Attribute.TaintedSet.is_empty sources) then
-            L.d_printfln "tainting %a as source" AbstractValue.pp v ;
-          let astate =
-            let tainted =
-              Attribute.TaintedSet.map
-                (fun {source; time_trace; hist= source_hist; intra_procedural_only} ->
-                  let hist =
-                    ValueHistory.sequence ~context:path.PathContext.conditions
-                      (Call
-                         { f= call
-                         ; location
-                         ; timestamp= path.PathContext.timestamp
-                         ; in_call= ValueHistory.epoch } )
-                      source_hist
-                  in
-                  { source
-                  ; time_trace= Timestamp.add_to_trace time_trace path.PathContext.timestamp
-                  ; hist
-                  ; intra_procedural_only } )
-                sources
+  let path_condition = astate.AbductiveDomain.path_condition in
+  if PulseFormula.is_known_zero path_condition v then
+    AbductiveDomain.AddressAttributes.remove_taint_attrs v astate
+  else
+    let astate =
+      if not (List.is_empty values) then
+        AbductiveDomain.AddressAttributes.add_one v
+          (PropagateTaintFrom
+             (List.map values ~f:(fun {ProcnameDispatcher.Call.FuncArg.arg_payload= v, _hist} ->
+                  {Attribute.v} ) ) )
+          astate
+      else astate
+    in
+    taint_and_explore v astate ~taint:(fun v astate ->
+        List.fold values ~init:astate
+          ~f:(fun astate {ProcnameDispatcher.Call.FuncArg.arg_payload= actual, _hist} ->
+            let sources, sanitizers =
+              AbductiveDomain.AddressAttributes.get_taint_sources_and_sanitizers actual astate
             in
-            AbductiveDomain.AddressAttributes.add_one v (Tainted tainted) astate
-          in
-          if not (Attribute.TaintSanitizedSet.is_empty sanitizers) then
-            L.d_printfln "registering %a as sanitizer" AbstractValue.pp v ;
-          let astate =
-            let taint_sanitized =
-              Attribute.TaintSanitizedSet.map
-                (fun {sanitizer; time_trace; trace} ->
-                  let trace =
-                    Trace.ViaCall {f= call; location; history= ValueHistory.epoch; in_call= trace}
-                  in
-                  { sanitizer
-                  ; time_trace= Timestamp.add_to_trace time_trace path.PathContext.timestamp
-                  ; trace } )
-                sanitizers
+            if not (Attribute.TaintedSet.is_empty sources) then
+              L.d_printfln "tainting %a as source" AbstractValue.pp v ;
+            let astate =
+              let tainted =
+                Attribute.TaintedSet.map
+                  (fun {source; time_trace; hist= source_hist; intra_procedural_only} ->
+                    let hist =
+                      ValueHistory.sequence ~context:path.PathContext.conditions
+                        (Call
+                           { f= call
+                           ; location
+                           ; timestamp= path.PathContext.timestamp
+                           ; in_call= ValueHistory.epoch } )
+                        source_hist
+                    in
+                    { source
+                    ; time_trace= Timestamp.add_to_trace time_trace path.PathContext.timestamp
+                    ; hist
+                    ; intra_procedural_only } )
+                  sources
+              in
+              AbductiveDomain.AddressAttributes.add_one v (Tainted tainted) astate
             in
-            AbductiveDomain.AddressAttributes.add_one v (TaintSanitized taint_sanitized) astate
-          in
-          astate ) )
+            if not (Attribute.TaintSanitizedSet.is_empty sanitizers) then
+              L.d_printfln "registering %a as sanitizer" AbstractValue.pp v ;
+            let astate =
+              let taint_sanitized =
+                Attribute.TaintSanitizedSet.map
+                  (fun {sanitizer; time_trace; trace} ->
+                    let trace =
+                      Trace.ViaCall {f= call; location; history= ValueHistory.epoch; in_call= trace}
+                    in
+                    { sanitizer
+                    ; time_trace= Timestamp.add_to_trace time_trace path.PathContext.timestamp
+                    ; trace } )
+                  sanitizers
+              in
+              AbductiveDomain.AddressAttributes.add_one v (TaintSanitized taint_sanitized) astate
+            in
+            astate ) )
 
 
 let taint_propagators tenv path location return ~has_added_return_param proc_name actuals astate =

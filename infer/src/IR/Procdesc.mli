@@ -261,7 +261,7 @@ val get_pvar_formals : t -> (Pvar.t * Typ.t) list
 (** Return pvar and type of formal parameters *)
 
 val get_passed_by_value_formals : t -> (Pvar.t * Typ.t) list
-(** Return pvar and type of formal parameters that are passed by reference *)
+(** Return pvar and type of formal parameters that are passed by value *)
 
 val get_loc : t -> Location.t
 (** Return loc information for the procedure *)
@@ -388,6 +388,10 @@ val is_too_big : Checker.t -> max_cfg_size:int -> t -> bool
 module SQLite : SqliteUtils.Data with type t = t option
 
 val load : Procname.t -> t option
+(** CFG for the given proc name. [None] when the source code for the procedure was not captured (eg
+    library code or code outside of the project root). NOTE: To query the procedure's attributes (eg
+    return type, formals, ...), prefer the cheaper {!Attributes.load}. Attributes can be present
+    even when the source code is not. *)
 
 val load_exn : Procname.t -> t
 (** like [load], but raises an exception if no procdesc is available. *)
