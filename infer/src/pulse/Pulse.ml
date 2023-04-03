@@ -398,6 +398,22 @@ module PulseTransferFunctions = struct
             proc_name )
 
 
+  let improve_receiver_static_type astate actuals proc_name_opt =
+    if Language.curr_language_is Hack then
+      let open IOption.Let_syntax in
+      let* proc_name = proc_name_opt in
+      let* {ProcnameDispatcher.Call.FuncArg.arg_payload= receiver, _} =
+        get_receiver proc_name actuals
+      in
+      match AbductiveDomain.AddressAttributes.get_static_type receiver astate with
+      | Some typ_name ->
+          let improved_proc_name = Procname.replace_class proc_name typ_name in
+          Some improved_proc_name
+      | _ ->
+          proc_name_opt
+    else proc_name_opt
+
+
   type model_search_result =
     | DoliModel of Procname.t
     | OcamlModel of (PulseModelsImport.model * Procname.t)
@@ -407,7 +423,9 @@ module PulseTransferFunctions = struct
       ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) path ret call_exp
       actuals func_args call_loc flags astate callee_pname =
     let callee_pname =
-      if flags.CallFlags.cf_virtual then resolve_virtual_call tenv astate func_args callee_pname
+      if flags.CallFlags.cf_virtual then
+        improve_receiver_static_type astate func_args callee_pname
+        |> resolve_virtual_call tenv astate func_args
       else callee_pname
     in
     let astate =
@@ -1028,7 +1046,6 @@ let should_analyze proc_desc =
   let proc_id = Procname.to_unique_id proc_name in
   let f regex = not (Str.string_match regex proc_id 0) in
   Option.value_map Config.pulse_skip_procedures ~f ~default:true
-  && (not (Procdesc.is_kotlin proc_desc))
   && not (Procdesc.is_too_big Pulse ~max_cfg_size:Config.pulse_max_cfg_size proc_desc)
 
 
@@ -1074,16 +1091,18 @@ let log_summary_count proc_name summary =
   Out_channel.output_char (Lazy.force summary_count_channel) '\n'
 
 
-let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log} as analysis_data) =
+let analyze ({InterproceduralAnalysis.tenv; proc_desc; err_log; exe_env} as analysis_data) =
   if should_analyze proc_desc then
     let proc_name = Procdesc.get_proc_name proc_desc in
     let proc_attrs = Procdesc.get_attributes proc_desc in
+    let integer_type_widths = Exe_env.get_integer_type_widths exe_env proc_name in
     let initial =
       with_html_debug_node (Procdesc.get_start_node proc_desc) ~desc:"initial state creation"
         ~f:(fun () ->
           let initial_disjuncts = initial tenv proc_name proc_attrs in
           let initial_non_disj =
-            PulseNonDisjunctiveOperations.init_const_refable_parameters proc_desc tenv
+            PulseNonDisjunctiveOperations.init_const_refable_parameters proc_desc
+              integer_type_widths tenv
               (List.map initial_disjuncts ~f:fst)
               NonDisjDomain.bottom
           in

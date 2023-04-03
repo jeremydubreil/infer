@@ -15,6 +15,14 @@ type detail_level = Verbose | Non_verbose | Simple | NameOnly
 
 let is_verbose v = match v with Verbose -> true | _ -> false
 
+let remove_templates name =
+  match String.lsplit2 ~on:'<' name with
+  | Some (name_without_template, _template_part) ->
+      name_without_template
+  | None ->
+      name
+
+
 module CSharp = struct
   type kind = Non_Static | Static [@@deriving compare, equal, yojson_of, sexp, hash]
 
@@ -424,14 +432,6 @@ module ObjC_Cpp = struct
           Parameter.pp_parameters osig.parameters pp_verbose_kind osig.kind
 
 
-  let remove_templates name =
-    match String.lsplit2 ~on:'<' name with
-    | Some (name_without_template, _template_part) ->
-        name_without_template
-    | None ->
-        name
-
-
   let pp_without_templates fmt osig =
     F.fprintf fmt "%s::%s"
       (Typ.Name.name_without_templates osig.class_name)
@@ -491,6 +491,11 @@ module C = struct
     | Verbose ->
         let pp_mangled fmt = function None -> () | Some s -> F.fprintf fmt "{%s}" s in
         F.fprintf fmt "%s%a%a" plain Parameter.pp_parameters parameters pp_mangled mangled
+
+
+  let pp_without_templates fmt {name} =
+    let plain = QualifiedCppName.to_qual_string name in
+    F.pp_print_string fmt (remove_templates plain)
 
 
   let get_parameters c = c.parameters
@@ -1089,15 +1094,11 @@ let rec is_static = function
 
 
 let is_shared_ptr_observer =
-  let shared_ptr_matcher =
-    QualifiedCppName.Match.of_fuzzy_qual_names
-      ["std::shared_ptr"; "std::__shared_ptr"; "std::__shared_ptr_access"]
-  in
   let observer_methods = ["get"; "operator*"; "operator->"; "operator[]"; "operator_bool"] in
   let rec aux pname =
     match pname with
     | ObjC_Cpp {class_name= CppClass {name}; method_name} ->
-        QualifiedCppName.Match.match_qualifiers shared_ptr_matcher name
+        QualifiedCppName.Match.match_qualifiers Typ.shared_pointer_matcher name
         && List.mem observer_methods method_name ~equal:String.equal
     | WithAliasingParameters (pname, _) | WithFunctionParameters (pname, _) ->
         aux pname
@@ -1232,6 +1233,8 @@ let pp_verbose = pp_with_verbosity Verbose
 let pp_without_templates fmt = function
   | ObjC_Cpp osig when not (ObjC_Cpp.is_objc_method osig) ->
       ObjC_Cpp.pp_without_templates fmt osig
+  | C csig ->
+      C.pp_without_templates fmt csig
   | other ->
       (* For other languages, we use the formaters defined in pp *)
       pp fmt other

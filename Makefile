@@ -229,12 +229,14 @@ DIRECT_TESTS += \
   java_topl \
   sil_doliCapture  \
   sil_doliParsing \
+  sil_javaAndDoli \
   sil_silAndDoli \
   sil_pulse \
   sil_verif \
 
 ifneq ($(KOTLINC), no)
 DIRECT_TESTS += \
+  kotlin_pulse \
   kotlin_racerd \
   kotlin_resources \
   kotlin_scopeleakage \
