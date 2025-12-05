@@ -1,0 +1,32 @@
+name: devsetup
+
+on:
+  - pull_request
+
+jobs:
+  devsetup-build:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-15-intel
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get install --yes opam
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install opam
+
+      - name: Build Infer
+        run: ./build-infer.sh --yes java
+
+      - run: make devsetup
+      - run: make -j -C infer/src check
+      - run: make direct_java_pulse_test
