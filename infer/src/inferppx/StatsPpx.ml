@@ -27,7 +27,8 @@ let destruct_stats_field_type ~loc pld_type =
   | Ptyp_variant _
   | Ptyp_poly _
   | Ptyp_package _
-  | Ptyp_extension _ ->
+  | Ptyp_extension _
+  | Ptyp_open _ ->
       Error
         (Location.error_extensionf ~loc
            "ERROR: Unsupported type, please define a module for your type. Only types of the form \
