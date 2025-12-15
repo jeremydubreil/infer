@@ -25,7 +25,7 @@ type t =
   | Lineage
   | LineageShape
   | Starvation
-[@@deriving compare, equal, hash, show, variants]
+[@@deriving compare, equal, hash, variants]
 
 let database_fields = List.map ~f:fst Variants.descriptions
 

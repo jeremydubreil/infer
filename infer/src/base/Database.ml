@@ -88,7 +88,7 @@ let create_specs_tables ~prefix db =
   SqliteUtils.exec db ~log:"creating issue logs table" ~stmt:(issues_schema prefix)
 
 
-type id = CaptureDatabase | AnalysisDatabase [@@deriving show {with_path= false}]
+type id = CaptureDatabase | AnalysisDatabase
 
 let create_tables ?(prefix = "") db = function
   | CaptureDatabase ->
