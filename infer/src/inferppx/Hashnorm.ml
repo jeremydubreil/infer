@@ -63,7 +63,8 @@ let hash_normalize_of_core_type ~loc ct =
   | Ptyp_variant _
   | Ptyp_poly _
   | Ptyp_package _
-  | Ptyp_extension _ ->
+  | Ptyp_extension _
+  | Ptyp_open _ ->
       raise
         (BadType
            (Location.error_extensionf ~loc "Could not get normalizer for type %s@\n"
