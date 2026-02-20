@@ -20,7 +20,8 @@ fi
 
 installed=$(mktemp)
 trap 'rm -f "$installed"' EXIT
-"$OPAM" list --installed --short --columns=name,version --color=never > "$installed"
+# opam.exe ends its lines with \r\n on Windows
+"$OPAM" list --installed --short --columns=name,version --color=never | tr -d '\r' > "$installed"
 if [ ! -s "$installed" ]; then
   echo "*** \`$OPAM list --installed\` returned no packages" >&2
   exit 1

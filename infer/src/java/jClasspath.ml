@@ -92,6 +92,8 @@ let read_modules_1 path =
     ~description:("Remove the temp dir for java modules: " ^ temp_dir) ;
   let jimage_cmd = ["jimage"; "extract"; F.sprintf "--dir=%s" temp_dir; path] in
   L.debug Capture Medium "reading Java modules with: %a@\n" Pp.cli_args jimage_cmd ;
+  (* spawn jimage rather than hand a command line to a shell: on Windows the shell is cmd.exe,
+     which does not understand the POSIX quoting of [Escape.escape_shell] *)
   let jimage_succeeded =
     match
       UnixLabels.create_process ~prog:"jimage" ~args:(Array.of_list jimage_cmd) ~stdin:Unix.stdin

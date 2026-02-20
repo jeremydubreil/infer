@@ -82,8 +82,13 @@ let create_outfile fname =
 (** close an outfile *)
 let close_outf outf = Out_channel.close outf.out_c
 
-(** a Windows path in the [C:/dir/file] form: with '/' as separator, and without the extended-length
-    prefix *)
+(** Windows accepts both '/' and '\\' as directory separators and its system calls, [getcwd] among
+    them, answer with the latter; [Unix.realpath] goes through [GetFinalPathNameByHandle] and even
+    answers in the extended-length form [\\?\C:\dir\file] ([\\?\UNC\server\share\file] for a network
+    path). Infer builds its paths with [^/] and compares them as strings, and taking a path with
+    backslashes in it apart is in fact not even possible: [Filename.parts] loops forever on a path
+    rooted at a backslash, since [Filename.dirname "\\"] is "\\" again. So bring a Windows path back
+    to the [C:/dir/file] form before doing anything with it. *)
 let of_win32_path path =
   let path = String.tr ~target:'\\' ~replacement:'/' path in
   match String.chop_prefix path ~prefix:"//?/UNC/" with
@@ -93,21 +98,23 @@ let of_win32_path path =
       String.chop_prefix path ~prefix:"//?/" |> Option.value ~default:path
 
 
-(** the drive letter of the path, if any, and the rest of the path; the drive is always [None]
-    except on Windows *)
-let split_drive =
-  if Sys.win32 then fun path ->
+(** [Filename] follows the conventions of the platform infer runs on, and those of Windows do not
+    suit the path rewriting below: [Filename.parts] never terminates on a path with a drive letter,
+    as [Filename.dirname "C:/"] is "C:/" again. So split the drive off before splitting a path into
+    parts, and put it back afterwards. *)
+let split_windows_drive path =
+  if Sys.win32 then
     let path = of_win32_path path in
     if String.length path >= 2 && Char.equal path.[1] ':' && Char.is_alpha path.[0] then
       (Some (String.prefix path 2), String.drop_prefix path 2)
     else (None, path)
-  else fun path -> (None, path)
+  else (None, path)
 
 
-(** like [Filename.parts], but also on Windows paths: [path_parts "C:\\dir\\file"] is
-    [["C:/"; "dir"; "file"]] *)
+(** [Filename.parts] of a path, brought to POSIX form and with the Windows drive letter, if any,
+    kept in front of the root part: [path_parts "C:\\dir\\file"] is [["C:/"; "dir"; "file"]] *)
 let path_parts path =
-  let drive, path = split_drive path in
+  let drive, path = split_windows_drive path in
   let parts = Filename.parts path in
   match (drive, parts) with
   | None, _ ->
@@ -118,7 +125,8 @@ let path_parts path =
       (drive ^ root) :: rest
 
 
-(** like [Filename.of_parts], but joins with '/' and answers "." on an empty list *)
+(** like [Filename.of_parts], but joins with '/' rather than [Filename.dir_sep], which is a
+    backslash on Windows, and answers "." on an empty list instead of raising *)
 let of_path_parts parts =
   match parts with
   | [] ->
@@ -131,8 +139,8 @@ let of_path_parts parts =
 
 
 let normalize_path_from ~root fname =
-  let root_drive, root = split_drive root in
-  let fname_drive, fname = split_drive fname in
+  let root_drive, root = split_windows_drive root in
+  let fname_drive, fname = split_windows_drive fname in
   let add_entry (rev_done, rev_root) entry =
     match (entry, rev_done, rev_root) with
     | ".", _, _ ->

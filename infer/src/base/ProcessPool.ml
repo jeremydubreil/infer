@@ -147,6 +147,10 @@ let wait_for_updates pool buffer =
 
 let has_running_children = ref false
 
+(* Windows has no signals: [Unix.kill] there only accepts [SIGKILL], which it implements as
+   TerminateProcess, and raises [Invalid_argument] for anything else. Asking for SIGTERM would thus
+   kill nobody, and the [waitpid] below would then wait forever on workers that were never told to
+   go away. Elsewhere, keep SIGTERM so that workers get a chance to run their signal handlers. *)
 let terminate_signal =
   match Version.build_platform with Windows -> Signal.kill | Linux | Darwin -> Signal.term
 
@@ -157,7 +161,11 @@ let killall slots =
       with _ -> () ) ;
   Array.iter slots ~f:(fun {pid} ->
       try IUnix.waitpid pid |> ignore
-      with Unix.Unix_error _ -> (* some children may have died already, it's fine *) () ) ;
+      with Unix.Unix_error _ ->
+        (* some children may have died and been reaped already, it's fine: on Windows a pid is a
+           process handle, which [waitpid] closes on reaping, so waiting again fails there with
+           EBADF rather than with ECHILD *)
+        () ) ;
   has_running_children := false
 
 
@@ -167,6 +175,9 @@ let one_child_died pool ~slot status =
   L.exit 1
 
 
+(* Poll each worker individually instead of waiting for "any" child: that is the only portable
+   option, as Windows has no equivalent of [waitpid(-1)] (see {!IUnix.wait_nohang}). It also means
+   we cannot mistake for a worker a pre-existing child of whoever [exec]ed us. *)
 let has_dead_child pool =
   Array.find_mapi pool.slots ~f:(fun slot {pid} ->
       IUnix.wait_nohang pid |> Option.map ~f:(fun status -> (slot, status)) )
@@ -488,8 +499,8 @@ let spawn_child ~child_prologue ~slot (_updates_r, updates_w) ~f ~epilogue =
            [INFER_ARGS] *)
         UnixLabels.create_process ~prog ~args:[|prog|] ~stdin:to_child_r ~stdout:updates_w
           ~stderr:Unix.stderr )
-    |> Pid.of_int
   in
+  let pid = Pid.of_int pid in
   let down_pipe = Unix.out_channel_of_descr to_child_w in
   Stdlib.set_binary_mode_out down_pipe true ;
   (* Send the closure _after_ the child has been created, so that it may start reading

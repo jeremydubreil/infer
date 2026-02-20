@@ -38,18 +38,18 @@ let parse_gradle_line ~kotlin ~line =
   {files= concat_st res.files res.file_st; opts= res.opts @ res.opt_st}
 
 
-let process_gradle_output_line =
-  let capture_output_template = ResultsDir.get_path Temporary ^/ "capture_target" in
-  fun ((seen, target_dirs) as acc) line ->
-    String.substr_index line ~pattern:arg_start_pattern
-    |> Option.value_map ~default:acc ~f:(fun pos ->
-        let content = String.drop_prefix line (pos + String.length arg_start_pattern) in
-        L.debug Capture Verbose "Processing: %s@." content ;
-        if IString.Set.mem content seen then acc
-        else
-          let javac_data = parse_gradle_line ~kotlin:Config.kotlin_capture ~line:content in
-          let out_dir = IFilename.temp_dir capture_output_template "" in
-          (IString.Set.add content seen, (out_dir, javac_data) :: target_dirs) )
+let process_gradle_output_line ((seen, target_dirs) as acc) line =
+  String.substr_index line ~pattern:arg_start_pattern
+  |> Option.value_map ~default:acc ~f:(fun pos ->
+      let content = String.drop_prefix line (pos + String.length arg_start_pattern) in
+      L.debug Capture Verbose "Processing: %s@." content ;
+      if IString.Set.mem content seen then acc
+      else
+        let javac_data = parse_gradle_line ~kotlin:Config.kotlin_capture ~line:content in
+        let out_dir =
+          IFilename.temp_dir ~in_dir:(ResultsDir.get_path Temporary) "capture_target" ""
+        in
+        (IString.Set.add content seen, (out_dir, javac_data) :: target_dirs) )
 
 
 let run_gradle ~prog ~args =

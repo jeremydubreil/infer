@@ -35,7 +35,8 @@ let compile compiler build_prog build_args =
       List.map file_args ~f:(fun arg ->
           if String.contains arg '\'' then arg
           else
-            (* javac reads a backslash in a quoted string as an escape character *)
+            (* javac reads a backslash in a quoted string as an escape character, and Windows
+               paths are full of them *)
             F.sprintf "'%s'" (String.substr_replace_all arg ~pattern:"\\" ~with_:"\\\\") )
     in
     Out_channel.with_file file ~f:(fun oc -> Out_channel.output_lines oc quoted_file_args) ;
@@ -47,7 +48,11 @@ let compile compiler build_prog build_args =
   let verbose_out_file =
     IFilename.temp_file ~in_dir:(ResultsDir.get_path Temporary) "javac" ".out"
   in
-  let run_and_capture_stdout cmd =
+  (* Spawn the compiler rather than hand a command line to a shell: [Escape.escape_shell] quotes for
+     a POSIX shell, but the shell that [Unix.open_process_in] runs on Windows is cmd.exe, which keeps
+     those quotes and so passes javac an argument, and a redirection, that it cannot make sense of.
+     javac writes its -verbose output on stderr, which is what [verbose_out_file] collects. *)
+  let run cmd =
     let stdout_read, stdout_write = Unix.pipe () in
     let stdout_in = Unix.in_channel_of_descr stdout_read in
     let f () =
@@ -60,7 +65,7 @@ let compile compiler build_prog build_args =
             UnixLabels.create_process ~prog:(List.hd_exn cmd) ~args:(Array.of_list cmd)
               ~stdin:Unix.stdin ~stdout:stdout_write ~stderr:stderr_fd )
           ~finally:(fun () ->
-            (* the read below only ends once every write end is closed *)
+            (* the child holds the write ends now; keeping ours open would make the read below hang *)
             Unix.close stdout_write ;
             Unix.close stderr_fd )
       in
@@ -71,7 +76,7 @@ let compile compiler build_prog build_args =
   in
   let try_run cmd error_k =
     L.(debug Capture Quiet) "Trying to execute: %a@." Pp.cli_args cmd ;
-    match run_and_capture_stdout cmd with
+    match run cmd with
     | Error err, log -> (
       match error_k with
       | Some k ->
