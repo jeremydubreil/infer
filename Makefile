@@ -177,13 +177,20 @@ endif # HAS_OBJC
 endif # BUILD_C_ANALYZERS
 
 ifneq ($(BUILD_SWIFT_ANALYZERS),no)
+# New variable specifically for local Swift testing
+SWIFT_DIRECT_TESTS += \
+  swift_annotreach \
+  swift_frontend \
+  swift_bitcode \
+  swift_pulse \
+  swift_multifile
+
+endif
+
+ifneq ($(BUILD_SWIFT_ANALYZERS),no)
 DIRECT_TESTS += \
   c_llvm-frontend \
   c_pulse-llvm \
-#   swift_annotreach \
-#   swift_frontend \
-#   swift_bitcode \
-#   swift_pulse \
 
 endif
 
@@ -667,6 +674,40 @@ $(DIRECT_TESTS:%=direct_%_replace): infer
 
 .PHONY: direct_tests
 direct_tests: $(DIRECT_TESTS:%=direct_%_test)
+
+
+# Custom Swift-only targets (Not included in main 'test' or 'endtoend_test')
+.PHONY: $(SWIFT_DIRECT_TESTS:%=direct_%_test)
+$(SWIFT_DIRECT_TESTS:%=direct_%_test): infer
+	$(QUIET)$(call silent_on_success,Running Swift local test: $(subst _, ,$@),\
+	$(call silence_make,\
+	$(MAKE) -C \
+	  $(INFER_DIR)/tests/codetoanalyze/$(shell printf $@ | cut -f 2 -d _)/$(shell printf $@ | cut -f 3 -d _) \
+	  test))
+
+.PHONY: $(SWIFT_DIRECT_TESTS:%=direct_%_replace)
+$(SWIFT_DIRECT_TESTS:%=direct_%_replace): infer
+	$(QUIET)$(call silent_on_success,Recording Swift expectations: $(subst _, ,$@),\
+	$(call silence_make,\
+	$(MAKE) -C \
+	  $(INFER_DIR)/tests/codetoanalyze/$(shell printf $@ | cut -f 2 -d _)/$(shell printf $@ | cut -f 3 -d _) \
+	  replace))
+
+.PHONY: $(SWIFT_DIRECT_TESTS:%=direct_%_clean)
+$(SWIFT_DIRECT_TESTS:%=direct_%_clean):
+	$(QUIET)$(call silent_on_success,Cleaning Swift local: $(subst _, ,$@),\
+	$(call silence_make,\
+	$(MAKE) -C \
+	  $(INFER_DIR)/tests/codetoanalyze/$(shell printf $@ | cut -f 2 -d _)/$(shell printf $@ | cut -f 3 -d _) \
+	  clean))
+
+# Shortcut to run all of them at once
+.PHONY: swift_tests
+swift_tests: $(SWIFT_DIRECT_TESTS:%=direct_%_test)
+
+# Shortcut to update all Swift test expectations at once
+.PHONY: swift_replace
+swift_replace: $(SWIFT_DIRECT_TESTS:%=direct_%_replace)
 
 .PHONY: $(BUILD_SYSTEMS_TESTS:%=build_%_test)
 $(BUILD_SYSTEMS_TESTS:%=build_%_test): infer
