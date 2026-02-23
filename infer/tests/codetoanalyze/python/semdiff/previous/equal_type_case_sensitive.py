@@ -4,4 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from typing import Dict, Set
-def foo() -> Dict[str, Dict[str, Set[str]]]: pass
+
+
+def foo() -> Dict[str, Dict[str, Set[str]]]:
+    pass

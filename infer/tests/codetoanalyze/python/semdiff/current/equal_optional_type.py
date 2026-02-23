@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 class C:
     def __init__(self, name: str | None, ip: str | None) -> None:
         self.name = name
@@ -10,7 +11,7 @@ class C:
 
 
 def foo(i: int) -> str | None:
-    if i==0:
+    if i == 0:
         return None
     else:
         return f"i={i}"

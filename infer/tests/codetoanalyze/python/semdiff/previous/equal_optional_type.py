@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 from typing import Optional
 
+
 class C:
     def __init__(self, name: Optional[str], ip: Optional[str]) -> None:
         self.name = name
@@ -11,7 +12,7 @@ class C:
 
 
 def foo(i: int) -> Optional[str]:
-    if i==0:
+    if i == 0:
         return None
     else:
         return f"i={i}"

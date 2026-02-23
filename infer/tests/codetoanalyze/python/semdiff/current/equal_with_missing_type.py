@@ -6,8 +6,10 @@
 # pyre-strict
 from typing import list
 
+
 def greet(name: str) -> str:
     return f"Hello, {name}!"
+
 
 def length(l: list[Any]):
     return len(l)

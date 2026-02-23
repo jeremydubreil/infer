@@ -5,4 +5,4 @@
 
 # pyre-strict
 
-CATEGORIES_TO_REMOVE: dict[str, int | None] = {'a': 1, 'b': 2, 'c': 3}
+CATEGORIES_TO_REMOVE: dict[str, int | None] = {"a": 1, "b": 2, "c": 3}

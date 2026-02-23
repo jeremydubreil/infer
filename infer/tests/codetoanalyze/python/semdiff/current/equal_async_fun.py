@@ -5,7 +5,6 @@
 
 # pyre-strict
 
-async def foo(
-  a: bool, b: bool, c: bool
-) -> bool:
-  return True
+
+async def foo(a: bool, b: bool, c: bool) -> bool:
+    return True

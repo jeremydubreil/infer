@@ -5,9 +5,10 @@
 
 # pyre-strict
 
-def foo() -> None:
-    write_html(
-        "file.json"
-    )
 
-def write_html(json_file_path:str) -> None: pass
+def foo() -> None:
+    write_html("file.json")
+
+
+def write_html(json_file_path: str) -> None:
+    pass

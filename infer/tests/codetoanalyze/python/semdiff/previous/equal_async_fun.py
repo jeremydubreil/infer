@@ -5,7 +5,6 @@
 
 # pyre-unsafe
 
-async def foo(
-  a: bool, b: bool, c
-) -> bool:
-  return True
+
+async def foo(a: bool, b: bool, c) -> bool:
+    return True

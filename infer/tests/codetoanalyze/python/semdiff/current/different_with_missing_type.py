@@ -6,5 +6,6 @@
 # pyre-strict
 from typing import Any
 
+
 def greet(name: Any) -> str:
     return f"Hello, {name}!"

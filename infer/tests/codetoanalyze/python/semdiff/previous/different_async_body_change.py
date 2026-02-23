@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 # Example with async function body change
 async def authenticate(self, token: str, tag: str) -> None:
-        print(1)
+    print(1)
