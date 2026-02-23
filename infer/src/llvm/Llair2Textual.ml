@@ -1060,10 +1060,10 @@ let cmnd_to_instrs ~(proc_state : ProcState.t) block =
          it means the first field. The first field of a struct is always at offset 0, so the base
          pointer already points to it. No offset calculation is needed. *)
           match (exp1, typ_exp1) with
-          | Textual.Exp.Lvar _, Some (Textual.Typ.Ptr ((Textual.Typ.Struct typ_name as typ_exp), _))
+          | Textual.Exp.Lvar _, Some (Textual.Typ.Ptr (Textual.Typ.Struct typ_name, _) as typ_exp)
             when Type.is_ptr_struct typ_exp ->
               translate_store_in_field_zero ~(proc_state : ProcState.t) exp1 loc typ_name
-          | _, Some (Textual.Typ.Ptr ((Textual.Typ.Struct typ_name as typ_exp), _))
+          | _, Some (Textual.Typ.Ptr (Textual.Typ.Struct typ_name, _) as typ_exp)
             when Type.is_int_optional typ_exp ->
               translate_store_in_field_zero ~(proc_state : ProcState.t) exp1 loc typ_name
           | _ ->
