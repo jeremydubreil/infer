@@ -7,17 +7,8 @@
 
 open! IStd
 open PulseBasicInterface
-open PulseOperationResult.Import
-open PulseModelsImport
 module DSL = PulseModelsDSL
-
-let alloc size : model_no_non_disj =
- fun model_data astate ->
-  let<++> astate =
-    Basic.alloc_not_null ~initialize:false ~desc:"alloc" SwiftAlloc (Some size) model_data astate
-  in
-  astate
-
+open PulseModelsImport
 
 let make_swift_bool b : DSL.aval DSL.model_monad =
   let open DSL.Syntax in
@@ -143,6 +134,33 @@ let metadata_equals arg1 arg2 () : unit DSL.model_monad =
       assign_ret unknown_bool
 
 
+let alloc size_exp : model =
+  let open DSL.Syntax in
+  start_model
+  @@ fun () ->
+  (* 1. Extract the exact type directly from the LLVM sizeof AST! *)
+  let typ =
+    match size_exp with
+    | Exp.Sizeof {typ} ->
+        if Typ.is_pointer typ then Typ.strip_ptr typ else typ
+    | _ ->
+        Logging.die InternalError "Expected sizeof expression in __swift_alloc"
+  in
+  (* 2. Create the main object memory space *)
+  let* allocated_obj = fresh () in
+  (* 3. Mark it as an allocated, non-null pointer *)
+  let* () = and_positive allocated_obj in
+  let* () = allocation SwiftAlloc allocated_obj in
+  let* () = and_dynamic_type_is allocated_obj typ in
+  (* 4. Create the symbolic metatype/vtable pointer (the isa pointer) *)
+  let* meta_addr = fresh ~more:"swift_isa_vtable_pointer" () in
+  let* () = and_dynamic_type_is meta_addr typ in
+  (* 5. Emulate Swift ABI: Write the metatype to the base address (offset 0) *)
+  let* () = store ~ref:allocated_obj meta_addr in
+  (* 6. Bind the fully constructed object to the return variable *)
+  assign_ret allocated_obj
+
+
 let builtins_matcher builtin args : unit -> unit DSL.model_monad =
   let builtin_s = SwiftProcname.show_builtin builtin in
   match (builtin : SwiftProcname.builtin) with
@@ -178,8 +196,7 @@ let builtins_matcher builtin args : unit -> unit DSL.model_monad =
 
 let matchers : matcher list =
   let open ProcnameDispatcher.Call in
-  [+BuiltinDecl.(match_builtin __swift_alloc) <>$ capt_exp $--> alloc]
+  [ (* Capture the raw AST to retain the static type during allocation *)
+    +BuiltinDecl.(match_builtin __swift_alloc) <>$ capt_exp $--> alloc ]
   |> List.map ~f:(fun matcher ->
-         matcher
-         |> ProcnameDispatcher.Call.contramap_arg_payload ~f:ValueOrigin.addr_hist
-         |> ProcnameDispatcher.Call.map_matcher ~f:lift_model )
+         matcher |> ProcnameDispatcher.Call.contramap_arg_payload ~f:ValueOrigin.addr_hist )
