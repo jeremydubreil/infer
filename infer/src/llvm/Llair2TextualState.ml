@@ -125,6 +125,7 @@ module ProcState = struct
     ; mutable last_id: Textual.Ident.t
     ; mutable last_tmp_var: int
     ; mutable metadata_ids: Textual.Ident.Set.t (* Track IDs representing Swift Metadata *)
+    ; mutable metadata_address_ids: Textual.Ident.Set.t (* Stores pointers TO metadata *)
     ; module_state: ModuleState.t }
 
   let init ~qualified_name ~sourcefile ~loc ~formals ~module_state =
@@ -142,6 +143,7 @@ module ProcState = struct
     ; last_id= Textual.Ident.of_int 0
     ; last_tmp_var= 0
     ; metadata_ids= Textual.Ident.Set.empty
+    ; metadata_address_ids= Textual.Ident.Set.empty
     ; module_state }
 
 
@@ -172,6 +174,14 @@ module ProcState = struct
 
 
   let is_metadata_id ~proc_state id = Textual.Ident.Set.mem id proc_state.metadata_ids
+
+  let mark_as_metadata_address ~proc_state id =
+    proc_state.metadata_address_ids <- Textual.Ident.Set.add id proc_state.metadata_address_ids
+
+
+  let is_metadata_address_id ~proc_state id =
+    Textual.Ident.Set.mem id proc_state.metadata_address_ids
+
 
   let pp fmt ~print_types proc_state =
     let pp_ids fmt current_ids =
@@ -211,13 +221,19 @@ module ProcState = struct
        @[locals: %a@]@;\
        @[formals: %a@]@;\
        @[ids_move: %a@]@;\
+       @[ids_metadata: %a@]@;\
+       @[ids_metadata_address: %a@]@;\
        @[ids_types: %a@]@;\
        @[id_offset: %a@]@;\
        @[get_element_ptr_offset: %a@]@;\
        ]@]"
       Textual.QualifiedProcName.pp proc_state.qualified_name Textual.Location.pp proc_state.loc
-      pp_vars proc_state.locals pp_formals proc_state.formals pp_ids_data proc_state.ids_move pp_ids
-      proc_state.ids_types
+      pp_vars proc_state.locals pp_formals proc_state.formals pp_ids_data proc_state.ids_move
+      (Pp.seq ~sep:"," Textual.Ident.pp)
+      (Textual.Ident.Set.elements proc_state.metadata_ids)
+      (Pp.seq ~sep:"," Textual.Ident.pp)
+      (Textual.Ident.Set.elements proc_state.metadata_address_ids)
+      pp_ids proc_state.ids_types
       (Pp.option (Pp.pair ~fst:Textual.Ident.pp ~snd:Int.pp))
       proc_state.id_offset
       (Pp.option (Pp.pair ~fst:Textual.VarName.pp ~snd:Int.pp))
@@ -315,6 +331,7 @@ use the substitution in the code later on. *)
     ; last_id= Textual.Ident.of_int 0
     ; last_tmp_var= 0
     ; metadata_ids= Textual.Ident.Set.empty
+    ; metadata_address_ids= Textual.Ident.Set.empty
     ; module_state }
 
 

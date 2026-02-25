@@ -215,6 +215,130 @@ let block_to_node_name block =
   Textual.NodeName.of_string name
 
 
+(* --- Helper functions for Swift Metadata Taint Propagation --- *)
+module Metadata = struct
+  let metadata_response = "swift::metadata_response"
+
+  let is_swift_metadata_response_name name = String.equal name metadata_response
+
+  (** Checks if a Textual field is 'metadata_response.field_0'. *)
+  let is_metadata_field (field : Textual.qualified_fieldname) =
+    let mangled_class_name =
+      Textual.TypeName.swift_mangled_name_of_type_name field.enclosing_class
+    in
+    let field_name = Textual.FieldName.to_string field.name in
+    match mangled_class_name with
+    | Some name ->
+        is_swift_metadata_response_name name && String.equal field_name "field_0"
+    | None ->
+        false
+
+
+  (** Propagates metadata tags. [is_load] = true: Dereference (Address -> Value) or Load from Field
+      (Address -> Value). [is_load] = false: Copy (Value -> Value or Address -> Address). *)
+  let propagate ~proc_state id exp ~is_load =
+    match exp with
+    | Textual.Exp.Field {field} when is_metadata_field field ->
+        if is_load then
+          (* Loading the field value (Metadata* -> Metadata) *)
+          ProcState.mark_as_metadata ~proc_state id
+        else
+          (* Getting the field address ( &Metadata* -> MetadataAddress ) *)
+          ProcState.mark_as_metadata_address ~proc_state id
+    | Textual.Exp.Var src_id ->
+        if is_load then
+          (* Loading from an Address yields a Value *)
+          if ProcState.is_metadata_address_id ~proc_state src_id then
+            ProcState.mark_as_metadata ~proc_state id
+          else if
+            (* Moving a Value to a Value *)
+            ProcState.is_metadata_id ~proc_state src_id
+          then ProcState.mark_as_metadata ~proc_state id (* Moving an Address to an Address *)
+          else if ProcState.is_metadata_address_id ~proc_state src_id then
+            ProcState.mark_as_metadata_address ~proc_state id
+    | _ ->
+        ()
+
+
+  let translate_ma_accessor ~(proc_state : ProcState.t) proc_name_str loc =
+    let ModuleState.{lang; struct_map; mangled_map; _} = proc_state.module_state in
+    (* 1. Transform Function name to Type name ($s...Ma -> T...C) *)
+    let middle = String.sub proc_name_str ~pos:2 ~len:(String.length proc_name_str - 4) in
+    let class_mangled_name = "T" ^ middle in
+    let class_type_name =
+      TypeName.struct_name_of_mangled_name lang ~mangled_map:(Some mangled_map) struct_map
+        class_mangled_name
+    in
+    (* 2. Initialize the Metadata Response record *)
+    let id = Var.add_fresh_id ~proc_state () in
+    let init_metadata_exp =
+      Textual.Exp.Call {proc= builtin_qual_proc_name llvm_init_tuple; args= []; kind= NonVirtual}
+    in
+    let let_metadata = Textual.Instr.Let {id= Some id; exp= init_metadata_exp; loc} in
+    (* 3. Allocate the symbolic instance representative: __sil_swift_alloc(<T...C>) *)
+    let alloc_args = [Textual.Exp.Typ (Textual.Typ.Struct class_type_name)] in
+    let alloc_exp =
+      Textual.Exp.Call {proc= Textual.ProcDecl.swift_alloc_name; args= alloc_args; kind= NonVirtual}
+    in
+    (* 4. Store the allocated instance into field_0 of the metadata response *)
+    let metadata_resp_type = Textual.TypeName.mk_swift_type_name metadata_response in
+    let field =
+      Field.field_of_pos_with_map proc_state.module_state.field_offset_map metadata_resp_type 0
+    in
+    let field_access_exp = Textual.Exp.Field {exp= Textual.Exp.Var id; field} in
+    let store_instr =
+      Textual.Instr.Store {exp1= field_access_exp; typ= None; exp2= alloc_exp; loc}
+    in
+    (Textual.Exp.Var id, [store_instr; let_metadata])
+
+
+  let translate_instantiate_mangled_name ~(proc_state : ProcState.t) global_name_str =
+    let ModuleState.{lang; struct_map; mangled_map; _} = proc_state.module_state in
+    (* 1. Extract type name: $s...MD -> T... *)
+    let middle = String.sub global_name_str ~pos:2 ~len:(String.length global_name_str - 4) in
+    let class_mangled_name = "T" ^ middle in
+    let class_type_name =
+      TypeName.struct_name_of_mangled_name lang ~mangled_map:(Some mangled_map) struct_map
+        class_mangled_name
+    in
+    (* 2. Allocate the symbolic instance representative directly: __sil_swift_alloc(...) *)
+    let alloc_args = [Textual.Exp.Typ (Textual.Typ.Struct class_type_name)] in
+    let alloc_exp =
+      Textual.Exp.Call {proc= Textual.ProcDecl.swift_alloc_name; args= alloc_args; kind= NonVirtual}
+    in
+    (alloc_exp, [])
+
+
+  let try_translate_swift_metadata_call ~proc_state (proc : Textual.QualifiedProcName.t) llair_args
+      return_id loc =
+    let proc_name_str = Textual.ProcName.to_string proc.name in
+    (* 1. Side-effect: Mark metadata-producing builtins *)
+    if
+      String.equal proc_name_str swift_get_dynamic_type
+      || String.equal proc_name_str swift_instantiateConcreteTypeFromMangledName
+      (* Swift mangling heuristic! If it contains "Cm", it returns a Class Metatype *)
+      || String.is_substring ~substring:"Cm" proc_name_str
+    then Option.iter return_id ~f:(fun id -> ProcState.mark_as_metadata ~proc_state id) ;
+    (* 2. Route the translation based on the function name *)
+    if String.is_suffix proc_name_str ~suffix:"Ma" then
+      let exp_instrs = translate_ma_accessor ~proc_state proc_name_str loc in
+      Some exp_instrs
+    else if String.equal proc_name_str swift_instantiateConcreteTypeFromMangledName then
+      let extract_global_name (exp : Llair.Exp.t) =
+        match exp with Global {name; _} -> Some name | _ -> None
+      in
+      let global_name_opt = List.hd llair_args |> Option.bind ~f:extract_global_name in
+      match global_name_opt with
+      | Some global_name_str ->
+          let exp, instrs = translate_instantiate_mangled_name ~proc_state global_name_str in
+          Some (exp, instrs)
+      | _ ->
+          None
+    else
+      (* Not a special Swift metadata function we need to manually model *)
+      None
+end
+
 let undef_exp ~sourcefile ~loc ?typ ~proc exp =
   let pp_typ fmt typ = Option.iter typ ~f:(fun typ -> F.fprintf fmt ":%a" Textual.Typ.pp typ) in
   L.internal_error "Llair2Textual: unsupported exp: %a%a in proc %a in %a at %a@\n" Llair.Exp.pp exp
@@ -289,6 +413,8 @@ let add_deref ~proc_state ?from_call exp loc =
   let id = Var.add_fresh_id ~proc_state () in
   let add_load_instr =
     let instr = Textual.Instr.Load {id; exp; typ= None; loc} in
+    (* Check for Metadata Taint (handles both Field access and Pointer deref) *)
+    Metadata.propagate ~proc_state id exp ~is_load:true ;
     ([instr], Textual.Exp.Var id)
   in
   match exp with
@@ -744,81 +870,6 @@ and translate_protocol_witness_optional_deinit_copy ~proc_state ptr exp loc =
   instr :: instrs
 
 
-and translate_ma_accessor ~(proc_state : ProcState.t) proc_name_str loc =
-  let ModuleState.{lang; struct_map; mangled_map; _} = proc_state.module_state in
-  (* 1. Transform Function name to Type name ($s...Ma -> T...C) *)
-  let middle = String.sub proc_name_str ~pos:2 ~len:(String.length proc_name_str - 4) in
-  let class_mangled_name = "T" ^ middle in
-  let class_type_name =
-    TypeName.struct_name_of_mangled_name lang ~mangled_map:(Some mangled_map) struct_map
-      class_mangled_name
-  in
-  (* 2. Initialize the Metadata Response record *)
-  let id = Var.add_fresh_id ~proc_state () in
-  let init_metadata_exp =
-    Textual.Exp.Call {proc= builtin_qual_proc_name llvm_init_tuple; args= []; kind= NonVirtual}
-  in
-  let let_metadata = Textual.Instr.Let {id= Some id; exp= init_metadata_exp; loc} in
-  (* 3. Allocate the symbolic instance representative: __sil_swift_alloc(<T...C>) *)
-  let alloc_args = [Textual.Exp.Typ (Textual.Typ.Struct class_type_name)] in
-  let alloc_exp =
-    Textual.Exp.Call {proc= Textual.ProcDecl.swift_alloc_name; args= alloc_args; kind= NonVirtual}
-  in
-  (* 4. Store the allocated instance into field_0 of the metadata response *)
-  let metadata_resp_type = Textual.TypeName.mk_swift_type_name "swift::metadata_response" in
-  let field =
-    Field.field_of_pos_with_map proc_state.module_state.field_offset_map metadata_resp_type 0
-  in
-  let field_access_exp = Textual.Exp.Field {exp= Textual.Exp.Var id; field} in
-  let store_instr = Textual.Instr.Store {exp1= field_access_exp; typ= None; exp2= alloc_exp; loc} in
-  (Textual.Exp.Var id, [store_instr; let_metadata])
-
-
-and translate_instantiate_mangled_name ~(proc_state : ProcState.t) global_name_str =
-  let ModuleState.{lang; struct_map; mangled_map; _} = proc_state.module_state in
-  (* 1. Extract type name: $s...MD -> T... *)
-  let middle = String.sub global_name_str ~pos:2 ~len:(String.length global_name_str - 4) in
-  let class_mangled_name = "T" ^ middle in
-  let class_type_name =
-    TypeName.struct_name_of_mangled_name lang ~mangled_map:(Some mangled_map) struct_map
-      class_mangled_name
-  in
-  (* 2. Allocate the symbolic instance representative directly: __sil_swift_alloc(...) *)
-  let alloc_args = [Textual.Exp.Typ (Textual.Typ.Struct class_type_name)] in
-  let alloc_exp =
-    Textual.Exp.Call {proc= Textual.ProcDecl.swift_alloc_name; args= alloc_args; kind= NonVirtual}
-  in
-  (alloc_exp, [])
-
-
-and try_translate_swift_metadata_call ~proc_state (proc : Textual.QualifiedProcName.t) llair_args
-    return_id loc =
-  let proc_name_str = Textual.ProcName.to_string proc.name in
-  (* 1. Side-effect: Mark metadata-producing builtins *)
-  if
-    String.equal proc_name_str swift_get_dynamic_type
-    || String.equal proc_name_str swift_instantiateConcreteTypeFromMangledName
-  then Option.iter return_id ~f:(fun id -> ProcState.mark_as_metadata ~proc_state id) ;
-  (* 2. Route the translation based on the function name *)
-  if String.is_suffix proc_name_str ~suffix:"Ma" then
-    let exp_instrs = translate_ma_accessor ~proc_state proc_name_str loc in
-    Some exp_instrs
-  else if String.equal proc_name_str swift_instantiateConcreteTypeFromMangledName then
-    let extract_global_name (exp : Llair.Exp.t) =
-      match exp with Global {name; _} -> Some name | _ -> None
-    in
-    let global_name_opt = List.hd llair_args |> Option.bind ~f:extract_global_name in
-    match global_name_opt with
-    | Some global_name_str ->
-        let exp, instrs = translate_instantiate_mangled_name ~proc_state global_name_str in
-        Some (exp, instrs)
-    | _ ->
-        None
-  else
-    (* Not a special Swift metadata function we need to manually model *)
-    None
-
-
 and to_textual_call_aux ~(proc_state : ProcState.t) ~kind (proc : Textual.QualifiedProcName.t)
     return ?generate_typ_exp (llair_args : Llair.Exp.t list) (loc : Textual.Location.t) =
   let args_instrs, args =
@@ -864,7 +915,9 @@ and to_textual_call_aux ~(proc_state : ProcState.t) ~kind (proc : Textual.Qualif
       | None ->
           resolve_call_translation proc args
     else
-      match try_translate_swift_metadata_call ~proc_state proc llair_args return_id loc with
+      match
+        Metadata.try_translate_swift_metadata_call ~proc_state proc llair_args return_id loc
+      with
       | Some exp_instrs ->
           exp_instrs
       | None ->
@@ -971,8 +1024,13 @@ let translate_move ~proc_state ~move_phi loc textual_instrs reg_exps =
   let instrs =
     List.fold
       ~f:(fun instrs (reg, exp) ->
-        let id = Some (Var.reg_to_id ~proc_state reg |> fst) in
         let exp, exp_typ, exp_instrs = to_textual_exp loc ~proc_state exp in
+        let id = Some (Var.reg_to_id ~proc_state reg |> fst) in
+        ( match id with
+        | Some lhs_id ->
+            Metadata.propagate ~proc_state lhs_id exp ~is_load:false
+        | _ ->
+            () ) ;
         let loaded_var =
           match exp with
           | Textual.Exp.Var var ->
@@ -1043,6 +1101,8 @@ let cmnd_to_instrs ~(proc_state : ProcState.t) block =
         let loc = to_textual_loc_instr ~proc_state loc in
         let id, _ = Var.reg_to_id ~proc_state reg in
         let exp, _, ptr_instrs = to_textual_exp loc ~proc_state ptr in
+        (* Taint propagation (Address -> Value) *)
+        Metadata.propagate ~proc_state id exp ~is_load:true ;
         ProcState.update_id_offset ~proc_state id exp ;
         ProcState.update_ids_move ~proc_state id None ~loaded_var:true ~deref_needed:false ;
         let textual_instr = Textual.Instr.Load {id; exp; typ= None; loc} in

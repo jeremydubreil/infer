@@ -87,7 +87,7 @@ module ProcState : sig
 
   type formal_data = {typ: Textual.Typ.annotated; assoc_local: Textual.VarName.t option; read: read}
 
-  type t = private
+  type t =
     { qualified_name: Textual.QualifiedProcName.t
     ; sourcefile: SourceFile.t
     ; loc: Textual.Location.t
@@ -101,7 +101,8 @@ module ProcState : sig
     ; mutable reg_map: Textual.Ident.t RegMap.t
     ; mutable last_id: Textual.Ident.t
     ; mutable last_tmp_var: int
-    ; mutable metadata_ids: Textual.Ident.Set.t
+    ; mutable metadata_ids: Textual.Ident.Set.t (* Track IDs representing Swift Metadata *)
+    ; mutable metadata_address_ids: Textual.Ident.Set.t (* Stores pointers TO metadata *)
     ; module_state: ModuleState.t }
 
   val init :
@@ -152,4 +153,8 @@ module ProcState : sig
   val mark_as_metadata : proc_state:t -> Textual.Ident.t -> unit
 
   val is_metadata_id : proc_state:t -> Textual.Ident.t -> bool
+
+  val mark_as_metadata_address : proc_state:t -> Textual.Ident.t -> unit
+
+  val is_metadata_address_id : proc_state:t -> Textual.Ident.t -> bool
 end

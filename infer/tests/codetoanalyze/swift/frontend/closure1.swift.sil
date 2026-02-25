@@ -99,9 +99,9 @@ define .plain_name = "test" $s5Hello4testSiyF() : int {
       jmp 6::ret @[16:9]
       
   #6::ret: @[16:9]
-      n8 = n7.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_1 @[16:9]
+      n9 = n7.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_1 @[16:9]
       n11 = load n7.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_0 @[16:9]
-      n12 = load n8 @[16:9]
+      n12 = load n9 @[16:9]
       _ = $builtins.llvm_dynamic_call(n11, n12) @[16:9]
       jmp 8::void::ret @[16:9]
       
@@ -125,11 +125,11 @@ define .plain_name = "init" $s5Hello18RetainCycleExampleCACycfc(self: *__infer_s
       n2 = load &self @[2:14]
       n3 = load n2.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[2:14]
       store n3.__infer_swift_type<TSi>.field_0 <- 10 @[2:14]
-      n5 = load &self @[4:9]
-      n4 = n5.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[4:9]
-      n7 = load n4 @[4:33]
+      n4 = load &self @[4:9]
+      n5 = n4.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[4:9]
+      n7 = load n5 @[4:33]
       store n7.__infer_swift_type<swift::function>.field_0 <- fun () -> $s5Hello18RetainCycleExampleC7closureyycvpfiyycfU_() @[4:33]
-      n9 = load n4 @[4:33]
+      n9 = load n5 @[4:33]
       store n9.__infer_swift_type<swift::function>.field_1 <- null @[4:33]
       n10 = load &self @[198:0]
       ret n10 @[198:0]
@@ -155,16 +155,16 @@ define .plain_name = "closure.set" .method_offset = "16" __infer_swift_type<T5He
   local var5: *int
   #: @[181:0]
       n1 = $builtins.llvm_nondet() @[181:0]
-      n3 = load &var3 @[182:0]
-      n2 = n3.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[182:0]
-      n5 = load n2 @[184:0]
+      n2 = load &var3 @[182:0]
+      n3 = n2.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[182:0]
+      n5 = load n3 @[184:0]
       n4 = load n5.__infer_swift_type<swift::function>.field_0 @[184:0]
-      n7 = load n2 @[185:0]
+      n7 = load n3 @[185:0]
       n6 = load n7.__infer_swift_type<swift::function>.field_1 @[185:0]
-      n9 = load n2 @[186:0]
+      n9 = load n3 @[186:0]
       n8 = load &var1 @[186:0]
       store n9.__infer_swift_type<swift::function>.field_0 <- n8 @[186:0]
-      n11 = load n2 @[187:0]
+      n11 = load n3 @[187:0]
       n10 = load &var2 @[187:0]
       store n11.__infer_swift_type<swift::function>.field_1 <- n10 @[187:0]
       ret null @[191:0]
@@ -182,11 +182,11 @@ declare $s5Hello18RetainCycleExampleC7closureyycvpfi() : *__infer_swift_type<,$s
 define .plain_name = "closure.get" .method_offset = "15" __infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.$s5Hello18RetainCycleExampleC7closureyycvg(var1: *__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>) : *__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>> {
   local var3: *int
   #: @[173:0]
-      n2 = load &var1 @[173:0]
-      n1 = n2.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[173:0]
-      n4 = load n1 @[175:0]
+      n1 = load &var1 @[173:0]
+      n2 = n1.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[173:0]
+      n4 = load n2 @[175:0]
       n3 = load n4.__infer_swift_type<swift::function>.field_0 @[175:0]
-      n6 = load n1 @[176:0]
+      n6 = load n2 @[176:0]
       n5 = load n6.__infer_swift_type<swift::function>.field_1 @[176:0]
       n7 = $builtins.llvm_nondet() @[177:0]
       n8 = $builtins.llvm_init_tuple() @[179:0]
@@ -198,8 +198,8 @@ define .plain_name = "closure.get" .method_offset = "15" __infer_swift_type<T5He
 
 define .plain_name = "closure.modify" $s5Hello18RetainCycleExampleC7closureyycvM::resume::0(var1: *__infer_swift_type<ptr_elt>, var2: int) : void {
   #: @[166:0]
-      n2 = load &var1 @[166:0]
-      n1 = n2.__infer_swift_type<$s5Hello18RetainCycleExampleC7closureyycvM::Frame>.field_0 @[166:0]
+      n1 = load &var1 @[166:0]
+      n2 = n1.__infer_swift_type<$s5Hello18RetainCycleExampleC7closureyycvM::Frame>.field_0 @[166:0]
       if &var2 then jmp 5 else jmp 4 @[167:0]
       
   #4: @[169:0]
@@ -215,13 +215,13 @@ define .plain_name = "closure.modify" $s5Hello18RetainCycleExampleC7closureyycvM
 
 define .plain_name = "closure.modify" .method_offset = "17" __infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.$s5Hello18RetainCycleExampleC7closureyycvM(var1: *__infer_swift_type<ptr_elt>, var2: *__infer_swift_type<ptr_elt>) : *__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>> {
   #: @[161:0]
-      n2 = load &var1 @[161:0]
-      n1 = n2.__infer_swift_type<$s5Hello18RetainCycleExampleC7closureyycvM::Frame>.field_0 @[161:0]
-      n4 = load &var2 @[162:0]
-      n3 = n4.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[162:0]
+      n1 = load &var1 @[161:0]
+      n2 = n1.__infer_swift_type<$s5Hello18RetainCycleExampleC7closureyycvM::Frame>.field_0 @[161:0]
+      n3 = load &var2 @[162:0]
+      n4 = n3.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.closure @[162:0]
       n5 = $builtins.llvm_init_tuple() @[164:0]
       store n5.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_0 <- "$s5Hello18RetainCycleExampleC7closureyycvM.resume.0" @[165:0]
-      n7 = load n3 @[165:0]
+      n7 = load n4 @[165:0]
       store n5.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_1 <- n7 @[165:0]
       ret n5 @[165:0]
       
@@ -230,9 +230,9 @@ define .plain_name = "closure.modify" .method_offset = "17" __infer_swift_type<T
 define .plain_name = "id.set" .method_offset = "13" __infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.$s5Hello18RetainCycleExampleC2idSivs(var1: int, var2: *__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>) : void {
   local var4: *int
   #: @[156:0]
-      n2 = load &var2 @[156:0]
-      n1 = n2.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[156:0]
-      n4 = load n1 @[158:0]
+      n1 = load &var2 @[156:0]
+      n2 = n1.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[156:0]
+      n4 = load n2 @[158:0]
       n3 = load &var1 @[158:0]
       store n4.__infer_swift_type<TSi>.field_0 <- n3 @[158:0]
       ret null @[160:0]
@@ -244,9 +244,9 @@ declare $s5Hello18RetainCycleExampleC2idSivpfi() : int
 define .plain_name = "id.get" .method_offset = "12" __infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.$s5Hello18RetainCycleExampleC2idSivg(var1: *__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>) : int {
   local var3: *int
   #: @[151:0]
-      n2 = load &var1 @[151:0]
-      n1 = n2.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[151:0]
-      n4 = load n1 @[153:0]
+      n1 = load &var1 @[151:0]
+      n2 = n1.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[151:0]
+      n4 = load n2 @[153:0]
       n3 = load n4.__infer_swift_type<TSi>.field_0 @[153:0]
       ret n3 @[155:0]
       
@@ -254,8 +254,8 @@ define .plain_name = "id.get" .method_offset = "12" __infer_swift_type<T5Hello18
 
 define .plain_name = "id.modify" $s5Hello18RetainCycleExampleC2idSivM::resume::0(var1: *__infer_swift_type<ptr_elt>, var2: int) : void {
   #: @[144:0]
-      n2 = load &var1 @[144:0]
-      n1 = n2.__infer_swift_type<$s5Hello18RetainCycleExampleC2idSivM::Frame>.field_0 @[144:0]
+      n1 = load &var1 @[144:0]
+      n2 = n1.__infer_swift_type<$s5Hello18RetainCycleExampleC2idSivM::Frame>.field_0 @[144:0]
       if &var2 then jmp 5 else jmp 4 @[145:0]
       
   #4: @[147:0]
@@ -271,13 +271,13 @@ define .plain_name = "id.modify" $s5Hello18RetainCycleExampleC2idSivM::resume::0
 
 define .plain_name = "id.modify" .method_offset = "14" __infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.$s5Hello18RetainCycleExampleC2idSivM(var1: *__infer_swift_type<ptr_elt>, var2: *__infer_swift_type<ptr_elt>) : *__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>> {
   #: @[139:0]
-      n2 = load &var1 @[139:0]
-      n1 = n2.__infer_swift_type<$s5Hello18RetainCycleExampleC2idSivM::Frame>.field_0 @[139:0]
-      n4 = load &var2 @[140:0]
-      n3 = n4.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[140:0]
+      n1 = load &var1 @[139:0]
+      n2 = n1.__infer_swift_type<$s5Hello18RetainCycleExampleC2idSivM::Frame>.field_0 @[139:0]
+      n3 = load &var2 @[140:0]
+      n4 = n3.__infer_swift_type<T5Hello18RetainCycleExampleC,RetainCycleExample>.id @[140:0]
       n5 = $builtins.llvm_init_tuple() @[142:0]
       store n5.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_0 <- "$s5Hello18RetainCycleExampleC2idSivM.resume.0" @[143:0]
-      n7 = load n3 @[143:0]
+      n7 = load n4 @[143:0]
       store n5.__infer_tuple_class<*__infer_swift_type<ptr_elt>,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_1 <- n7 @[143:0]
       ret n5 @[143:0]
       
