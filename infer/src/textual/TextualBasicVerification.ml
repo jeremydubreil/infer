@@ -288,9 +288,9 @@ let fix fields_to_fix (module_ : Module.t) =
         Field {exp= fix_exp f.exp; field= fix_qualified_fieldname f.field}
     | Index (exp1, exp2) ->
         Index (fix_exp exp1, fix_exp exp2)
-    | Call {proc; args; kind} ->
+    | Call {proc; args; kind; caller_ret_annots} ->
         let args = List.map args ~f:fix_exp in
-        Call {proc; args; kind}
+        Call {proc; args; kind; caller_ret_annots}
     | Closure {proc; captured; params; attributes} ->
         Closure {proc; captured= List.map captured ~f:fix_exp; params; attributes}
     | Apply {closure; args} ->

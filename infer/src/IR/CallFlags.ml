@@ -15,10 +15,17 @@ module F = Format
 type t =
   { cf_assign_last_arg: bool
   ; cf_injected_destructor: bool
+        (** true if this is an implicit C++ destructor call injected by the clang frontend *)
   ; cf_interface: bool
   ; cf_is_objc_block: bool
   ; cf_is_objc_getter_setter: bool
-  ; cf_virtual: bool }
+  ; cf_virtual: bool
+  ; cf_caller_ret_annots: Annot.Item.t
+        (** annotations the caller has decided about the return value of this specific call,
+            independent of any annotations on the callee's procdesc. Populated by frontends that
+            recover information about how the caller treats the result (e.g. the Swift frontend
+            recognising that the caller sees an ObjC-method result as [Optional<T>]). Combined with
+            the callee's [ret_annots] when checkers consult nullability. *) }
 [@@deriving compare, equal, hash, normalize]
 
 let pp f
@@ -27,7 +34,8 @@ let pp f
      ; cf_interface
      ; cf_is_objc_block
      ; cf_is_objc_getter_setter
-     ; cf_virtual }
+     ; cf_virtual
+     ; cf_caller_ret_annots }
      [@warning "+missing-record-field-pattern"] ) =
   if cf_assign_last_arg then F.pp_print_string f " assign_last" ;
   if cf_injected_destructor then F.pp_print_string f " injected" ;
@@ -35,6 +43,8 @@ let pp f
   if cf_is_objc_block then F.pp_print_string f " objc_block" ;
   if cf_is_objc_getter_setter then F.pp_print_string f " objc_getter_setter" ;
   if cf_virtual then F.pp_print_string f " virtual" ;
+  if not (List.is_empty cf_caller_ret_annots) then
+    F.fprintf f " caller_ret_annots=%a" Annot.Item.pp cf_caller_ret_annots ;
   ()
 
 
@@ -44,4 +54,5 @@ let default =
   ; cf_interface= false
   ; cf_is_objc_block= false
   ; cf_is_objc_getter_setter= false
-  ; cf_virtual= false }
+  ; cf_virtual= false
+  ; cf_caller_ret_annots= Annot.Item.empty }

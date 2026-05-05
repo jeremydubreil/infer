@@ -137,7 +137,7 @@ let undef_exp ?(reason = "unsupported exp") ~sourcefile ~loc ?typ ~proc exp =
     pp_typ typ Textual.QualifiedProcName.pp proc SourceFile.pp sourcefile Textual.Location.pp loc ;
   bump_unsupported_exp () ;
   (* TODO: should include the arguments here too *)
-  (Textual.Exp.Call {proc= undef_proc_name; args= []; kind= NonVirtual}, typ, [])
+  (Textual.Exp.call_non_virtual undef_proc_name [], typ, [])
 
 
 let to_textual_arith_exp_builtin ~loc ~sourcefile (op : Llair.Exp.op2) (typ : Llair.Typ.t) =
@@ -296,10 +296,10 @@ let to_textual_not_exp op exp1 exp2 =
   match op with
   | Llair.Exp.Xor when Textual.Exp.is_one_exp exp1 ->
       let proc = Textual.ProcDecl.of_unop Unop.LNot in
-      Some Textual.Exp.(Call {proc; args= [exp2]; kind= Textual.Exp.NonVirtual})
+      Some (Textual.Exp.call_non_virtual proc [exp2])
   | Llair.Exp.Xor when Textual.Exp.is_one_exp exp2 ->
       let proc = Textual.ProcDecl.of_unop Unop.LNot in
-      Some Textual.Exp.(Call {proc; args= [exp1]; kind= Textual.Exp.NonVirtual})
+      Some (Textual.Exp.call_non_virtual proc [exp1])
   | _ ->
       None
 
@@ -372,7 +372,10 @@ let rec to_textual_exp ~(proc_state : ProcState.t) loc ?generate_typ_exp (exp : 
          the [internal_error] log or the unsupported-exp counter bump — those
          should be reserved for genuine coverage gaps. *)
       let textual_typ = Type.to_textual_typ lang ~mangled_map ~struct_map typ in
-      (Textual.Exp.Call {proc= undef_proc_name; args= []; kind= NonVirtual}, Some textual_typ, [])
+      ( Textual.Exp.Call
+          {proc= undef_proc_name; args= []; kind= NonVirtual; caller_ret_annots= Annot.Item.empty}
+      , Some textual_typ
+      , [] )
   | FuncName {name} ->
       let s_exp = Textual.Exp.Const (Str name) in
       let exp =
@@ -500,21 +503,19 @@ let rec to_textual_exp ~(proc_state : ProcState.t) loc ?generate_typ_exp (exp : 
       let textual_dst_typ = Type.to_textual_typ lang ~mangled_map ~struct_map dst_typ in
       let proc = Textual.ProcDecl.cast_name in
       let instrs = List.append instrs deref_instrs in
-      ( Call {proc; args= [Textual.Exp.Typ textual_dst_typ; exp]; kind= Textual.Exp.NonVirtual}
-      , None
-      , instrs )
+      (Textual.Exp.call_non_virtual proc [Textual.Exp.Typ textual_dst_typ; exp], None, instrs)
   | Ap1 (Splat, _, _) ->
       (* [splat exp] initialises every element of an array with the element exp, so to be precise it
        needs to be translated as a loop. We translate here to a non-deterministic value for the array *)
       let proc = undef_proc_name in
-      (Call {proc; args= []; kind= Textual.Exp.NonVirtual}, None, [])
+      (Textual.Exp.call_non_virtual proc [], None, [])
   | Ap2 (((Add | Sub | Mul | Div | Rem) as op), typ, e1, e2) ->
       let proc = to_textual_arith_exp_builtin ~loc ~sourcefile:proc_state.sourcefile op typ in
       let exp1, typ1, exp1_instrs = to_textual_exp loc ~proc_state e1 in
       let deref_instrs1, exp1 = add_deref ~proc_state exp1 loc in
       let exp2, _, exp2_instrs = to_textual_exp loc ~proc_state e2 in
       let deref_instrs2, exp2 = add_deref ~proc_state exp2 loc in
-      ( Call {proc; args= [exp1; exp2]; kind= Textual.Exp.NonVirtual}
+      ( Textual.Exp.call_non_virtual proc [exp1; exp2]
       , typ1
       , deref_instrs1 @ exp1_instrs @ deref_instrs2 @ exp2_instrs )
   | Ap2
@@ -534,14 +535,14 @@ let rec to_textual_exp ~(proc_state : ProcState.t) loc ?generate_typ_exp (exp : 
       let exp =
         if Llair.Exp.equal_op2 op Eq && (is_metadata exp1 || is_metadata exp2) then
           let proc = Models.builtin_qual_proc_name Models.swift_metadata_equals in
-          Textual.Exp.Call {proc; args= [exp1; exp2]; kind= NonVirtual}
+          Textual.Exp.call_non_virtual proc [exp1; exp2]
         else
           match to_textual_not_exp op exp1 exp2 with
           | Some exp ->
               exp
           | None ->
               let proc = to_textual_bool_exp_builtin op in
-              Textual.Exp.Call {proc; args= [exp1; exp2]; kind= Textual.Exp.NonVirtual}
+              Textual.Exp.call_non_virtual proc [exp1; exp2]
       in
       (exp, typ1, deref_instrs1 @ exp1_instrs @ deref_instrs2 @ exp2_instrs)
   | Ap2 (Update idx, typ, rcd, elt) ->
@@ -591,7 +592,7 @@ let rec to_textual_exp ~(proc_state : ProcState.t) loc ?generate_typ_exp (exp : 
           let rcd_exp = Textual.Exp.Var id in
           let undef_exp =
             let proc = Models.builtin_qual_proc_name Models.llvm_init_tuple in
-            Textual.Exp.Call {proc; args= []; kind= NonVirtual}
+            Textual.Exp.call_non_virtual proc []
           in
           let rcd_store_instr = Textual.Instr.Let {id= Some id; exp= undef_exp; loc} in
           (* for each element in the record we set the value to a field of the record variable. *)
@@ -635,7 +636,12 @@ and resolve_method_call ~proc_state proc args =
         match ProcState.find_method_with_offset ~proc_state struct_name offset with
         | Some proc_name ->
             ProcState.reset_offsets ~proc_state ;
-            Some (Textual.Exp.Call {proc= proc_name; args; kind= Textual.Exp.Virtual})
+            Some
+              (Textual.Exp.Call
+                 { proc= proc_name
+                 ; args
+                 ; kind= Textual.Exp.Virtual
+                 ; caller_ret_annots= Annot.Item.empty } )
         | None ->
             None )
       | _ ->
@@ -676,7 +682,7 @@ and to_textual_call_aux ~(proc_state : ProcState.t) ~kind (proc : Textual.Qualif
     | Some call_instr ->
         (call_instr, [])
     | None ->
-        (Textual.Exp.Call {proc; args; kind}, [])
+        (Textual.Exp.Call {proc; args; kind; caller_ret_annots= Annot.Item.empty}, [])
   in
   let call_exp, call_instrs =
     if List.exists Models.functions_to_skip ~f:(Textual.ProcName.equal proc.name) then
@@ -775,7 +781,7 @@ and to_textual_call ~(proc_state : ProcState.t) (call : 'a Llair.call) =
             then Textual.Exp.Typ (Textual.Typ.Struct class_name) :: textual_args
             else [Textual.Exp.Typ (Textual.Typ.Struct class_name)]
           in
-          Textual.Exp.Call {proc= builtin_alloc_proc; args; kind= Textual.Exp.NonVirtual}
+          Textual.Exp.call_non_virtual builtin_alloc_proc args
       | None ->
           call_exp )
     | _ ->
@@ -1127,10 +1133,7 @@ and to_terminator_and_succs ~proc_state ~seen_nodes term =
                 let case_deref_instrs, case_textual = add_deref ~proc_state case_textual loc in
                 let bexp =
                   Textual.BoolExp.Exp
-                    (Textual.Exp.Call
-                       { proc= eq_proc
-                       ; args= [key_textual; case_textual]
-                       ; kind= Textual.Exp.NonVirtual } )
+                    (Textual.Exp.call_non_virtual eq_proc [key_textual; case_textual])
                 in
                 let then_term, then_typ, then_nodes =
                   to_textual_jump_and_succs ~proc_state ~seen_nodes jump

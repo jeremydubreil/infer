@@ -602,9 +602,7 @@ let mk_terminator (crate : Charon.UllbcAst.crate) (idx : int) (place_map : place
       let qualified_proc_name = fun_name_from_fun_operand crate call.func in
       let dest_typ = ty_to_textual_typ crate call.dest.ty in
       let dest_exp = mk_exp_from_place ~loc crate place_map call.dest in
-      let call_exp =
-        Textual.Exp.Call {proc= qualified_proc_name; args= args_exps; kind= Textual.Exp.NonVirtual}
-      in
+      let call_exp = Textual.Exp.call_non_virtual qualified_proc_name args_exps in
       let call_instr =
         Textual.Instr.Store {exp1= dest_exp; exp2= call_exp; loc; typ= Some dest_typ}
       in

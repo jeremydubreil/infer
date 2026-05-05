@@ -1114,7 +1114,11 @@ module rec Exp : sig
     | Index of t * t  (** an array index offset: [exp1[exp2]] *)
     | Const of Const.t
     | If of {cond: BoolExp.t; then_: t; else_: t}
-    | Call of {proc: QualifiedProcName.t; args: t list; kind: call_kind}
+    | Call of
+        { proc: QualifiedProcName.t
+        ; args: t list
+        ; kind: call_kind
+        ; caller_ret_annots: Annot.Item.t  (** See [Textual.mli]. *) }
     | Closure of
         { proc: QualifiedProcName.t
         ; captured: t list
@@ -1157,7 +1161,8 @@ end = struct
     (*  | Sizeof of sizeof_data *)
     | Const of Const.t
     | If of {cond: BoolExp.t; then_: t; else_: t}
-    | Call of {proc: QualifiedProcName.t; args: t list; kind: call_kind}
+    | Call of
+        {proc: QualifiedProcName.t; args: t list; kind: call_kind; caller_ret_annots: Annot.Item.t}
     | Closure of
         { proc: QualifiedProcName.t
         ; captured: t list
@@ -1166,9 +1171,13 @@ end = struct
     | Apply of {closure: t; args: t list}
     | Typ of Typ.t
 
-  let call_non_virtual proc args = Call {proc; args; kind= NonVirtual}
+  let call_non_virtual proc args =
+    Call {proc; args; kind= NonVirtual; caller_ret_annots= Annot.Item.empty}
 
-  let call_virtual proc recv args = Call {proc; args= recv :: args; kind= Virtual}
+
+  let call_virtual proc recv args =
+    Call {proc; args= recv :: args; kind= Virtual; caller_ret_annots= Annot.Item.empty}
+
 
   let call_sig qualified_name nb_args = function
     | Lang.Hack ->
@@ -1195,7 +1204,11 @@ end = struct
   let is_one_exp exp = match exp with Const (Int i) -> Z.equal i Z.one | _ -> false
 
   let allocate_object typename =
-    Call {proc= ProcDecl.allocate_object_name; args= [Typ (Typ.Struct typename)]; kind= NonVirtual}
+    Call
+      { proc= ProcDecl.allocate_object_name
+      ; args= [Typ (Typ.Struct typename)]
+      ; kind= NonVirtual
+      ; caller_ret_annots= Annot.Item.empty }
 
 
   let pp_fun_attributes fmt = function [] -> () | l -> List.iter l ~f:(Attr.pp fmt)

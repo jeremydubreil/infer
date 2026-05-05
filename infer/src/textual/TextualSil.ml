@@ -821,7 +821,7 @@ module InstrBridge = struct
         in
         (* TODO: we may want to use the class_of_class type here *)
         Call ((ret, class_type), builtin, args, loc, CallFlags.default)
-    | Let {id= Some id; exp= Call {proc; args; kind}; loc} ->
+    | Let {id= Some id; exp= Call {proc; args; kind; caller_ret_annots}; loc} ->
         let ret = IdentBridge.to_sil id in
         let procsig = Exp.call_sig proc (List.length args) (TextualDecls.lang decls_env) in
         let variadic_status, ({formals_types} as callee_procdecl : ProcDecl.t) =
@@ -917,7 +917,7 @@ module InstrBridge = struct
         in
         let loc = LocationBridge.to_sil sourcefile loc in
         let cf_virtual = Exp.equal_call_kind kind Virtual in
-        let cflag = {CallFlags.default with cf_virtual} in
+        let cflag = {CallFlags.default with cf_virtual; cf_caller_ret_annots= caller_ret_annots} in
         Call ((ret, result_type), Const (Cfun pname), args, loc, cflag)
     | Let {exp= Closure _; loc} ->
         let msg = lazy "closure construction should have been transformed before SIL conversion" in

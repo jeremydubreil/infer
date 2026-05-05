@@ -19,10 +19,16 @@ type t =
   ; cf_interface: bool
   ; cf_is_objc_block: bool
   ; cf_is_objc_getter_setter: bool
-  ; cf_virtual: bool }
+  ; cf_virtual: bool
+  ; cf_caller_ret_annots: Annot.Item.t
+        (** annotations the caller has decided about the return value of this specific call,
+            independent of any annotations on the callee's procdesc. Populated by frontends that
+            recover information about how the caller treats the result (e.g. the Swift frontend
+            recognising that the caller sees an ObjC-method result as [Optional<T>]). Combined with
+            the callee's [ret_annots] when checkers consult nullability. *) }
 [@@deriving compare, equal, hash, normalize]
 
 val pp : F.formatter -> t -> unit
 
 val default : t
-(** Default value where all fields are set to false *)
+(** Default value where all fields are set to false / empty *)

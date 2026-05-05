@@ -502,7 +502,8 @@ module InstrBridge = struct
         let args = List.map ~f:(fun (e, _) -> ExpBridge.of_sil decls tenv e) args in
         let loc = LocationBridge.of_sil loc in
         let kind = if call_flags.cf_virtual then Exp.Virtual else Exp.NonVirtual in
-        Let {id= Some (IdentBridge.of_sil id); exp= Call {proc; args; kind}; loc}
+        let caller_ret_annots = call_flags.cf_caller_ret_annots in
+        Let {id= Some (IdentBridge.of_sil id); exp= Call {proc; args; kind; caller_ret_annots}; loc}
     | Call _ ->
         L.die InternalError "Translation of a SIL call that is not const not supported"
     | Metadata meta ->

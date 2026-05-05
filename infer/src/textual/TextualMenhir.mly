@@ -479,7 +479,7 @@ expression:
   | LPAREN IF cond=bool_expression THEN then_=expression ELSE else_=expression RPAREN
     { Exp.If {cond; then_; else_} }
   | proc=opt_qualified_pname_and_lparen args=separated_list(COMMA, expression) RPAREN
-    { Exp.Call {proc; args; kind= Exp.NonVirtual} }
+    { Exp.Call {proc; args; kind= Exp.NonVirtual; caller_ret_annots= Annot.Item.empty} }
   | closure=expression LPAREN args=separated_list(COMMA, expression) RPAREN
     (* remark: the lexer will never generate the sequence IDENT LPAREN because PROC_AND_LPAREN
        is more prioritary. We will fix that using TextualTransform.FixClosureAppExpr later *)

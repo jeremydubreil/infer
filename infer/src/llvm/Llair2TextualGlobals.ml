@@ -301,10 +301,7 @@ let rec translate_global ~proc_state ~lang ~struct_map ~mangled_map ~name ~typ =
           TypeName.struct_name_of_mangled_name lang ~mangled_map:(Some mangled_map) struct_map name
         in
         let args = [Textual.Exp.Typ (Textual.Typ.Struct class_name)] in
-        let exp =
-          Textual.Exp.Call
-            {proc= Textual.ProcDecl.swift_alloc_name; args; kind= Textual.Exp.NonVirtual}
-        in
+        let exp = Textual.Exp.call_non_virtual Textual.ProcDecl.swift_alloc_name args in
         (exp, None, [])
       else handle_standard_global ~proc_state ~lang ~struct_map ~mangled_map ~name ~typ
   | SwiftMetadata name ->

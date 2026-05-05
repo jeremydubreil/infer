@@ -113,7 +113,7 @@ let builtin_qual_proc_name name : Textual.QualifiedProcName.t =
 
 let call_builtin name args =
   let proc = builtin_qual_proc_name name in
-  Textual.Exp.Call {proc; args; kind= NonVirtual}
+  Textual.Exp.call_non_virtual proc args
 
 
 let str_py_make_string = "py_make_string"

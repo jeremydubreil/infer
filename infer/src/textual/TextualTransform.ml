@@ -132,11 +132,11 @@ module FixClosureAppExpr = struct
           Field {f with exp= of_exp f.exp}
       | Index (exp1, exp2) ->
           Index (of_exp exp1, of_exp exp2)
-      | Call {proc; args; kind} ->
+      | Call {proc; args; kind; caller_ret_annots} ->
           let args = List.map args ~f:of_exp in
           Option.value_map (is_varname proc)
             ~f:(fun closure -> Apply {closure; args})
-            ~default:(Call {proc; args; kind})
+            ~default:(Call {proc; args; kind; caller_ret_annots})
       | Closure {proc; captured; params; attributes} ->
           Closure {proc; captured= List.map captured ~f:of_exp; params; attributes}
       | Apply {closure; args} ->
@@ -232,10 +232,13 @@ module FixHackWrapper = struct
       | last_node :: others ->
           let instrs =
             List.map last_node.Node.instrs ~f:(function
-              | Instr.Let {id; exp= Exp.Call {proc; args; kind= Virtual}; loc} ->
+              | Instr.Let {id; exp= Exp.Call {proc; args; kind= Virtual; caller_ret_annots}; loc} ->
                   let enclosing_class = procdecl.qualified_name.enclosing_class in
                   let proc : QualifiedProcName.t = {proc with enclosing_class} in
-                  let instr = Instr.Let {id; exp= Exp.Call {proc; args; kind= NonVirtual}; loc} in
+                  let instr =
+                    Instr.Let
+                      {id; exp= Exp.Call {proc; args; kind= NonVirtual; caller_ret_annots}; loc}
+                  in
                   instr
               | instr ->
                   instr )
@@ -296,16 +299,14 @@ module FixHackInvokeClosure = struct
         :: rev_instrs
         when TypeName.equal class_name_call class_name && VarName.equal varname this_varname ->
           let fixed_typed_name, fixed_proc = fix_proc_name class_name_call name in
-          let fixed_call_exp = Exp.Call {proc= fixed_proc; args; kind= NonVirtual} in
+          let fixed_call_exp = Exp.call_non_virtual fixed_proc args in
           let fixed_call_instr = Instr.Let {id= Some ret_id; exp= fixed_call_exp; loc= loc1} in
           let fixed_lazy_init_instr =
             Instr.Let
               { id= Some cls_id
               ; exp=
-                  Call
-                    { proc= ProcDecl.lazy_class_initialize_builtin
-                    ; args= [Exp.Typ (Typ.Struct fixed_typed_name)]
-                    ; kind= NonVirtual }
+                  Exp.call_non_virtual ProcDecl.lazy_class_initialize_builtin
+                    [Exp.Typ (Typ.Struct fixed_typed_name)]
               ; loc= loc2 }
           in
           QualifiedProcName.Hashtbl.replace hashtbl to_be_fixed_proc fixed_proc ;
@@ -638,7 +639,7 @@ module TransformClosures = struct
 
 
   let closure_call_exp loc closure args : Exp.t =
-    Call {proc= closure_call_qualified_procname loc; args= closure :: args; kind= Virtual}
+    Exp.call_virtual (closure_call_qualified_procname loc) closure args
 
 
   let closure_call_procdecl loc typename (closure : ProcDesc.t) nb_captured : ProcDecl.t =
@@ -688,9 +689,7 @@ module TransformClosures = struct
           (state, exp :: args, load :: instrs) )
     in
     let node : Node.t =
-      let exp =
-        Exp.Call {proc= closure.procdecl.qualified_name; args= List.rev args; kind= NonVirtual}
-      in
+      let exp = Exp.call_non_virtual closure.procdecl.qualified_name (List.rev args) in
       let fresh_ident = state.State.fresh_ident in
       let instr = Instr.Let {id= Some fresh_ident; exp; loc} in
       let last : Terminator.t = Ret (Var fresh_ident) in
@@ -1002,12 +1001,13 @@ let remove_effects_in_subexprs lang decls_env module_ =
         let new_instr : Instr.t = Let {id= Some fresh; exp; loc} in
         let state = {state with State.may_need_iteration= exp_needs_flattening exp} in
         (Var fresh, State.push_instr new_instr state |> State.incr_fresh)
-    | Call {proc; args; kind} ->
+    | Call {proc; args; kind; caller_ret_annots} ->
         let args, state = flatten_exp_list loc args state in
-        if ProcDecl.is_side_effect_free_sil_expr proc then (Call {proc; args; kind}, state)
+        let call_exp = Exp.Call {proc; args; kind; caller_ret_annots} in
+        if ProcDecl.is_side_effect_free_sil_expr proc then (call_exp, state)
         else
           let fresh = state.State.fresh_ident in
-          let new_instr : Instr.t = Let {id= Some fresh; exp= Call {proc; args; kind}; loc} in
+          let new_instr : Instr.t = Let {id= Some fresh; exp= call_exp; loc} in
           (Var fresh, State.push_instr new_instr state |> State.incr_fresh)
     | Closure {proc; captured; params; attributes} when Lang.is_swift lang ->
         (Closure {proc; captured; params; attributes}, state)
@@ -1088,10 +1088,10 @@ let remove_effects_in_subexprs lang decls_env module_ =
     | Prune {exp; loc} ->
         let exp, state = flatten_exp loc exp state in
         State.push_instr (Prune {exp; loc}) state
-    | Let {id; exp= Call {proc; args; kind}; loc}
+    | Let {id; exp= Call {proc; args; kind; caller_ret_annots}; loc}
       when not (ProcDecl.is_side_effect_free_sil_expr proc) ->
         let args, state = flatten_exp_list loc args state in
-        State.push_instr (Let {id; exp= Call {proc; args; kind}; loc}) state
+        State.push_instr (Let {id; exp= Call {proc; args; kind; caller_ret_annots}; loc}) state
     | Let {id; exp; loc} ->
         let exp, state = flatten_exp loc ~toplevel:true exp state in
         State.push_instr (Let {id; exp; loc}) state

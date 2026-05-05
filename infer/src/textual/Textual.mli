@@ -452,7 +452,17 @@ module rec Exp : sig
     | Index of t * t  (** an array index offset: [exp1[exp2]] *)
     | Const of Const.t
     | If of {cond: BoolExp.t; then_: t; else_: t}
-    | Call of {proc: QualifiedProcName.t; args: t list; kind: call_kind}
+    | Call of
+        { proc: QualifiedProcName.t
+        ; args: t list
+        ; kind: call_kind
+        ; caller_ret_annots: Annot.Item.t
+              (** Annotations the caller has decided about this specific call's return value,
+                  independent of any annotations on the callee's procdesc. Defaults to the empty
+                  list and is generally only populated by frontends that recover caller-side type
+                  information (e.g. Swift recognising [Optional<T>] at the call site of an
+                  unannotated ObjC method). Threaded down to [CallFlags.cf_caller_ret_annots] by
+                  [TextualSil.module_to_sil]. *) }
     | Closure of
         { proc: QualifiedProcName.t
         ; captured: t list

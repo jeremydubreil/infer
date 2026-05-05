@@ -615,7 +615,7 @@ and typeof_exp (exp : Exp.t) : (Exp.t * Typ.t) monad =
       (* TODO(T177210383): fix the type declared by hackc in order to deal with
          this case as a regular call *)
       ret (exp, typeof_generics)
-  | Call {proc; args; kind}
+  | Call {proc; args; kind; caller_ret_annots}
     when Textual.QualifiedProcName.is_python_builtin proc
          || Textual.QualifiedProcName.is_llvm_builtin proc ->
       let* lang = get_lang in
@@ -630,8 +630,8 @@ and typeof_exp (exp : Exp.t) : (Exp.t * Typ.t) monad =
           Typ.(mk_ptr (Struct (Textual.TypeName.mk_swift_tuple_type_name [])))
         else TextualSil.default_return_type lang loc
       in
-      (Exp.Call {proc; args; kind}, return_type)
-  | Call {proc; args; kind} ->
+      (Exp.Call {proc; args; kind; caller_ret_annots}, return_type)
+  | Call {proc; args; kind; caller_ret_annots} ->
       let* lang = get_lang in
       let procsig = Exp.call_sig proc (List.length args) lang in
       let* nb_generics = count_generics_args args in
@@ -666,7 +666,7 @@ and typeof_exp (exp : Exp.t) : (Exp.t * Typ.t) monad =
                 in
                 exp )
       in
-      (Exp.Call {proc; args; kind}, result_type)
+      (Exp.Call {proc; args; kind; caller_ret_annots}, result_type)
   | Apply {closure; args} ->
       let* closure, _ = typeof_exp closure in
       let* args_and_types = mapM args ~f:typeof_exp in
@@ -687,7 +687,9 @@ and typeof_exp (exp : Exp.t) : (Exp.t * Typ.t) monad =
 and typeof_allocate_builtin (proc : QualifiedProcName.t) args =
   match args with
   | [Exp.Typ typ] ->
-      ret (Exp.Call {proc; args; kind= Exp.NonVirtual}, Typ.mk_ptr typ)
+      ret
+        ( Exp.Call {proc; args; kind= Exp.NonVirtual; caller_ret_annots= Annot.Item.empty}
+        , Typ.mk_ptr typ )
   | [exp] ->
       let* loc = get_location in
       let* _, typ = typeof_exp exp in
@@ -710,7 +712,7 @@ and typeof_allocate_array_builtin lang (proc : QualifiedProcName.t) args =
         mapM (dim :: dims) ~f:(fun exp ->
             typecheck_exp exp ~check:(is_int lang) ~expected:(SubTypeOf Int) ~loc )
       in
-      (Exp.Call {proc; args= Exp.Typ typ :: args; kind= Exp.NonVirtual}, Typ.mk_ptr typ)
+      (Exp.call_non_virtual proc (Exp.Typ typ :: args), Typ.mk_ptr typ)
   | exp1 :: exp2 :: _ ->
       let* loc = get_location in
       let* _, typ = typeof_exp exp1 in
@@ -730,7 +732,7 @@ and typeof_cast_builtin (proc : QualifiedProcName.t) args =
   match args with
   | [Exp.Typ typ; exp] ->
       let+ exp, _old_typ = typeof_exp exp in
-      (Exp.Call {proc; args= [Exp.Typ typ; exp]; kind= Exp.NonVirtual}, typ)
+      (Exp.call_non_virtual proc [Exp.Typ typ; exp], typ)
   | [exp; _] ->
       let* loc = get_location in
       let* _, typ = typeof_exp exp in
@@ -749,12 +751,12 @@ and typeof_instanceof_builtin (proc : QualifiedProcName.t) args =
   match args with
   | [exp1; (Exp.Typ _ as exp2)] ->
       let+ exp1, _ = typeof_exp exp1 in
-      (Exp.Call {proc; args= [exp1; exp2]; kind= Exp.NonVirtual}, Typ.Int)
+      (Exp.call_non_virtual proc [exp1; exp2], Typ.Int)
   (* hack to temporarily let instanceof take 2 or 3 arguments last should be int by the way *)
   | [exp1; (Exp.Typ _ as exp2); exp3] ->
       let* exp1, _ = typeof_exp exp1 in
       let+ exp3, _ = typeof_exp exp3 in
-      (Exp.Call {proc; args= [exp1; exp2; exp3]; kind= Exp.NonVirtual}, Typ.Int)
+      (Exp.call_non_virtual proc [exp1; exp2; exp3], Typ.Int)
   | [_; exp] ->
       let* loc = get_location in
       let* _, typ = typeof_exp exp in

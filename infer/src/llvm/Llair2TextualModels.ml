@@ -118,13 +118,11 @@ module Metadata = struct
     in
     let id = ProcState.mk_fresh_id proc_state in
     let init_metadata_exp =
-      Textual.Exp.Call {proc= builtin_qual_proc_name llvm_init_tuple; args= []; kind= NonVirtual}
+      Textual.Exp.call_non_virtual (builtin_qual_proc_name llvm_init_tuple) []
     in
     let let_metadata = Textual.Instr.Let {id= Some id; exp= init_metadata_exp; loc} in
     let alloc_args = [Textual.Exp.Typ (Textual.Typ.Struct class_type_name)] in
-    let alloc_exp =
-      Textual.Exp.Call {proc= Textual.ProcDecl.swift_alloc_name; args= alloc_args; kind= NonVirtual}
-    in
+    let alloc_exp = Textual.Exp.call_non_virtual Textual.ProcDecl.swift_alloc_name alloc_args in
     let metadata_resp_type = Textual.TypeName.mk_swift_type_name metadata_response in
     let field =
       Field.field_of_pos_with_map proc_state.module_state.field_offset_map metadata_resp_type 0
@@ -145,9 +143,7 @@ module Metadata = struct
         class_mangled_name
     in
     let alloc_args = [Textual.Exp.Typ (Textual.Typ.Struct class_type_name)] in
-    let alloc_exp =
-      Textual.Exp.Call {proc= Textual.ProcDecl.swift_alloc_name; args= alloc_args; kind= NonVirtual}
-    in
+    let alloc_exp = Textual.Exp.call_non_virtual Textual.ProcDecl.swift_alloc_name alloc_args in
     (alloc_exp, [])
 
 
@@ -291,7 +287,8 @@ let rewrite_to_method ~(proc_state : ProcState.t) method_name args arg_types =
           (* Native convention: (Receiver, ...Params) *)
           receiver @ actual_params
       in
-      Textual.Exp.Call {proc= qname; args= final_args; kind= Virtual}
+      Textual.Exp.Call
+        {proc= qname; args= final_args; kind= Virtual; caller_ret_annots= Annot.Item.empty}
   | None -> (
       (* CASE: Fallback for ObjC Land (External/SDK/Captured SIL) *)
 
@@ -365,7 +362,8 @@ let rewrite_to_method ~(proc_state : ProcState.t) method_name args arg_types =
               (* Match Clang convention: no 'self' for class methods *)
             else receiver @ actual_params
           in
-          Textual.Exp.Call {proc= qname; args= final_args; kind= call_kind}
+          Textual.Exp.Call
+            {proc= qname; args= final_args; kind= call_kind; caller_ret_annots= Annot.Item.empty}
       | None
         when let known_inits = ["init"; "initWithFrame"; "initWithCoder"] in
              List.exists known_inits ~f:(fun prefix -> String.is_prefix final_method_name ~prefix)
@@ -381,7 +379,11 @@ let rewrite_to_method ~(proc_state : ProcState.t) method_name args arg_types =
               ; enclosing_class= TopLevel
               ; metadata }
           in
-          Textual.Exp.Call {proc= qname; args= receiver @ actual_params; kind= Virtual}
+          Textual.Exp.Call
+            { proc= qname
+            ; args= receiver @ actual_params
+            ; kind= Virtual
+            ; caller_ret_annots= Annot.Item.empty }
       | None ->
           (* Dynamic path: The type was erased (e.g. AnyObject / Phi node).
              We emit a call to the builtin objc_msgSend so Pulse can resolve the
@@ -390,7 +392,7 @@ let rewrite_to_method ~(proc_state : ProcState.t) method_name args arg_types =
           let selector_const = Textual.Exp.Const (Textual.Const.Str final_method_name) in
           (* Interface for builtin: [receiver, selector, ...params] *)
           let final_args = receiver @ [selector_const] @ actual_params in
-          Textual.Exp.Call {proc= builtin_proc; args= final_args; kind= NonVirtual} )
+          Textual.Exp.call_non_virtual builtin_proc final_args )
 
 
 let resolve_objc_msgSend ~proc_state call_exp arg_types =
@@ -419,7 +421,7 @@ let resolve_objc_msgSend ~proc_state call_exp arg_types =
            (cf. design doc §5.5 step 5). *)
         let to_builtin () =
           let builtin_proc = Proc.builtin_qual_proc_name objc_msgSend in
-          Textual.Exp.Call {proc= builtin_proc; args; kind= NonVirtual}
+          Textual.Exp.call_non_virtual builtin_proc args
         in
         match selector_lit_name with
         | Some "performSelector:" -> (
