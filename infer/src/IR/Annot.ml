@@ -36,6 +36,8 @@ let final = {class_name= "final"; parameters= []}
 
 let notnull = {class_name= "notnull"; parameters= []}
 
+let nullable = {class_name= "Nullable"; parameters= []}
+
 let is_abstract x = equal abstract x
 
 let is_final x = equal final x

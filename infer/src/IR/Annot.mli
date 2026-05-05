@@ -40,6 +40,10 @@ val final : t
 val notnull : t
 (** annotation for fields/params marked as "never null" *)
 
+val nullable : t
+(** annotation for fields/params marked as "may be null"; the [class_name] matches
+    [Annotations.nullable] so that [Annotations.ia_is_nullable] returns true on [[nullable]] *)
+
 val has_matching_str_value : pred:(string -> bool) -> value -> bool
 (** Check if annotation parameter value contains a string satisfying a predicate. For convenience it
     works both with raw [Str], [Str] inside [Array] and [Enum] values. *)

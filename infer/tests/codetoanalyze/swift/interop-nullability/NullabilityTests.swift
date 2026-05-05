@@ -38,12 +38,15 @@ func swiftRefinedNullableString_good_FP(api: LegacyAPI) {
   print(s.count)
 }
 
-// Workaround a developer can use today when they cannot edit the ObjC
-// header: cast the result to an Optional via `as?`. Swift then treats
-// the value as `NSString?` rather than the IUO `NSString!`. Once the
-// checker is fixed to trust Swift's view of the result type, this should
-// not be reported either.
-func unannotatedReturn_castAsOptional_good_FP(api: LegacyAPI) {
+// Recommended developer workaround when the ObjC header cannot be
+// annotated: cast the result to an Optional via `as?`. The LLAIR
+// produced for an `as?` cast contains a downstream call to
+// `_bridgeToObjectiveC`, which the bridge-analysis prepass uses as the
+// signature of an explicit Optional cast. The Llair-to-Textual
+// translator then attaches `Nullable` to the call's
+// `cf_caller_ret_annots`, suppressing the would-be MISSING_NULLABILITY
+// report for this defensive use of an unannotated method.
+func unannotatedReturn_castAsOptional_good(api: LegacyAPI) {
   if let s = api.getUnannotatedString() as? NSString {
     print(s.length)
   }
