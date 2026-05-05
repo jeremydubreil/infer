@@ -52,6 +52,8 @@ let rec compat lang ~assigned:(t1 : Typ.t) ~given:(t2 : Typ.t) =
       true
   | Float, Float ->
       true
+  | (Float, typ | typ, Float) when is_any_type_llvm lang typ ->
+      true
   | Void, _ ->
       true
   | _, Void ->
