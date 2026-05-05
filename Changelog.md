@@ -1,3 +1,57 @@
+## Version 1.3.0
+
+### Checkers
+
+- [Pulse](https://fbinfer.com/docs/checker-pulse):
+  - New over-approximate join operation (heaps, stacks, attributes, formulas) for combined over+under approximation analysis (gated behind option).
+  - Summary Specialization: various fixes (alias specialization, dynamic type specialization for Java final-typed parameters).
+  - New models for C/C++/ObjC family: folly (`Function`, `Expected`, `Try`), C file operations, `memset`, atomic builtins, glib/xlib, thrift, ObjC (`NSAttributedString`), `dispatch_async`.
+  - New `COMPARED_TO_NULL_AND_DEREFERENCED` issue type with value-origin tracking.
+  - New `INFINITE_RECURSION` issue type: detects recursive calls where argument values match the current formals.
+  - New `INFINITE_LOOP` issue type (experimental, disabled by default): detects infinite loops via loop invariant inference with per-loop-header path conditions.
+
+- [TOPL](https://fbinfer.com/docs/checker-topl): annotation patterns, regex negation, nonnull predicate handling, ambiguous state filtering, `--topl-filter-unsure` option, multicore thread safety fixes.
+
+- [RacerD](https://fbinfer.com/docs/checker-racerd): multicore thread-safe sync fields cache.
+
+- [Starvation](https://fbinfer.com/docs/checker-starvation): new report for locks held on UI thread.
+
+- [Biabduction](https://fbinfer.com/docs/1.2.0/checker-biabduction) has been removed (previously deprecated in 1.2.0). Use [Pulse](https://fbinfer.com/docs/checker-pulse) instead.
+
+- [Quandary](https://fbinfer.com/docs/1.2.0/checker-quandary) has been removed (previously deprecated in 1.2.0). Use [Pulse](https://fbinfer.com/docs/checker-pulse)'s taint analysis instead.
+
+- The following checkers are now deprecated and may be removed in a future release: SIOF, BufferOverrun, Impurity, Purity, LoopHoisting.
+
+### Languages
+
+- New **Python** frontend. Main usage is unawaited awaitables errors.
+
+- New **Swift** frontend. Based on LLVM bitcode analysis. Primary objective is retain-cycle detection. Includes support for Swift/ObjC interop.
+
+- New **Rust** frontend (experimental, work in progress): community-contributed frontend via Charon IR translation. Supports constants, operators, function calls, references/pointers, structs, arrays, tuples, boxes, enums, and error handling.
+
+- Clang/C++/ObjC: upgraded to LLVM 21.
+
+- Erlang: pattern-matching rework, comprehension scoping fixes, guard simplification, AST cleanup removing no-op nodes.
+
+- Java: removed legacy biabduction models.
+
+### New Tools
+
+- Semdiff: semantic diff tool for Python and Hack with an equality saturation (e-graph) engine for filtering semantically irrelevant AST changes. Supports configurable rewriting rules, conditional rules, contextual dict-key matching, and benchmarking infrastructure.
+
+### Infrastructure
+
+- Textual SIL: C-to-Textual pipeline (`from_c`), `--store-textual`/`--export-textual` DB storage, SSA restoration, multiple crash fixes.
+
+- Multicore/parallel analysis infrastructure with thread-safe caches.
+
+- Cross-platform opam Makefile, Windows dune build support.
+
+- Deprecated options cleanup and logging for deprecated option usage.
+
+---
+
 ## Version 1.2.0
 
 A lot has happened in the years since 1.1.0 so these are just the highlights.
