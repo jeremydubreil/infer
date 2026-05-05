@@ -708,7 +708,8 @@ module PulseTransferFunctions = struct
        ; path
        ; callee_procname
        ; location= call_loc
-       ; ret }
+       ; ret
+       ; call_flags= CallFlags.default }
      in
      let args =
        List.map variadic_args ~f:(fun {FuncArg.arg_payload} -> ValueOrigin.addr_hist arg_payload)
@@ -866,7 +867,8 @@ module PulseTransferFunctions = struct
               ; path
               ; callee_procname
               ; location= call_loc
-              ; ret }
+              ; ret
+              ; call_flags }
               astate non_disj
           in
           if Config.log_pulse_disjunct_increase_after_model_call && List.length astates > 1 then
@@ -924,7 +926,8 @@ module PulseTransferFunctions = struct
                           ; path
                           ; callee_procname= saved_name
                           ; location= call_loc
-                          ; ret }
+                          ; ret
+                          ; call_flags }
                         in
                         let awaitable_val, astate =
                           let reason () =

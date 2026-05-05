@@ -29,7 +29,8 @@ type model_data =
   ; path: PathContext.t
   ; callee_procname: Procname.t
   ; location: Location.t
-  ; ret: Ident.t * Typ.t }
+  ; ret: Ident.t * Typ.t
+  ; call_flags: CallFlags.t }
 
 type model_no_non_disj = model_data -> AbductiveDomain.t -> ExecutionDomain.t AccessResult.t list
 

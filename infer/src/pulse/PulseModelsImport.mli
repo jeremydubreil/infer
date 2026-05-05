@@ -27,7 +27,10 @@ type model_data =
   ; path: PathContext.t
   ; callee_procname: Procname.t
   ; location: Location.t
-  ; ret: Ident.t * Typ.t }
+  ; ret: Ident.t * Typ.t
+  ; call_flags: CallFlags.t
+        (** the [CallFlags] of the originating SIL call, including any per-call return annotations
+            recovered by the frontend (see [CallFlags.cf_caller_ret_annots]) *) }
 
 type model_no_non_disj = model_data -> AbductiveDomain.t -> ExecutionDomain.t AccessResult.t list
 

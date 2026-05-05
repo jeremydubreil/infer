@@ -104,14 +104,21 @@ let dynamic_call arg orig_args () : unit DSL.model_monad =
 
 let check_missing_nullability proc_name : unit DSL.model_monad =
   let open DSL.Syntax in
+  let* {location; call_flags} = get_data in
   match IRAttributes.load proc_name with
-  | Some attrs
-    when Typ.is_pointer attrs.ret_type
-         && (not (Annotations.ia_is_nullable attrs.ret_annots))
-         && not (Annotations.ia_is_nonnull attrs.ret_annots) ->
-      let* {location} = get_data in
-      if SwiftObjCNullabilityIssue.should_report_at location then
-        report (PulseDiagnostic.MissingNullabilityAnnotation {callee= proc_name; location})
+  | Some attrs when Typ.is_pointer attrs.ret_type ->
+      (* Combine the callee's procdesc-level [ret_annots] with any per-call-site
+         annotations the frontend recovered for this call (e.g. Swift recognising
+         that the caller treats the result as [Optional<T>] even when the ObjC
+         method itself is unannotated). *)
+      let combined_annots = call_flags.CallFlags.cf_caller_ret_annots @ attrs.ret_annots in
+      if
+        (not (Annotations.ia_is_nullable combined_annots))
+        && not (Annotations.ia_is_nonnull combined_annots)
+      then
+        if SwiftObjCNullabilityIssue.should_report_at location then
+          report (PulseDiagnostic.MissingNullabilityAnnotation {callee= proc_name; location})
+        else ret ()
       else ret ()
   | _ ->
       ret ()

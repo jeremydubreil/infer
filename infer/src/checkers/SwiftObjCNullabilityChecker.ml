@@ -56,23 +56,28 @@ module TransferFunctions = struct
 
   let pp_session_name _node fmt = F.pp_print_string fmt "SwiftObjCNullability"
 
-  let get_status (attrs : ProcAttributes.t) =
+  let get_status ~(call_flags : CallFlags.t) (attrs : ProcAttributes.t) =
     if not (Typ.is_pointer attrs.ret_type) then CallStatus.NotAPointer
-    else if
-      Annotations.ia_is_nullable attrs.ret_annots || Annotations.ia_is_nonnull attrs.ret_annots
-    then CallStatus.Annotated
-    else CallStatus.Unannotated
+    else
+      (* Combine the callee's procdesc-level [ret_annots] with any per-call-site
+         annotations the frontend recovered for this call (e.g. Swift recognising
+         that the caller treats the result as [Optional<T>] even when the ObjC
+         method itself is unannotated). *)
+      let combined_annots = call_flags.cf_caller_ret_annots @ attrs.ret_annots in
+      if Annotations.ia_is_nullable combined_annots || Annotations.ia_is_nonnull combined_annots
+      then CallStatus.Annotated
+      else CallStatus.Unannotated
 
 
   let exec_instr astate {IntraproceduralAnalysis.proc_desc; err_log} _ _ (instr : Sil.instr) =
     match instr with
-    | Call (_, Exp.Const (Const.Cfun callee_pname), _, loc, _) ->
+    | Call (_, Exp.Const (Const.Cfun callee_pname), _, loc, call_flags) ->
         let caller_pname = Procdesc.get_proc_name proc_desc in
         (* 1. Explicitly check the boundary *)
         if Procname.is_swift caller_pname && Procname.is_objc_method callee_pname then (
           match Attributes.load callee_pname with
           | Some attrs ->
-              let status = get_status attrs in
+              let status = get_status ~call_flags attrs in
               (* 2. Log to HTML trace for developer debugging *)
               L.d_printfln "Boundary at %a: %a" Location.pp loc CallStatus.pp status ;
               (* 3. Check for issue - No need for complex StatusDomain lifting here *)
