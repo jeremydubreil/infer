@@ -38,4 +38,18 @@
     NSString* macroAnnotatedUnannotatedProp MY_TYPE_ATTR;
 @end
 
+// A category interface gated by [#ifdef __swift__]. The macro is defined
+// only by Swift's clang importer, so the [@interface] is invisible during
+// regular ObjC compilation. The matching [@implementation] in the .m
+// therefore has nothing to merge nullability from, and infer captures the
+// impl method as bare [id] / [T*] with no [_Nullable]. Swift, in contrast,
+// sees the annotated declaration and imports the method as returning [T?],
+// so a Swift force-unwrap is against an [Optional] (deliberate by the
+// caller) - infer should NOT fire MISSING_NULLABILITY_ANNOTATION.
+#ifdef __swift__
+@interface LegacyAPI (SwiftOnlyRefined)
+- (nullable NSString*)swiftRefinedNullableString;
+@end
+#endif
+
 #pragma clang diagnostic pop

@@ -24,3 +24,14 @@
 @dynamic macroAnnotatedNullableProp;
 @dynamic macroAnnotatedUnannotatedProp;
 @end
+
+// The category [@implementation] is NOT inside an [#ifdef __swift__] block,
+// so it exists at runtime. But the matching [@interface] in the .h IS
+// gated, so during regular ObjC compilation clang has no [nullable] to
+// merge into the impl method's result type. Result: the impl method is
+// stored as bare [NSString*] with no annotation.
+@implementation LegacyAPI (SwiftOnlyRefined)
+- (NSString*)swiftRefinedNullableString {
+  return nil;
+}
+@end
