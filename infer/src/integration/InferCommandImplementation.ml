@@ -23,7 +23,7 @@ let debug () =
     ( if Config.procedures then
         let procedures_filter = Lazy.force Filtering.procedures_filter in
         let summary_of proc_name =
-          Summary.OnDisk.get ~lazy_payloads:false AnalysisRequest.all proc_name
+          Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name
         in
         let filter source_file proc_name =
           procedures_filter source_file proc_name
@@ -43,7 +43,7 @@ let debug () =
             L.result "%t" (fun fmt -> List.iter proc_names ~f:(pp_summary fmt))
           in
           let json_of_summary proc_name =
-            Summary.OnDisk.get ~lazy_payloads:false AnalysisRequest.all proc_name
+            Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name
             |> Option.map ~f:Summary.yojson_of_t
           in
           let output_summaries_json channel proc_names =
@@ -63,7 +63,7 @@ let debug () =
                   PulseSpecializedCallGraph.JsonBuilder.add builder proc_name
                     (let open IOption.Let_syntax in
                      let* (summary : Summary.t) =
-                       Summary.OnDisk.get ~lazy_payloads:false AnalysisRequest.all proc_name
+                       Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name
                      in
                      SafeLazy.force_option summary.payloads.pulse ) )
             in

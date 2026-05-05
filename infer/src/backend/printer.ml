@@ -145,7 +145,7 @@ end = struct
       linenum ;
     pp_node_link_seq [] ~description:true fmt nodes ;
     (* load payloads eagerly as we need them to print them all *)
-    ( match Summary.OnDisk.get ~lazy_payloads:false AnalysisRequest.all proc_name with
+    ( match Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name with
     | None ->
         ()
     | Some summary ->

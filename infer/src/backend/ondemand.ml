@@ -600,7 +600,7 @@ let analyze_callee ~lazy_payloads analysis_req ~specialization ?caller_summary ?
 
 
 let analyze_proc_name analysis_req ?specialization ~caller_summary callee_pname =
-  analyze_callee ~lazy_payloads:false ~specialization analysis_req ~caller_summary callee_pname
+  analyze_callee ~lazy_payloads:true ~specialization analysis_req ~caller_summary callee_pname
 
 
 let analyze_proc_name_for_file_analysis analysis_req callee_pname =
