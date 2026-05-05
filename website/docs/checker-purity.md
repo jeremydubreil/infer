@@ -5,6 +5,8 @@ description: "Detects pure (side-effect-free) functions. A different implementat
 
 Detects pure (side-effect-free) functions. A different implementation of "impurity".
 
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
+
 Activate with `--purity`.
 
 Supported languages:
@@ -14,6 +16,8 @@ Supported languages:
 - Hack: No
 - Java: Experimental
 - Python: No
+- Rust: No
+- Swift: No
 
 This is an experimental inter-procedural analysis that detects pure (side-effect free) functions. For each function, purity analysis keeps track of not only the purity of the function but also some additional information such as whether the function modifies a global variable or which of the parameters are modified. It models functions with no summary/model as modifying the global state (hence impure).
 

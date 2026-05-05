@@ -410,7 +410,15 @@ Action: Nullify the `View` in question in `onDestroyView`.
 
 *Category: [Null pointer dereference](/docs/next/all-categories#null-pointer-dereference). Reported as "Compared To Null And Dereferenced" by [pulse](/docs/next/checker-pulse).*
 
-A pointer that has both been compared to null, whcich suggests that it could be null, but has also been dereferenced without a null check.
+A pointer that has both been compared to null, which suggests that it could be null, but has also been dereferenced without a null check.
+## CONFIG_GATED
+
+*Reported as "Config Gated" by [config-gating](/docs/next/checker-config-gating).*
+
+A call site is gated by one or more config flags. Being gated by config X means
+that changing the value of config X can be used to turn off the execution of the
+reported code.
+
 ## CONFIG_IMPACT
 
 *Category: [Perf regression](/docs/next/all-categories#perf-regression). Reported as "Config Impact" by [config-impact-analysis](/docs/next/checker-config-impact-analysis).*
@@ -475,6 +483,13 @@ cost.  If you are not sure, gate it with a new or pre-existing config.
 
 This is similar to [`CONFIG_IMPACT` issue](#config_impact) but the analysis reports **all** ungated
 codes irrespective of whether they are expensive or not.
+
+## CONFIG_UNGATED
+
+*Reported as "Config Ungated" by [config-gating](/docs/next/checker-config-gating).*
+
+A call site is not gated by any config flag. There is no config value that,
+if changed, would prevent this code from executing.
 
 ## CONFIG_USAGE
 
@@ -879,6 +894,23 @@ void call_top_cost_FP() {
 ```
 
 
+## INFINITE_LOOP
+
+*Category: [Runtime exception](/docs/next/all-categories#runtime-exception). Reported as "Infinite Loop" by [pulse](/docs/next/checker-pulse).*
+
+An infinite loop has been detected. The program won't terminate.
+
+Example of recursive function:
+
+
+```C
+void loop(int x) {
+  int y = 1;
+  while (x != 3)
+    y++;
+}
+```
+
 ## INFINITE_RECURSION
 
 *Category: [Runtime exception](/docs/next/all-categories#runtime-exception). Reported as "Infinite Recursion" by [pulse](/docs/next/checker-pulse).*
@@ -1079,6 +1111,18 @@ objects from Core Foundation or Core Graphics don't get released.
 *Category: [Resource leak](/docs/next/all-categories#resource-leak). Reported as "Memory Leak" by [pulse](/docs/next/checker-pulse).*
 
 See [MEMORY_LEAK_C](#memory_leak_c)
+## MISSING_NULLABILITY_ANNOTATION
+
+*Category: [Null pointer dereference](/docs/next/all-categories#null-pointer-dereference). Reported as "Missing Nullability Annotation" by [swift-objc-nullability](/docs/next/checker-swift-objc-nullability).*
+
+This Objective-C method is called from Swift but lacks nullability annotations (`_Nullable` or `_Nonnull`). This causes Swift to import the return value as an implicitly unwrapped optional, which can lead to runtime crashes if the method returns `nil`.
+
+## MISSING_NULLABILITY_ANNOTATION_PULSE
+
+*Category: [Null pointer dereference](/docs/next/all-categories#null-pointer-dereference). Reported as "Missing Nullability Annotation" by [pulse](/docs/next/checker-pulse).*
+
+This Objective-C method is called from Swift but lacks nullability annotations (`_Nullable` or `_Nonnull`). This causes Swift to import the return value as an implicitly unwrapped optional, which can lead to runtime crashes if the method returns `nil`.
+
 ## MISSING_REQUIRED_PROP
 
 *Category: [Runtime exception](/docs/next/all-categories#runtime-exception). Reported as "Missing Required Prop" by [litho-required-props](/docs/next/checker-litho-required-props).*

@@ -14,6 +14,8 @@ Supported languages:
 - Hack: No
 - Java: Experimental
 - Python: No
+- Rust: No
+- Swift: No
 
 # Topl
 

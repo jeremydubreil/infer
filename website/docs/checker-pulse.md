@@ -14,10 +14,12 @@ Supported languages:
 - Hack: Yes
 - Java: Yes
 - Python: No
+- Rust: Experimental
+- Swift: No
 
 ## What is Infer:Pulse?
 
-Pulse is an interprocedural memory safety analysis. Pulse can detect, for instance, [Null dereferences](/docs/next/all-issue-types#nullptr_dereference) in Java. Errors are only reported when all conditions on the erroneous path are true regardless of input. Pulse replaced the original biabduction analysis of Infer. An example of a Null dereference found by Pulse is given below.
+Pulse is an interprocedural memory safety analysis. Pulse can detect, for instance, [Null dereferences](/docs/next/all-issue-types#nullptr_dereference) in Java. Errors are only reported when all conditions on the erroneous path are true regardless of input. Pulse should gradually replace the original [biabduction](/docs/next/checker-biabduction) analysis of Infer. An example of a Null dereference found by Pulse is given below.
 
 ```java
 class Person {
@@ -57,14 +59,14 @@ When an error can occur only on some values of the parameters of the current fun
 
 ```c
 // for more realism, imagine that this function does other things as well
-void set_to_null_if_positive(int n, int* p) {
+void set_to_null_if_positive(int n, int** p) {
   if (n > 0) {
-    p = NULL;
+    *p = NULL;
   }
 }
 
 void latent_null_dereference(int n, int* p) {
-  set_to_null_if_positive(n, p);
+  set_to_null_if_positive(n, &p);
   *p = 42; // NULL dereference! but only if n > 0 so no report yet
 }
 
@@ -152,9 +154,11 @@ The following issue types are reported by this checker:
 - [CONSTANT_ADDRESS_DEREFERENCE](/docs/next/all-issue-types#constant_address_dereference)
 - [CONSTANT_ADDRESS_DEREFERENCE_LATENT](/docs/next/all-issue-types#constant_address_dereference_latent)
 - [DATA_FLOW_TO_SINK](/docs/next/all-issue-types#data_flow_to_sink)
+- [INFINITE_LOOP](/docs/next/all-issue-types#infinite_loop)
 - [INFINITE_RECURSION](/docs/next/all-issue-types#infinite_recursion)
 - [MEMORY_LEAK_C](/docs/next/all-issue-types#memory_leak_c)
 - [MEMORY_LEAK_CPP](/docs/next/all-issue-types#memory_leak_cpp)
+- [MISSING_NULLABILITY_ANNOTATION_PULSE](/docs/next/all-issue-types#missing_nullability_annotation_pulse)
 - [MUTUAL_RECURSION_CYCLE](/docs/next/all-issue-types#mutual_recursion_cycle)
 - [NIL_BLOCK_CALL](/docs/next/all-issue-types#nil_block_call)
 - [NIL_BLOCK_CALL_LATENT](/docs/next/all-issue-types#nil_block_call_latent)

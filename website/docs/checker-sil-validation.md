@@ -14,6 +14,8 @@ Supported languages:
 - Hack: No
 - Java: Yes
 - Python: No
+- Rust: No
+- Swift: No
 
 
 

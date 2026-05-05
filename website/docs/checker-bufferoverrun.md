@@ -5,6 +5,8 @@ description: "InferBO is a detector for out-of-bounds array accesses."
 
 InferBO is a detector for out-of-bounds array accesses.
 
+**\*\*\*DEPRECATED\*\*\*** Use Pulse instead.
+
 Activate with `--bufferoverrun`.
 
 Supported languages:
@@ -14,6 +16,8 @@ Supported languages:
 - Hack: No
 - Java: Yes
 - Python: No
+- Rust: No
+- Swift: No
 
 You can read about its origins in this [blog post](https://research.fb.com/inferbo-infer-based-buffer-overrun-analyzer/).
 

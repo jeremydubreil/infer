@@ -55,6 +55,8 @@ The null pointer is used where a valid pointer is required, causing a memory fau
 Issue types in this category:
 - [BLOCK_PARAMETER_NOT_NULL_CHECKED](/docs/next/all-issue-types#block_parameter_not_null_checked)
 - [COMPARED_TO_NULL_AND_DEREFERENCED](/docs/next/all-issue-types#compared_to_null_and_dereferenced)
+- [MISSING_NULLABILITY_ANNOTATION](/docs/next/all-issue-types#missing_nullability_annotation)
+- [MISSING_NULLABILITY_ANNOTATION_PULSE](/docs/next/all-issue-types#missing_nullability_annotation_pulse)
 - [NIL_BLOCK_CALL](/docs/next/all-issue-types#nil_block_call)
 - [NIL_BLOCK_CALL_LATENT](/docs/next/all-issue-types#nil_block_call_latent)
 - [NULLPTR_DEREFERENCE](/docs/next/all-issue-types#nullptr_dereference)
@@ -121,6 +123,7 @@ Issue types in this category:
 - [BAD_MAP_LATENT](/docs/next/all-issue-types#bad_map_latent)
 - [BAD_RECORD](/docs/next/all-issue-types#bad_record)
 - [BAD_RECORD_LATENT](/docs/next/all-issue-types#bad_record_latent)
+- [INFINITE_LOOP](/docs/next/all-issue-types#infinite_loop)
 - [INFINITE_RECURSION](/docs/next/all-issue-types#infinite_recursion)
 - [MISSING_REQUIRED_PROP](/docs/next/all-issue-types#missing_required_prop)
 - [MUTUAL_RECURSION_CYCLE](/docs/next/all-issue-types#mutual_recursion_cycle)

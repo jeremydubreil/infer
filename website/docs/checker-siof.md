@@ -5,6 +5,8 @@ description: "Catches Static Initialization Order Fiascos in C++, that can lead 
 
 Catches Static Initialization Order Fiascos in C++, that can lead to subtle, compiler-version-dependent errors.
 
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
+
 Activate with `--siof`.
 
 Supported languages:
@@ -14,6 +16,8 @@ Supported languages:
 - Hack: No
 - Java: No
 - Python: No
+- Rust: No
+- Swift: No
 
 
 

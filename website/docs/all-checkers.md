@@ -15,7 +15,15 @@ Given pairs of source and sink annotations, e.g. `@A` and `@B`, this checker wil
 
 InferBO is a detector for out-of-bounds array accesses.
 
+**\*\*\*DEPRECATED\*\*\*** Use Pulse instead.
+
 [Visit here for more information.](/docs/next/checker-bufferoverrun)
+
+## Config Gating
+
+Determines which config flags gate the execution of each line of code.
+
+[Visit here for more information.](/docs/next/checker-config-gating)
 
 ## Config Impact Analysis
 
@@ -44,6 +52,8 @@ Detects when Android fragments are not explicitly nullified before becoming unre
 ## Impurity
 
 Detects functions with potential side-effects. Same as "purity", but implemented on top of Pulse.
+
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
 
 [Visit here for more information.](/docs/next/checker-impurity)
 
@@ -75,6 +85,8 @@ Detection of dead stores and unused variables.
 
 Detect opportunities to hoist function calls that are invariant outside of loop bodies for efficiency.
 
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
+
 [Visit here for more information.](/docs/next/checker-loop-hoisting)
 
 ## Parameter Not Null Checked
@@ -92,6 +104,8 @@ General-purpose memory and value analysis engine.
 ## Purity
 
 Detects pure (side-effect-free) functions. A different implementation of "impurity".
+
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
 
 [Visit here for more information.](/docs/next/checker-purity)
 
@@ -117,6 +131,8 @@ This checker validates that all SIL instructions in all procedure bodies conform
 
 Catches Static Initialization Order Fiascos in C++, that can lead to subtle, compiler-version-dependent errors.
 
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
+
 [Visit here for more information.](/docs/next/checker-siof)
 
 ## Scope Leakage
@@ -136,6 +152,12 @@ An Objective-C-specific analysis to detect when a block captures `self`.
 Detect various kinds of situations when no progress is being made because of concurrency errors.
 
 [Visit here for more information.](/docs/next/checker-starvation)
+
+## Swift/Obj-C Nullability
+
+Detects missing nullability annotations in Objective-C methods called from Swift, which can lead to runtime crashes via Implicitly Unwrapped Optionals.
+
+[Visit here for more information.](/docs/next/checker-swift-objc-nullability)
 
 ## Topl
 

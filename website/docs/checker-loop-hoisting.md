@@ -5,6 +5,8 @@ description: "Detect opportunities to hoist function calls that are invariant ou
 
 Detect opportunities to hoist function calls that are invariant outside of loop bodies for efficiency.
 
+**\*\*\*DEPRECATED\*\*\*** This checker is deprecated and will be removed in a future release.
+
 Activate with `--loop-hoisting`.
 
 Supported languages:
@@ -14,6 +16,8 @@ Supported languages:
 - Hack: No
 - Java: Yes
 - Python: No
+- Rust: No
+- Swift: No
 
 This checker detects opportunities to hoist function calls that are invariant to outside of loop bodies. The hoisting analysis relies on [purity](/docs/next/checker-purity) analysis to determine whether a function is pure or not.
 
