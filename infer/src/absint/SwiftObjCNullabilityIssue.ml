@@ -10,10 +10,9 @@ module F = Format
 
 let message procname =
   F.asprintf
-    "Method `%a` returns a pointer without `_Nullable` or `_Nonnull` annotations. When called from \
-     Swift the return type is imported as an Implicitly Unwrapped Optional (`T!`), which traps at \
-     runtime if the method ever returns `nil`. Annotate the declaration with `_Nullable` or \
-     `_Nonnull` so the contract is explicit at the Swift call site."
+    "Method `%a` returns a pointer with no `_Nullable` or `_Nonnull` annotation, so Swift imports \
+     it as `T!` and a `nil` result traps at the call site. Fix: annotate the Objective-C \
+     declaration, or cast the result with `as?` at the Swift call site."
     Procname.pp procname
 
 
