@@ -189,12 +189,32 @@ let extract_class_and_field_from_wvd mangled =
                       let prop_len_str =
                         String.sub mangled ~pos:prop_pos ~len:(end_prop_digits - prop_pos)
                       in
-                      match int_of_string_opt prop_len_str with
-                      | Some prop_len ->
-                          let prop_name = String.sub mangled ~pos:end_prop_digits ~len:prop_len in
-                          Some (class_name, prop_name)
-                      | None ->
-                          None
+                      (* A leading '0' on a multi-digit length prefix is Swift's marker for a
+                         word-substitution-compressed identifier (e.g. "08reactionC4View" encodes
+                         "reactionBubbleView" with "Bubble" back-referenced from an earlier name).
+                         We don't expand substitutions, so reading the literal `0<n>` as length=n
+                         produces a truncated wrong field name. Two distinct properties on the
+                         same class can then collide on the truncated common prefix and confuse
+                         downstream analyses (false retain cycles, etc.). Use the whole mangled
+                         suffix as an opaque-but-unique field name instead — readability suffers
+                         in textual dumps, but every property keeps its own identity. *)
+                      let is_substitution_compressed =
+                        String.length prop_len_str > 1 && Char.equal (String.get prop_len_str 0) '0'
+                      in
+                      if is_substitution_compressed then
+                        let suffix = String.sub mangled ~pos:prop_pos ~len:(len - prop_pos) in
+                        let sanitized =
+                          String.map suffix ~f:(fun c ->
+                              if Char.is_alphanum c || Char.equal c '_' then c else '_' )
+                        in
+                        Some (class_name, "field_" ^ sanitized)
+                      else
+                        match int_of_string_opt prop_len_str with
+                        | Some prop_len ->
+                            let prop_name = String.sub mangled ~pos:end_prop_digits ~len:prop_len in
+                            Some (class_name, prop_name)
+                        | None ->
+                            None
                   else parse str_end
             | None ->
                 None
