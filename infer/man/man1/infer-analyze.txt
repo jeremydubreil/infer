@@ -29,7 +29,10 @@ OPTIONS
 
        --bufferoverrun
            Activates: bufferoverrun checker: InferBO is a detector for
-           out-of-bounds array accesses. (Conversely: --no-bufferoverrun)
+           out-of-bounds array accesses.
+           
+           DEPRECATED: Use Pulse instead.
+            (Conversely: --no-bufferoverrun)
 
        --bufferoverrun-only
            Activates: Enable bufferoverrun and disable all other checkers
@@ -154,7 +157,11 @@ OPTIONS
        --impurity
            Activates: impurity checker: Detects functions with potential
            side-effects. Same as "purity", but implemented on top of Pulse.
-           ACTIVATES: pulse (Conversely: --no-impurity)
+           ACTIVATES: pulse
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-impurity)
 
        --impurity-only
            Activates: Enable impurity and disable all other checkers
@@ -229,7 +236,11 @@ OPTIONS
        --loop-hoisting
            Activates: loop-hoisting checker: Detect opportunities to hoist
            function calls that are invariant outside of loop bodies for
-           efficiency. (Conversely: --no-loop-hoisting)
+           efficiency.
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-loop-hoisting)
 
        --loop-hoisting-only
            Activates: Enable loop-hoisting and disable all other checkers
@@ -322,8 +333,11 @@ OPTIONS
 
        --purity
            Activates: purity checker: Detects pure (side-effect-free)
-           functions. A different implementation of "impurity". (Conversely:
-           --no-purity)
+           functions. A different implementation of "impurity".
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-purity)
 
        --purity-only
            Activates: Enable purity and disable all other checkers
@@ -405,7 +419,11 @@ OPTIONS
        --siof
            Activates: siof checker: Catches Static Initialization Order
            Fiascos in C++, that can lead to subtle,
-           compiler-version-dependent errors. (Conversely: --no-siof)
+           compiler-version-dependent errors.
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-siof)
 
        --siof-only
            Activates: Enable siof and disable all other checkers (Conversely:

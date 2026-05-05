@@ -116,11 +116,12 @@ let config_unsafe checker =
   | BufferOverrunChecker ->
       { id= "bufferoverrun"
       ; kind=
-          UserFacing
+          UserFacingDeprecated
             { title= "Buffer Overrun Analysis (InferBO)"
             ; markdown_body=
                 "You can read about its origins in this [blog \
-                 post](https://research.fb.com/inferbo-infer-based-buffer-overrun-analyzer/)." }
+                 post](https://research.fb.com/inferbo-infer-based-buffer-overrun-analyzer/)."
+            ; deprecation_message= "Use Pulse instead." }
       ; support= mk_support_func ~clang:Support ~java:Support ()
       ; short_documentation= "InferBO is a detector for out-of-bounds array accesses."
       ; cli_flags= Some {deprecated= []; show_in_help= true}
@@ -194,8 +195,11 @@ let config_unsafe checker =
   | Impurity ->
       { id= "impurity"
       ; kind=
-          UserFacing
-            {title= "Impurity"; markdown_body= [%blob "./documentation/checkers/Impurity.md"]}
+          UserFacingDeprecated
+            { title= "Impurity"
+            ; markdown_body= [%blob "./documentation/checkers/Impurity.md"]
+            ; deprecation_message=
+                "This checker is deprecated and will be removed in a future release." }
       ; support=
           mk_support_func ~clang:ExperimentalSupport ~java:ExperimentalSupport
             ~hack:ExperimentalSupport ()
@@ -239,9 +243,11 @@ let config_unsafe checker =
   | LoopHoisting ->
       { id= "loop-hoisting"
       ; kind=
-          UserFacing
+          UserFacingDeprecated
             { title= "Loop Hoisting"
-            ; markdown_body= [%blob "./documentation/checkers/LoopHoisting.md"] }
+            ; markdown_body= [%blob "./documentation/checkers/LoopHoisting.md"]
+            ; deprecation_message=
+                "This checker is deprecated and will be removed in a future release." }
       ; support= mk_support_func ~clang:Support ~java:Support ()
       ; short_documentation=
           "Detect opportunities to hoist function calls that are invariant outside of loop bodies \
@@ -283,7 +289,11 @@ let config_unsafe checker =
   | PurityChecker ->
       { id= "purity"
       ; kind=
-          UserFacing {title= "Purity"; markdown_body= [%blob "./documentation/checkers/Purity.md"]}
+          UserFacingDeprecated
+            { title= "Purity"
+            ; markdown_body= [%blob "./documentation/checkers/Purity.md"]
+            ; deprecation_message=
+                "This checker is deprecated and will be removed in a future release." }
       ; support= mk_support_func ~clang:ExperimentalSupport ~java:ExperimentalSupport ()
       ; short_documentation=
           "Detects pure (side-effect-free) functions. A different implementation of \"impurity\"."
@@ -329,7 +339,12 @@ let config_unsafe checker =
       ; activates= [] }
   | SIOF ->
       { id= "siof"
-      ; kind= UserFacing {title= "Static Initialization Order Fiasco"; markdown_body= ""}
+      ; kind=
+          UserFacingDeprecated
+            { title= "Static Initialization Order Fiasco"
+            ; markdown_body= ""
+            ; deprecation_message=
+                "This checker is deprecated and will be removed in a future release." }
       ; support= mk_support_func ~clang:Support ()
       ; short_documentation=
           "Catches Static Initialization Order Fiascos in C++, that can lead to subtle, \

@@ -294,7 +294,10 @@ OPTIONS
 
        --bufferoverrun
            Activates: bufferoverrun checker: InferBO is a detector for
-           out-of-bounds array accesses. (Conversely: --no-bufferoverrun)
+           out-of-bounds array accesses.
+           
+           DEPRECATED: Use Pulse instead.
+            (Conversely: --no-bufferoverrun)
            See also infer-analyze(1).
 
        --bufferoverrun-only
@@ -959,7 +962,11 @@ OPTIONS
        --impurity
            Activates: impurity checker: Detects functions with potential
            side-effects. Same as "purity", but implemented on top of Pulse.
-           ACTIVATES: pulse (Conversely: --no-impurity)
+           ACTIVATES: pulse
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-impurity)
            See also infer-analyze(1).
 
        --impurity-only
@@ -1243,7 +1250,11 @@ OPTIONS
        --loop-hoisting
            Activates: loop-hoisting checker: Detect opportunities to hoist
            function calls that are invariant outside of loop bodies for
-           efficiency. (Conversely: --no-loop-hoisting)
+           efficiency.
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-loop-hoisting)
            See also infer-analyze(1).
 
        --loop-hoisting-only
@@ -1926,8 +1937,11 @@ OPTIONS
 
        --purity
            Activates: purity checker: Detects pure (side-effect-free)
-           functions. A different implementation of "impurity". (Conversely:
-           --no-purity)
+           functions. A different implementation of "impurity".
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-purity)
            See also infer-analyze(1).
 
        --purity-only
@@ -2226,7 +2240,11 @@ OPTIONS
        --siof
            Activates: siof checker: Catches Static Initialization Order
            Fiascos in C++, that can lead to subtle,
-           compiler-version-dependent errors. (Conversely: --no-siof)
+           compiler-version-dependent errors.
+           
+           DEPRECATED: This checker is deprecated and will be removed in a
+           future release.
+            (Conversely: --no-siof)
            See also infer-analyze(1).
 
        --siof-check-iostreams
