@@ -335,7 +335,7 @@ let config_unsafe checker =
           "Catches Static Initialization Order Fiascos in C++, that can lead to subtle, \
            compiler-version-dependent errors."
       ; cli_flags= Some {deprecated= []; show_in_help= true}
-      ; enabled_by_default= true
+      ; enabled_by_default= false
       ; activates= [] }
   | Lineage ->
       { id= "lineage"

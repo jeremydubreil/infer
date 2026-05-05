@@ -544,7 +544,7 @@ OPTIONS
            Deactivates: Default checkers: --static-constructor-stall-checker,
            --fragment-retains-view, --inefficient-keyset-iterator,
            --liveness, --parameter-not-null-checked, --pulse, --racerd,
-           --siof, --self-in-block, --starvation, --swift-objc-nullability
+           --self-in-block, --starvation, --swift-objc-nullability
            (Conversely: --default-checkers)
            See also infer-analyze(1).
 
@@ -2223,10 +2223,10 @@ OPTIONS
            (Conversely: --no-sil-validation-only)
            See also infer-analyze(1).
 
-       --no-siof
-           Deactivates: siof checker: Catches Static Initialization Order
+       --siof
+           Activates: siof checker: Catches Static Initialization Order
            Fiascos in C++, that can lead to subtle,
-           compiler-version-dependent errors. (Conversely: --siof)
+           compiler-version-dependent errors. (Conversely: --no-siof)
            See also infer-analyze(1).
 
        --siof-check-iostreams
