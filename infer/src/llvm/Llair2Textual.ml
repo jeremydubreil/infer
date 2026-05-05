@@ -937,7 +937,7 @@ let cmnd_to_instrs ~(proc_state : ProcState.t) block =
           pointer already points to it. No offset calculation is needed. *)
           match (exp1, typ_exp1) with
           | Textual.Exp.Lvar _, Some (Textual.Typ.Ptr (Textual.Typ.Struct typ_name, _) as typ_exp)
-            when Type.is_ptr_struct typ_exp ->
+            when Type.is_ptr_struct typ_exp || Type.is_ptr_enum typ_exp ->
               translate_store_in_field_zero ~(proc_state : ProcState.t) exp1 loc typ_name
           | _, Some (Textual.Typ.Ptr (Textual.Typ.Struct typ_name, _) as typ_exp)
             when Type.is_int_optional typ_exp ->

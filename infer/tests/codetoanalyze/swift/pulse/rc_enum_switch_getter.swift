@@ -7,13 +7,16 @@
 // stack and switches on the tag — entirely value semantics, no heap writes,
 // no reference types involved.
 //
-// Until `Llair2TextualState.subst_formal_local` learned to skip aliasing the
-// stack-reconstruction local with the LLVM-scalar formal, the textual body
-// looked like writes into `self.field_X` and Pulse fired a fake `RETAIN_CYCLE`
-// (plus a `NULLPTR_DEREFERENCE_LATENT`) on this getter. A separate
-// `CONSTANT_ADDRESS_DEREFERENCE` on the constructor call remains as a known
-// FP — a follow-up clean-up — but the retain-cycle pattern this file was
-// added for is fixed.
+// Two frontend bugs originally fired here, both fixed:
+// - `Llair2TextualState.subst_formal_local` aliased the stack-reconstruction
+//   local with the LLVM-scalar formal, making the body's reconstruction
+//   stores look like writes into a heap object → fake `RETAIN_CYCLE` and
+//   `NULLPTR_DEREFERENCE_LATENT`.
+// - The `Store` handler in `Llair2Textual` only redirected `store &t <- v`
+//   into `store &t.field_0 <- v` for Swift structs (`V` mangled suffix), not
+//   for enums (`O` suffix). On a pointer-typed local enum, the raw store
+//   looked like assigning the literal to the pointer itself → fake
+//   `CONSTANT_ADDRESS_DEREFERENCE`.
 
 private enum ScanNumberType {
     case ignore
@@ -32,7 +35,7 @@ private enum ScanNumberType {
     }
 }
 
-public func test_enum_switch_getter_no_cycle_good_FP() -> Int? {
+public func test_enum_switch_getter_no_cycle_good() -> Int? {
     let t = ScanNumberType.valid(number: 5)
     return t.scanNumber
 }

@@ -121,6 +121,18 @@ let is_ptr_struct typ =
       false
 
 
+let is_ptr_enum typ =
+  match typ with
+  | Textual.Typ.Ptr (Textual.Typ.Struct name, _) -> (
+    match Textual.TypeName.swift_mangled_name_of_type_name name with
+    | Some mangled_name ->
+        String.is_suffix ~suffix:"O" mangled_name
+    | None ->
+        false )
+  | _ ->
+      false
+
+
 let is_int_optional typ =
   match typ with
   | Textual.Typ.Ptr (Textual.Typ.Struct typ_name, _) -> (
