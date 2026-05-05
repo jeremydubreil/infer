@@ -26,8 +26,8 @@ declare $sSS21_builtinStringLiteral17utf8CodeUnitCount7isASCIISSBp_BwBi1_tcfC(*_
 
 declare $sSD17dictionaryLiteralSDyxq_Gx_q_td_tcfC(*__infer_swift_type<ptr_elt>, *__infer_swift_type<ptr_elt>, *__infer_swift_type<ptr_elt>, *__infer_swift_type<ptr_elt>) : *__infer_swift_type<ptr_elt>
 
-define .plain_name = "test_getelementptr_segfault" $s5Hello27test_getelementptr_segfault1a1bSDyS2SGSi_SitF(a: *__infer_swift_type<ptr_elt>, b: *__infer_swift_type<ptr_elt>) : *__infer_swift_type<ptr_elt> {
-  local var7: *__infer_swift_type<TSi>, var6: *__infer_swift_type<TSi>
+define .plain_name = "test_getelementptr_segfault" $s5Hello27test_getelementptr_segfault1a1bSDyS2SGSi_SitF(var1: int, var2: int) : *__infer_swift_type<ptr_elt> {
+  local var7: *__infer_swift_type<TSi>, var6: *__infer_swift_type<TSi>, b: *__infer_swift_type<ptr_elt>, a: *__infer_swift_type<ptr_elt>
   #: @[2:12]
       n1 = load &$sSS_SStMD @[2:12]
       n2 = __sil_swift_alloc(<__infer_swift_type<TSS_SSt>>) @[2:12]
@@ -45,7 +45,7 @@ define .plain_name = "test_getelementptr_segfault" $s5Hello27test_getelementptr_
       n22 = load n12.__infer_tuple_class<int,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_1 @[3:9]
       store n23.__infer_swift_type<Ts13_StringObjectV>.field_1 <- n22 @[3:9]
       n25:*__infer_swift_type<TSi> = load &var6 @[3:21]
-      n24 = load &a @[3:21]
+      n24 = load &var1 @[3:21]
       store n25.__infer_swift_type<TSi>.field_0 <- n24 @[3:21]
       n26 = load &var6 @[3:14]
       n27 = load &$sSiN @[3:14]
@@ -80,7 +80,7 @@ define .plain_name = "test_getelementptr_segfault" $s5Hello27test_getelementptr_
       n55 = load n45.__infer_tuple_class<int,*__infer_swift_type<ptr_elt>>.__infer_tuple_field_1 @[4:9]
       store n56.__infer_swift_type<Ts13_StringObjectV>.field_1 <- n55 @[4:9]
       n58:*__infer_swift_type<TSi> = load &var7 @[4:21]
-      n57 = load &b @[4:21]
+      n57 = load &var2 @[4:21]
       store n58.__infer_swift_type<TSi>.field_0 <- n57 @[4:21]
       n59 = load &var7 @[4:14]
       n60 = load &$sSiN @[4:14]

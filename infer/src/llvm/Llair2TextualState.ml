@@ -332,21 +332,25 @@ use the substitution in the code later on. *)
     let formal_binding = VarMap.find_opt formal proc_state.formals in
     match formal_binding with
     (* If this variable has been read before, this transformation is not safe. *)
-    | Some ({read= NotRead} as item) ->
+    | Some ({read= NotRead} as item) -> (
         let local, local_typ = local in
-        let new_typ =
-          match (local_typ.Textual.Typ.typ, item.typ.Textual.Typ.typ) with
-          | Textual.Typ.Ptr (Struct _, _), Int | Textual.Typ.Int, Textual.Typ.Ptr (Struct _, _) ->
-              (* This is to avoid a type error when the signature type was int, because internally
-           int is a pointer to a struct. Now, we use the local type for the formal in case of
-           such a contradiction. *)
-              local_typ
-          | _ ->
-              item.typ
-        in
-        proc_state.formals <-
-          VarMap.add formal {typ= new_typ; assoc_local= Some local; read= Read} proc_state.formals ;
-        Textual.VarName.Hashtbl.replace proc_state.local_map local new_typ.Textual.Typ.typ
+        match (local_typ.Textual.Typ.typ, item.typ.Textual.Typ.typ) with
+        | Textual.Typ.Ptr (Struct _, _), Int | Textual.Typ.Int, Textual.Typ.Ptr (Struct _, _) ->
+            (* Type mismatch between the local stack slot (struct pointer) and the LLVM-level
+               formal (scalar). This happens when the Swift compiler direct-passes a small enum or
+               struct as decomposed scalar parts and the body reconstructs it on the stack. The
+               local is not the same value as the formal here — it is a stack copy of the
+               decomposed parameters — so substituting them aliases two distinct things and makes
+               the reconstruction stores look like writes into a heap object (false-positive
+               retain cycles in Pulse, e.g. on enum payload getters). Skip the substitution and
+               leave the formal and the local separate. *)
+            ()
+        | _ ->
+            proc_state.formals <-
+              VarMap.add formal
+                {typ= item.typ; assoc_local= Some local; read= Read}
+                proc_state.formals ;
+            Textual.VarName.Hashtbl.replace proc_state.local_map local item.typ.Textual.Typ.typ )
     | _ ->
         ()
 

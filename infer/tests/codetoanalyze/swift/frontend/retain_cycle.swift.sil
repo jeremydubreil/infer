@@ -535,9 +535,10 @@ declare $s5Hello9TransportC15ConnectionStateOAESYAAWl() : *__infer_swift_type<pt
 
 declare $s5Hello9TransportC15ConnectionStateOAESQAAWl() : *__infer_swift_type<ptr_elt>
 
-define .plain_name = "rawValue.get" $s5Hello9TransportC15ConnectionStateO8rawValueSSvg(self: *__infer_swift_type<ptr_elt>) : *__infer_tuple_class<int,*__infer_swift_type<ptr_elt>> {
+define .plain_name = "rawValue.get" $s5Hello9TransportC15ConnectionStateO8rawValueSSvg(var1: int) : *__infer_tuple_class<int,*__infer_swift_type<ptr_elt>> {
+  local self: *__infer_swift_type<ptr_elt>
   #: @?
-      n1 = load &self @[0:0]
+      n1 = load &var1 @[0:0]
       if __sil_ne(n1, 1) then jmp 5 else jmp 9 @[0:0]
       
   #13: @[0:0]

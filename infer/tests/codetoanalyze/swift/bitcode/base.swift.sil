@@ -14,9 +14,10 @@ define .plain_name = "returnOne" $s5Hello9returnOneSiyF() : int {
       
 } @?
 
-define .plain_name = "test3" $s5Hello5test3yS2iF(n: *__infer_swift_type<ptr_elt>) : int {
+define .plain_name = "test3" $s5Hello5test3yS2iF(var1: int) : int {
+  local n: *__infer_swift_type<ptr_elt>
   #: @[15:12]
-      n1 = load &n @[15:12]
+      n1 = load &var1 @[15:12]
       n2 = $s5Hello5test1yS2iF(n1) @[15:12]
       jmp 3::ret @[15:12]
       
@@ -35,19 +36,21 @@ define .plain_name = "test2" $s5Hello5test2SiyF() : int {
       
 } @?
 
-define .plain_name = "test1" $s5Hello5test1yS2iF(n: *__infer_swift_type<ptr_elt>) : int {
+define .plain_name = "test1" $s5Hello5test1yS2iF(var1: int) : int {
+  local n: *__infer_swift_type<ptr_elt>
   #: @?
-      n1 = load &n @[7:5]
+      n1 = load &var1 @[7:5]
       ret n1 @[7:5]
       
 } @?
 
-define .plain_name = "createPerson" $s5Hello12createPerson3age6heightSiAC_SiADtSi_SitF(age: *__infer_swift_type<ptr_elt>, height: *__infer_swift_type<ptr_elt>) : *__infer_tuple_class<int,int> {
+define .plain_name = "createPerson" $s5Hello12createPerson3age6heightSiAC_SiADtSi_SitF(var1: int, var2: int) : *__infer_tuple_class<int,int> {
+  local height: *__infer_swift_type<ptr_elt>, age: *__infer_swift_type<ptr_elt>
   #: @[18:0]
       n1 = $builtins.llvm_init_tuple() @[18:0]
-      n2 = load &age @[19:5]
+      n2 = load &var1 @[19:5]
       store n1.__infer_tuple_class<int,int>.__infer_tuple_field_0 <- n2 @[19:5]
-      n3 = load &height @[19:5]
+      n3 = load &var2 @[19:5]
       store n1.__infer_tuple_class<int,int>.__infer_tuple_field_1 <- n3 @[19:5]
       ret n1 @[19:5]
       

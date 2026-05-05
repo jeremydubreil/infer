@@ -56,11 +56,11 @@ declare $s5Hello5ColorOACSQAAWl() : *__infer_swift_type<ptr_elt>
 
 declare $s5Hello5ColorOACSHAAWl() : *__infer_swift_type<ptr_elt>
 
-define .plain_name = "hashValue.get" $s5Hello5ColorO9hashValueSivg(self: *__infer_swift_type<ptr_elt>) : int {
-  local var4: *__infer_swift_type<T5Hello5ColorO,Color>
+define .plain_name = "hashValue.get" $s5Hello5ColorO9hashValueSivg(var1: int) : int {
+  local var4: *__infer_swift_type<T5Hello5ColorO,Color>, self: *__infer_swift_type<ptr_elt>
   #: @[0:0]
       n2:*__infer_swift_type<T5Hello5ColorO,Color> = load &var4 @[0:0]
-      n1 = load &self @[0:0]
+      n1 = load &var1 @[0:0]
       store n2.__infer_swift_type<T5Hello5ColorO,Color>.hashValue <- n1 @[0:0]
       n3 = $s5Hello5ColorOACSHAAWl() @[0:0]
       jmp 5::ret @[0:0]
@@ -81,9 +81,10 @@ declare .plain_name = "hash" $s5Hello5ColorO4hash4intoys6HasherVz_tF(*__infer_sw
 
 declare .plain_name = "__derived_enum_equals" $s5Hello5ColorO21__derived_enum_equalsySbAC_ACtFZ(int, int) : *__infer_swift_type<,Bool>
 
-define .plain_name = "switch_on_enum" $s5Hello14switch_on_enumySiAA5ColorOF(c: *__infer_swift_type<ptr_elt>) : int {
+define .plain_name = "switch_on_enum" $s5Hello14switch_on_enumySiAA5ColorOF(var1: int) : int {
+  local c: *__infer_swift_type<ptr_elt>
   #: @?
-      n1 = load &c @[30:10]
+      n1 = load &var1 @[30:10]
       if __sil_eq(n1, 0) then jmp 4::jmp::7 else if __sil_eq(n1, 1) then jmp 5::jmp::7 else if __sil_eq(n1, 2) then jmp 6::jmp::7 else jmp 3 @[30:10]
       
   #3: @[30:10]
@@ -106,9 +107,10 @@ define .plain_name = "switch_on_enum" $s5Hello14switch_on_enumySiAA5ColorOF(c: *
       
 } @?
 
-define .plain_name = "switch_on_bool" $s5Hello14switch_on_boolySiSbF(b: *__infer_swift_type<ptr_elt>) : int {
+define .plain_name = "switch_on_bool" $s5Hello14switch_on_boolySiSbF(var1: int) : int {
+  local b: *__infer_swift_type<ptr_elt>
   #: @?
-      n1 = load &b @[17:10]
+      n1 = load &var1 @[17:10]
       if __sil_eq(n1, 1) then jmp 4::jmp::6 else if __sil_eq(n1, 0) then jmp 5::jmp::6 else jmp 3 @[17:10]
       
   #3: @[17:10]
@@ -127,9 +129,10 @@ define .plain_name = "switch_on_bool" $s5Hello14switch_on_boolySiSbF(b: *__infer
       
 } @?
 
-define .plain_name = "switch_on_int" $s5Hello13switch_on_intyS2iF(x: *__infer_swift_type<ptr_elt>) : int {
+define .plain_name = "switch_on_int" $s5Hello13switch_on_intyS2iF(var1: int) : int {
+  local x: *__infer_swift_type<ptr_elt>
   #: @?
-      n2 = load &x @[7:12]
+      n2 = load &var1 @[7:12]
       if __sil_eq(0, n2) then jmp 4::jmp::12 else jmp 5 @[7:12]
       
   #10::jmp::12: @[10:13]
@@ -148,7 +151,7 @@ define .plain_name = "switch_on_int" $s5Hello13switch_on_intyS2iF(x: *__infer_sw
       jmp 12 @[8:13]
       
   #5: @?
-      n4 = load &x @[7:12]
+      n4 = load &var1 @[7:12]
       if __sil_eq(1, n4) then jmp 7::jmp::12 else jmp 8 @[7:12]
       
   #7::jmp::12: @[9:13]
@@ -156,7 +159,7 @@ define .plain_name = "switch_on_int" $s5Hello13switch_on_intyS2iF(x: *__infer_sw
       jmp 12 @[9:13]
       
   #8: @?
-      n6 = load &x @[7:12]
+      n6 = load &var1 @[7:12]
       if __sil_eq(2, n6) then jmp 10::jmp::12 else jmp 11::jmp::12 @[7:12]
       
 } @?

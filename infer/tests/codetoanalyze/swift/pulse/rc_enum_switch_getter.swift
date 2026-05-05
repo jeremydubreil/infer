@@ -1,28 +1,26 @@
-// Coverage for a false-positive RETAIN_CYCLE that fires on a pure-value
+// Coverage for a previously-fictional retain cycle on a pure-value
 // computed property that switches on its enclosing enum to extract a payload.
 //
 // `ScanNumberType` is a Swift enum with payload that fits in registers, so the
 // Swift compiler direct-passes it as `(payload: i64, tag: i8)` at the LLVM
 // level instead of by reference. The Llair body reconstructs the enum on the
-// stack and switches on the tag — entirely value-semantics, no heap writes,
-// no reference types involved. After the multi-entry-switch translation
-// landed, Pulse can now reach the body and ends up reporting a fictional
-// retain cycle on `self -> self->field_1` (the stack-reconstructed enum
-// header). The model gap is that `Llair2Textual.to_formal_types` keeps the
-// demangled-signature pointer type for an LLVM-level scalar parameter, so the
-// stack-reconstruction stores look like writes into a heap object.
+// stack and switches on the tag — entirely value semantics, no heap writes,
+// no reference types involved.
 //
-// `_good_FP` is renamed to `_good` and the `issues.exp` line is dropped once
-// the frontend stops promoting register-passed scalar parameters to the
-// signature pointer type.
+// Until `Llair2TextualState.subst_formal_local` learned to skip aliasing the
+// stack-reconstruction local with the LLVM-scalar formal, the textual body
+// looked like writes into `self.field_X` and Pulse fired a fake `RETAIN_CYCLE`
+// (plus a `NULLPTR_DEREFERENCE_LATENT`) on this getter. A separate
+// `CONSTANT_ADDRESS_DEREFERENCE` on the constructor call remains as a known
+// FP — a follow-up clean-up — but the retain-cycle pattern this file was
+// added for is fixed.
 
 private enum ScanNumberType {
     case ignore
     case valid(number: Int)
     case invalid
 
-    // Triggers the FP when called on any case.
-    var scanNumber_FP: Int? {
+    var scanNumber: Int? {
         switch self {
         case .ignore:
             return nil
@@ -36,5 +34,5 @@ private enum ScanNumberType {
 
 public func test_enum_switch_getter_no_cycle_good_FP() -> Int? {
     let t = ScanNumberType.valid(number: 5)
-    return t.scanNumber_FP
+    return t.scanNumber
 }

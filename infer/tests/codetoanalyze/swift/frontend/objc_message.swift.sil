@@ -307,15 +307,15 @@ define .plain_name = "init" $s5Hello7BCNCellC5coderACSgSo7NSCoderC_tcfC(var1: *_
       
 } @?
 
-define .plain_name = "nuxContentView.set" $s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvs(value: *__infer_swift_type<ptr_elt>, self: *__infer_swift_type<,BCNCell>) : void {
-  local var6: *int
+define .plain_name = "nuxContentView.set" $s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvs(var1: int, self: *__infer_swift_type<,BCNCell>) : void {
+  local var6: *int, value: *__infer_swift_type<ptr_elt>
   #: @[14:0]
       n1 = $builtins.llvm_nondet() @[14:0]
       n2 = load &$s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvpWvd @[14:0]
       n3 = load &self @[14:0]
       n4 = n3.__infer_swift_type<T5Hello7BCNCellC,BCNCell>.nuxContentView @[14:0]
       n5 = load n4 @[14:0]
-      n6 = load &value @[14:0]
+      n6 = load &var1 @[14:0]
       store n4 <- n6 @[14:0]
       ret null @[14:0]
       
