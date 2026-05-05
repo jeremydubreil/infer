@@ -19,9 +19,7 @@ let curr_html_formatter = AnalysisGlobalState.make_dls ~init:F.get_std_formatter
 
 (** Return true if the node was visited during analysis *)
 let is_visited node =
-  match
-    Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all (Procdesc.Node.get_proc_name node)
-  with
+  match Summary.OnDisk.get AnalysisRequest.all (Procdesc.Node.get_proc_name node) with
   | None ->
       false
   | Some summary ->
@@ -144,8 +142,7 @@ end = struct
          [] )
       linenum ;
     pp_node_link_seq [] ~description:true fmt nodes ;
-    (* load payloads eagerly as we need them to print them all *)
-    ( match Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name with
+    ( match Summary.OnDisk.get AnalysisRequest.all proc_name with
     | None ->
         ()
     | Some summary ->
@@ -207,7 +204,7 @@ end = struct
       Hashtbl.replace table_nodes_at_linenum lnum (n :: curr_nodes)
     in
     List.iter ~f:process_node (Procdesc.get_nodes proc_desc) ;
-    match Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name with
+    match Summary.OnDisk.get AnalysisRequest.all proc_name with
     | None ->
         ()
     | Some {err_log} ->
@@ -238,10 +235,7 @@ end = struct
                   let proc_name_escaped =
                     Escape.escape_xml (Procname.to_string ~verbosity:Verbose proc_name)
                   in
-                  if
-                    Summary.OnDisk.get ~lazy_payloads:true AnalysisRequest.all proc_name
-                    |> Option.is_some
-                  then (
+                  if Summary.OnDisk.get AnalysisRequest.all proc_name |> Option.is_some then (
                     F.pp_print_char fmt ' ' ;
                     let label = F.asprintf "summary for %s" proc_name_escaped in
                     Io_infer.Html.pp_proc_link [fname_encoding] proc_name fmt label )

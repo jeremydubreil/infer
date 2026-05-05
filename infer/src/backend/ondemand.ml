@@ -400,9 +400,8 @@ let is_in_block_list =
         QualifiedCppName.Match.match_qualifiers matcher (Typ.Name.qual_name name) )
 
 
-let is_summary_already_computed ~lazy_payloads (analysis_req : AnalysisRequest.t) callee_pname
-    specialization =
-  match (Summary.OnDisk.get ~lazy_payloads analysis_req callee_pname, specialization) with
+let is_summary_already_computed (analysis_req : AnalysisRequest.t) callee_pname specialization =
+  match (Summary.OnDisk.get analysis_req callee_pname, specialization) with
   | Some ({is_complete_result= true} as summary), None ->
       `SummaryReady summary
   | Some ({payloads; is_complete_result= false} as summary), None -> (
@@ -425,12 +424,12 @@ let is_summary_already_computed ~lazy_payloads (analysis_req : AnalysisRequest.t
       if procedure_is_defined callee_pname then `ComputeDefaultSummary else `UnknownProcedure
 
 
-let double_lock_for_restart ~lazy_payloads analysis_req callee_pname specialization =
+let double_lock_for_restart analysis_req callee_pname specialization =
   match Config.scheduler with
   | File | SyntacticCallGraph ->
       `NoSummary
   | Restart -> (
-    match is_summary_already_computed ~lazy_payloads analysis_req callee_pname specialization with
+    match is_summary_already_computed analysis_req callee_pname specialization with
     | `SummaryReady summary ->
         `YesSummary summary
     | `UnknownProcedure ->
@@ -443,9 +442,8 @@ let double_lock_for_restart ~lazy_payloads analysis_req callee_pname specializat
     analysis of mutual recursion cycles deterministic *)
 let number_of_recursion_restarts = DLS.new_key (fun () -> 0)
 
-let rec analyze_callee_can_raise_recursion ~lazy_payloads (analysis_req : AnalysisRequest.t)
-    ~specialization ?caller_summary ?(from_file_analysis = false) callee_pname : _ AnalysisResult.t
-    =
+let rec analyze_callee_can_raise_recursion (analysis_req : AnalysisRequest.t) ~specialization
+    ?caller_summary ?(from_file_analysis = false) callee_pname : _ AnalysisResult.t =
   match detect_mutual_recursion_cycle ~caller_summary ~callee:callee_pname specialization with
   | `InMutualRecursionCycle ->
       let target = {SpecializedProcname.proc_name= callee_pname; specialization} in
@@ -499,9 +497,7 @@ let rec analyze_callee_can_raise_recursion ~lazy_payloads (analysis_req : Analys
               (* the restart scheduler wants to avoid duplicated work, but between checking for a
                  summary and taking the lock on computing it someone else might have finished computing
                  the summary we want *)
-              match
-                double_lock_for_restart ~lazy_payloads analysis_req callee_pname specialization
-              with
+              match double_lock_for_restart analysis_req callee_pname specialization with
               | `YesSummary summary ->
                   Stats.incr_ondemand_double_analysis_prevented () ;
                   Some summary
@@ -535,17 +531,15 @@ let rec analyze_callee_can_raise_recursion ~lazy_payloads (analysis_req : Analys
                           None ) )
                     ~finally:(fun () -> AnalysisGlobalState.restore previous_global_state) )
         in
-        match
-          is_summary_already_computed ~lazy_payloads analysis_req callee_pname specialization
-        with
+        match is_summary_already_computed analysis_req callee_pname specialization with
         | `SummaryReady summary ->
             Ok summary
         | `ComputeDefaultSummary ->
             analyze_callee_aux None |> AnalysisResult.of_option
         | `ComputeDefaultSummaryThenSpecialize specialization ->
             (* recursive call so that we detect mutual recursion on the unspecialized summary *)
-            analyze_callee ~lazy_payloads analysis_req ~specialization:None ?caller_summary
-              ~from_file_analysis callee_pname
+            analyze_callee analysis_req ~specialization:None ?caller_summary ~from_file_analysis
+              callee_pname
             |> Result.bind ~f:(fun summary ->
                    analyze_callee_aux (Some (summary, specialization)) |> AnalysisResult.of_option )
         | `AddNewSpecialization (summary, specialization) ->
@@ -554,7 +548,7 @@ let rec analyze_callee_can_raise_recursion ~lazy_payloads (analysis_req : Analys
             Error UnknownProcedure )
 
 
-and on_recursive_cycle ~lazy_payloads analysis_req ?caller_summary:_ ?from_file_analysis ~ttl
+and on_recursive_cycle analysis_req ?caller_summary:_ ?from_file_analysis ~ttl
     (cycle_start : SpecializedProcname.t) callee_pname =
   if ttl > 0 then (
     if Config.trace_mutual_recursion_cycle_checker then
@@ -563,24 +557,22 @@ and on_recursive_cycle ~lazy_payloads analysis_req ?caller_summary:_ ?from_file_
     raise (RecursiveCycleException.RecursiveCycle {recursive= cycle_start; ttl= ttl - 1}) ) ;
   if Config.trace_mutual_recursion_cycle_checker then
     L.progress "@\nNOW we rerun analysis_callee with %a" SpecializedProcname.pp cycle_start ;
-  analyze_callee ~lazy_payloads analysis_req ~specialization:cycle_start.specialization
-    ?from_file_analysis cycle_start.proc_name
+  analyze_callee analysis_req ~specialization:cycle_start.specialization ?from_file_analysis
+    cycle_start.proc_name
   |> ignore ;
   (* TODO: register caller -> callee relationship, possibly *)
-  Summary.OnDisk.get ~lazy_payloads analysis_req callee_pname |> AnalysisResult.of_option
+  Summary.OnDisk.get analysis_req callee_pname |> AnalysisResult.of_option
 
 
-and analyze_callee ~lazy_payloads analysis_req ~specialization ?caller_summary ?from_file_analysis
-    callee_pname =
+and analyze_callee analysis_req ~specialization ?caller_summary ?from_file_analysis callee_pname =
   try
-    analyze_callee_can_raise_recursion ~lazy_payloads analysis_req ~specialization ?caller_summary
+    analyze_callee_can_raise_recursion analysis_req ~specialization ?caller_summary
       ?from_file_analysis callee_pname
   with RecursiveCycleException.RecursiveCycle {recursive; ttl} ->
-    on_recursive_cycle ~lazy_payloads analysis_req recursive ~ttl callee_pname
+    on_recursive_cycle analysis_req recursive ~ttl callee_pname
 
 
-let analyze_callee ~lazy_payloads analysis_req ~specialization ?caller_summary ?from_file_analysis
-    callee_pname =
+let analyze_callee analysis_req ~specialization ?caller_summary ?from_file_analysis callee_pname =
   if Config.trace_mutual_recursion_cycle_checker then
     L.progress "@\n@[<v 4>analysing %a with specialization %a..." Procname.pp callee_pname
       (Pp.option Specialization.pp) specialization ;
@@ -589,8 +581,7 @@ let analyze_callee ~lazy_payloads analysis_req ~specialization ?caller_summary ?
      this is a "toplevel" analysis of [callee_pname] so we start fresh. *)
   if Option.is_none caller_summary then DLS.set number_of_recursion_restarts 0 ;
   let res =
-    analyze_callee ~lazy_payloads analysis_req ~specialization ?caller_summary ?from_file_analysis
-      callee_pname
+    analyze_callee analysis_req ~specialization ?caller_summary ?from_file_analysis callee_pname
   in
   if Config.trace_mutual_recursion_cycle_checker then
     L.progress "@]@\nDONE with analysing %a with specialization %a%s" Procname.pp callee_pname
@@ -600,16 +591,11 @@ let analyze_callee ~lazy_payloads analysis_req ~specialization ?caller_summary ?
 
 
 let analyze_proc_name analysis_req ?specialization ~caller_summary callee_pname =
-  analyze_callee ~lazy_payloads:true ~specialization analysis_req ~caller_summary callee_pname
+  analyze_callee ~specialization analysis_req ~caller_summary callee_pname
 
 
 let analyze_proc_name_for_file_analysis analysis_req callee_pname =
-  (* load payloads lazily (and thus field by field as needed): we are either doing a file analysis
-     and we don't want to load all payloads at once (to avoid high memory usage when only a few of
-     the payloads are actually needed), or we are starting a procedure analysis in which case we're
-     not interested in loading the summary if it has already been computed *)
-  analyze_callee ~lazy_payloads:true ~specialization:None analysis_req ~from_file_analysis:true
-    callee_pname
+  analyze_callee ~specialization:None analysis_req ~from_file_analysis:true callee_pname
 
 
 let analyze_file_procedures analysis_req procs_to_analyze source_file_opt =
@@ -634,4 +620,4 @@ let analyze_file analysis_req source_file =
 (** Invoke procedure callbacks on a given environment. *)
 let analyze_proc_name_toplevel analysis_req ~specialization proc_name =
   update_taskbar (Some proc_name) None ;
-  analyze_callee ~lazy_payloads:true ~specialization analysis_req proc_name |> ignore
+  analyze_callee ~specialization analysis_req proc_name |> ignore

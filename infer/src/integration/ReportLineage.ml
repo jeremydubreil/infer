@@ -25,7 +25,7 @@ let worker source_file =
   let proc_names = SourceFiles.proc_names_of_source source_file in
   List.iter
     ~f:(fun proc_name ->
-      let summary = Summary.OnDisk.get ~lazy_payloads:true analysis_req proc_name in
+      let summary = Summary.OnDisk.get analysis_req proc_name in
       Option.iter summary ~f:report_proc_json )
     proc_names ;
   None

@@ -25,7 +25,7 @@ let iter_critical_pairs_of_summary f summary =
 
 
 let iter_critical_pairs_of_scheduled_work f (work_item : Domain.ScheduledWorkItem.t) =
-  Summary.OnDisk.get ~lazy_payloads:true analysis_req work_item.procname
+  Summary.OnDisk.get analysis_req work_item.procname
   |> Option.bind ~f:(fun (summary : Summary.t) -> SafeLazy.force_option summary.payloads.starvation)
   |> Option.iter ~f:(iter_critical_pairs_of_summary (iter_scheduled_pair work_item f))
 
@@ -79,7 +79,7 @@ let report work_set =
     TaskBar.set_remaining_tasks task_bar !to_do_items ;
     TaskBar.update_status task_bar ~slot:0 (Some (Mtime_clock.now ())) (Procname.to_string procname) ;
     TaskBar.refresh task_bar ;
-    Summary.OnDisk.get ~lazy_payloads:true analysis_req procname
+    Summary.OnDisk.get analysis_req procname
     |> Option.fold ~init ~f:(fun acc summary ->
            let pattrs = Attributes.load_exn procname in
            let tenv = Exe_env.get_proc_tenv procname in

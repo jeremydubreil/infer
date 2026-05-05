@@ -54,10 +54,7 @@ module SQLite : sig
   val lazy_load : proc_uid:string -> t
   (** load each payload lazily *)
 
-  val eager_load : Sqlite3.stmt -> first_column:int -> t
-  (** load all payload columns from the statement starting at [first_column] *)
-
-  val deserialize_payload_opt : ?eager:bool -> Sqlite3.Data.t -> 'a SafeLazy.t option
+  val deserialize_payload_opt : Sqlite3.Data.t -> 'a SafeLazy.t option
   (** use to deserialize the data from one column for a particular payload id; callers are
       responsible for casting the result to the appropriate [payload option SafeLazy.t] type *)
 end

@@ -195,16 +195,11 @@ module SQLite = struct
   (** Each payload is stored in the DB as either [NULL] for the absence of payload, or the payload
       itself. We cannot give a good type to this function because it deserializes several payload
       types. *)
-  let deserialize_payload_opt ?(eager = false) = function[@warning "-partial-match"]
+  let deserialize_payload_opt = function[@warning "-partial-match"]
     | Sqlite3.Data.NULL ->
         None
-    | Sqlite3.Data.BLOB blob when eager ->
-        Some (SafeLazy.from_val (Marshal.from_string blob 0))
     | Sqlite3.Data.BLOB blob ->
-        (* lazily deserialize the blob once we have it to save time in case it won't be used. This
-           can happen when payloads were loaded eagerly by one analysis when other active analyses
-           are not interested in the summaries for the same procedure, i.e. they don't have the same
-           dependencies *)
+        (* lazily deserialize the blob once we have it to save time in case it won't be used *)
         Some (SafeLazy.make (lazy (Marshal.from_string blob 0)))
 
 
@@ -242,27 +237,6 @@ module SQLite = struct
               if phys_equal res pulse_payload then default
               else serialize {payloads with pulse= Some (SafeLazy.from_val res)} )
 
-
-  let make_eager =
-    let data_of_sqlite_column _field column =
-      ( (fun stmt ->
-          let sqlite_data = Sqlite3.column stmt column in
-          deserialize_payload_opt ~eager:true sqlite_data )
-      , column + 1 )
-    in
-    Fields.make_creator ~annot_map:data_of_sqlite_column
-      ~buffer_overrun_analysis:data_of_sqlite_column ~buffer_overrun_checker:data_of_sqlite_column
-      ~config_impact_analysis:data_of_sqlite_column ~cost:data_of_sqlite_column
-      ~disjunctive_demo:data_of_sqlite_column
-      ~static_constructor_stall_checker:data_of_sqlite_column
-      ~litho_required_props:data_of_sqlite_column ~pulse:data_of_sqlite_column
-      ~purity:data_of_sqlite_column ~racerd:data_of_sqlite_column
-      ~lab_resource_leaks:data_of_sqlite_column ~scope_leakage:data_of_sqlite_column
-      ~siof:data_of_sqlite_column ~lineage:data_of_sqlite_column
-      ~lineage_shape:data_of_sqlite_column ~starvation:data_of_sqlite_column
-
-
-  let eager_load stmt ~first_column = (make_eager first_column |> fst) stmt
 
   (** {3 code for lazily loading payloads} *)
 

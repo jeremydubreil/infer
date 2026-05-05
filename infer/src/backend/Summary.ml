@@ -182,13 +182,8 @@ module OnDisk = struct
       Database.register_statement AnalysisDatabase
         "SELECT report_summary, summary_metadata FROM specs WHERE proc_uid = :k"
     in
-    let eager_load_statement =
-      Database.register_statement AnalysisDatabase
-        "SELECT report_summary, summary_metadata, %s FROM specs WHERE proc_uid = :k"
-        (F.asprintf "%a" (Pp.seq ~sep:", " F.pp_print_string) PayloadId.database_fields)
-    in
-    let load_spec ~lazy_payloads ~load_statement proc_name =
-      Database.with_registered_statement load_statement ~f:(fun db load_stmt ->
+    let load_spec proc_name =
+      Database.with_registered_statement lazy_load_statement ~f:(fun db load_stmt ->
           let proc_uid = Procname.to_unique_id proc_name in
           Sqlite3.bind load_stmt 1 (Sqlite3.Data.TEXT proc_uid)
           |> SqliteUtils.check_result_code db ~log:"load proc specs bind proc_name" ;
@@ -196,31 +191,25 @@ module OnDisk = struct
             ~read_row:(fun stmt ->
               let report_summary = Sqlite3.column stmt 0 |> ReportSummary.SQLite.deserialize in
               let summary_metadata = Sqlite3.column stmt 1 |> SummaryMetadata.SQLite.deserialize in
-              let payloads =
-                if lazy_payloads then Payloads.SQLite.lazy_load ~proc_uid
-                else Payloads.SQLite.eager_load ~first_column:2 stmt
-              in
+              let payloads = Payloads.SQLite.lazy_load ~proc_uid in
               mk_full_summary payloads report_summary summary_metadata ) )
     in
-    fun ~lazy_payloads proc_name ->
+    fun proc_name ->
       BStats.incr_summary_file_try_load () ;
-      let load_statement = if lazy_payloads then lazy_load_statement else eager_load_statement in
-      let opt = load_spec ~lazy_payloads ~load_statement proc_name in
+      let opt = load_spec proc_name in
       if Option.is_some opt then BStats.incr_summary_read_from_disk () ;
       opt
 
 
   (** Load procedure summary for the given procedure name and update spec table *)
-  let load_summary_to_spec_table ~lazy_payloads analysis_req proc_name =
-    let summ_opt = spec_of_procname ~lazy_payloads proc_name in
+  let load_summary_to_spec_table analysis_req proc_name =
+    let summ_opt = spec_of_procname proc_name in
     Option.iter ~f:(add_to_cache proc_name analysis_req) summ_opt ;
     summ_opt
 
 
-  let get ~lazy_payloads analysis_req proc_name =
-    let not_found_from_cache () =
-      load_summary_to_spec_table ~lazy_payloads analysis_req proc_name
-    in
+  let get analysis_req proc_name =
+    let not_found_from_cache () = load_summary_to_spec_table analysis_req proc_name in
     match find_in_cache (proc_name, analysis_req) with
     | Some _ as some_summary ->
         some_summary

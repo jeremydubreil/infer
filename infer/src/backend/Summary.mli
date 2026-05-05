@@ -48,7 +48,7 @@ module OnDisk : sig
 
   val set_lru_limit : lru_limit:int option -> unit
 
-  val get : lazy_payloads:bool -> AnalysisRequest.t -> Procname.t -> t option
+  val get : AnalysisRequest.t -> Procname.t -> t option
   (** Return the summary option for the procedure name *)
 
   val empty : Procname.t -> t
