@@ -84,6 +84,7 @@ module TransferFunctions = struct
               if
                 CallStatus.equal status Unannotated
                 && SwiftObjCNullabilityIssue.should_report_at loc
+                && not (SwiftObjCNullabilityIssue.is_system_framework_callee attrs)
               then
                 Reporting.log_issue proc_desc err_log ~loc SwiftObjCNullability
                   IssueType.missing_nullability_annotation
