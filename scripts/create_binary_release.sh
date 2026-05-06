@@ -21,7 +21,7 @@ fi
 VERSION=$1
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-ROOT_DIR="$SCRIPT_DIR"/..
+ROOT_DIR="$(cd "$SCRIPT_DIR"/.. && pwd)"
 NCPUS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 PLATFORM=$(uname)
 if [ "$PLATFORM" == 'Darwin' ]; then
@@ -44,8 +44,10 @@ fi
 eval $(opam env)
 touch .release
 ./autogen.sh
+ORIG_CONFIGURE_ARGS=$(./config.status --config)
 ./configure \
-    --prefix="/$RELEASE_NAME"
+    --prefix="/$RELEASE_NAME" \
+    $ORIG_CONFIGURE_ARGS
 
 make -j "$JOBS" \
     install-with-libs \
@@ -77,4 +79,8 @@ rm -fr "$RELEASE_NAME"
 
 # special GitHub sauce for later steps to find the tarball
 echo
-echo "::set-output name=tarball-path::$RELEASE_TARBALL"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "tarball-path=$RELEASE_TARBALL" >> "$GITHUB_OUTPUT"
+else
+    echo "::set-output name=tarball-path::$RELEASE_TARBALL"
+fi
