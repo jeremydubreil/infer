@@ -50,4 +50,6 @@ val convert_proc :
 (** {2 Pretty-printing} *)
 
 val pp_tree : ?depth:int -> CC.t -> Format.formatter -> CC.Atom.t -> unit
-(** [pp_tree cc fmt atom] prints the PEG rooted at [atom] as an ASCII tree. *)
+[@@warning "-unused-value-declaration"]
+(** [pp_tree cc fmt atom] prints the PEG rooted at [atom] as an ASCII tree. Used only by unit tests.
+*)

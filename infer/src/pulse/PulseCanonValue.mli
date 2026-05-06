@@ -117,5 +117,5 @@ end
 module Make (AbductiveDomain : sig
   type astate
 
-  val canon : astate -> AbstractValue.t -> AbstractValue.t
+  val canon : astate -> AbstractValue.t -> AbstractValue.t [@@warning "-unused-value-declaration"]
 end) : S with type astate = AbductiveDomain.astate

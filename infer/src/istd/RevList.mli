@@ -9,8 +9,6 @@ open! IStd
 
 type 'a t [@@deriving compare, equal]
 
-val yojson_of_t : ('a -> Yojson.Safe.t) -> 'a t -> Yojson.Safe.t
-
 val empty : 'a t
 (** Return empty list *)
 

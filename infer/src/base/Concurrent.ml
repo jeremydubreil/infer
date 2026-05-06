@@ -51,8 +51,6 @@ module type Hashtbl = sig
 
   val create : int -> 'a t
 
-  val clear : 'a t -> unit
-
   val find_opt : 'a t -> key -> 'a option
 
   val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
@@ -60,8 +58,6 @@ module type Hashtbl = sig
   val iter : (key -> 'a -> unit) -> 'a t -> unit
 
   val length : 'a t -> int
-
-  val remove : 'a t -> key -> unit
 
   val replace : 'a t -> key -> 'a -> unit
 
@@ -82,8 +78,6 @@ struct
 
   let in_mutex {mutex; hash} ~f = IMutex.critical_section mutex ~f:(fun () -> f hash)
 
-  let clear t = in_mutex t ~f:H.clear
-
   let find_opt t key = in_mutex t ~f:(fun h -> H.find_opt h key)
 
   let fold f t init = in_mutex t ~f:(fun h -> H.fold f h init)
@@ -91,8 +85,6 @@ struct
   let iter f t = in_mutex t ~f:(fun h -> H.iter f h)
 
   let length t = in_mutex t ~f:H.length
-
-  let remove t key = in_mutex t ~f:(fun h -> H.remove h key)
 
   let replace t k v = in_mutex t ~f:(fun h -> H.replace h k v)
 

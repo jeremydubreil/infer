@@ -6,8 +6,6 @@
  *)
 
 open! IStd
-module F = Format
-module L = Logging
 open PulseDomainInterface
 
 val implies : AbductiveDomain.t -> AbductiveDomain.t -> bool

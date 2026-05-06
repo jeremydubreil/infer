@@ -15,6 +15,8 @@ val python_ast_diff :
   -> string
   -> string
   -> Diff.explicit list
+[@@warning "-unused-value-declaration"]
+(** only used for unit tests *)
 
 val semdiff : config_files:string list -> previous_file:string -> current_file:string -> unit
 

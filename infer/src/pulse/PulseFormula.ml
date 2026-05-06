@@ -77,18 +77,6 @@ let extract_term_cond (var : t) = Formula.get_terminal_conds var.phi
 
 let extract_term_cond2 (var : t) = Formula.get_terminal_terms var.phi
 
-let map_is_empty (conds : int Atom.Map.t) = Atom.Map.is_empty conds
-
-let set_is_empty (conds : Atom.Set.t) = Atom.Set.is_empty conds
-
-let termset_is_empty (conds : Term.Set.t) = Term.Set.is_empty conds
-
-let formula_is_empty (var : t) =
-  map_is_empty (extract_path_cond var)
-  && set_is_empty (extract_term_cond var)
-  && termset_is_empty (extract_term_cond2 var)
-
-
 let pp_with_pp_var pp_var fmt {conditions; phi} =
   let pp_conditions fmt conditions =
     if Atom.Map.is_empty conditions then F.pp_print_string fmt "(empty)"
@@ -348,11 +336,6 @@ let prune_atoms ~depth atoms formula_new_eqs =
   (* dont add atom on that path as it would be doubly added by prune_binop/and_binop then *)
   SatUnsat.list_fold atoms ~init:formula_new_eqs ~f:(fun formula_new_eqs atom ->
       prune_atom ~depth atom formula_new_eqs ~add_term:false )
-
-
-let and_path_flush formula =
-  let phi = Formula.and_path_flush formula.phi in
-  {formula with phi}
 
 
 let infinite_loop_checker_prune_binop bop tx ty t formula =
@@ -981,7 +964,7 @@ let implies_conditions_up_to ~subst:subst0 formula0 ~implies:formula_foreign =
        v'' = v+2 ∧ v' = v+1 ∧ v''>0 ⊢ ∃w',w''. w'=v'+1 ∧ w''=v'+2 ∧ w''>0
      ]}
 
-     
+
      Now the HEURISTIC part is to remark that [w'] and [w''] are bound to terms about [v'], so they
      can be conjoined to LHS instead first, then we'll try to prove each remaining condition atom
      (here only [w''>0]) is implied:
@@ -1329,10 +1312,6 @@ let extract_path_stamp formula =
   let atom_set = extract_term_cond formula in
   let term_set = extract_term_cond2 formula in
   {path_cond; atom_set; term_set}
-
-
-let is_empty_path_stamp {path_cond; atom_set; term_set} =
-  Atom.Map.is_empty path_cond && Atom.Set.is_empty atom_set && Term.Set.is_empty term_set
 
 
 let pp_path_stamp fmt {path_cond; atom_set; term_set} =

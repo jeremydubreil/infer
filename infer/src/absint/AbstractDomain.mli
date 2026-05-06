@@ -355,7 +355,7 @@ module BooleanOr : sig
 end
 
 module type MaxCount = sig
-  val max : int
+  val max : int [@@warning "-unused-value-declaration"]
   (** must be positive *)
 end
 

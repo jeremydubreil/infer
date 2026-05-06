@@ -73,23 +73,8 @@ type path_stamp = {path_cond: int Atom.Map.t; atom_set: Atom.Set.t; term_set: Te
 
 val extract_path_stamp : t -> path_stamp
 
-val is_empty_path_stamp : path_stamp -> bool
-
 val pp_path_stamp : F.formatter -> path_stamp -> unit
 
-val extract_path_cond : t -> int Atom.Map.t
-
-val extract_term_cond : t -> Atom.Set.t
-
-val extract_term_cond2 : t -> Term.Set.t
-
-val map_is_empty : int Atom.Map.t -> bool
-
-val set_is_empty : Atom.Set.t -> bool
-
-val termset_is_empty : Term.Set.t -> bool
-
-val formula_is_empty : t -> bool
 (* End pulse-infinite *)
 
 (** {2 Arithmetic solver}
@@ -127,8 +112,6 @@ val pp_new_eq : F.formatter -> new_eq -> unit
 type new_eqs = new_eq RevList.t
 
 val ttrue : t
-
-val and_path_flush : t -> t
 
 val and_equal : operand -> operand -> t -> (t * new_eqs) SatUnsat.t
 

@@ -7,10 +7,7 @@
 
 open! IStd
 module F = Format
-module L = Logging
-module CItv = PulseCItv
 module SatUnsat = PulseSatUnsat
-module Debug = PulseFormulaDebug
 module Var = PulseFormulaVar
 
 (** linear combination of variables, eg [2·x + 3/4·y + 12] *)

@@ -12,8 +12,6 @@ type t [@@deriving compare, equal, yojson_of, sexp, hash, normalize]
 
 val pp : F.formatter -> t -> unit
 
-val pp_full : F.formatter -> t -> unit
-
 val pp_plain_name : F.formatter -> t -> unit
 
 val to_string : t -> string

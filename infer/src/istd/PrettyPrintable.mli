@@ -38,6 +38,7 @@ module type HashableSexpablePrintableOrderedType = sig
   include Sexpable with type t := t
 
   val hash_fold_t : Base_internalhash_types.state -> t -> Base_internalhash_types.state
+  [@@warning "-unused-value-declaration"]
 end
 
 module type PrintableEquatableOrderedType = sig
@@ -209,13 +210,13 @@ module MakePPMonoMap (Ord : PrintableOrderedType) (Val : PrintableType) :
 module type PrintableRankedType = sig
   include PrintableType
 
-  val compare : t -> t -> int
+  val compare : t -> t -> int [@@warning "-unused-value-declaration"]
 
-  val equal : t -> t -> bool
+  val equal : t -> t -> bool [@@warning "-unused-value-declaration"]
 
   type rank
 
-  val to_rank : t -> rank
+  val to_rank : t -> rank [@@warning "-unused-value-declaration"]
 end
 
 (** set where at most one element of a given rank can be present *)

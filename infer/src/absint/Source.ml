@@ -9,21 +9,12 @@ open! IStd
 
 module type Kind = sig
   include TaintTraceElem.Kind
-
-  val get :
-    caller_pname:Procname.t -> Procname.t -> HilExp.t list -> Tenv.t -> (t * int option) list
-
-  val get_tainted_formals : Procdesc.t -> Tenv.t -> (Mangled.t * Typ.t * t option) list
 end
 
 module type S = sig
   include TaintTraceElem.S
 
   type spec = {source: t; index: int option}
-
-  val get : caller_pname:Procname.t -> CallSite.t -> HilExp.t list -> Tenv.t -> spec list
-
-  val get_tainted_formals : Procdesc.t -> Tenv.t -> (Mangled.t * Typ.t * t option) list
 end
 
 module Dummy = struct
@@ -38,12 +29,6 @@ module Dummy = struct
   let make ?indexes:_ kind _ = kind
 
   let pp _ () = ()
-
-  let get ~caller_pname:_ _ _ _ = []
-
-  let get_tainted_formals pdesc _ =
-    List.map ~f:(fun (name, typ, _) -> (name, typ, None)) (Procdesc.get_formals pdesc)
-
 
   module Kind = struct
     type nonrec t = t [@@deriving compare, equal]

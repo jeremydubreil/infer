@@ -8,5 +8,7 @@
 open! IStd
 
 val parse_string : ?filename:string -> string -> SemdiffDirectEngine.Rules.t
+[@@warning "-unused-value-declaration"]
+(** used only by unit tests *)
 
 val parse_file : string -> SemdiffDirectEngine.Rules.t

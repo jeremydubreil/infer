@@ -8,10 +8,6 @@
 open! IStd
 include List
 
-let yojson_of_t (yojson_of_a : 'a -> Yojson.Safe.t) (t : 'a t) : Yojson.Safe.t =
-  `List (Stdlib.List.map (fun x -> yojson_of_a x) t)
-
-
 let empty = []
 
 let to_list = rev

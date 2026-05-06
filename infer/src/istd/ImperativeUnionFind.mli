@@ -12,11 +12,11 @@ module type Set = sig
 
   type t
 
-  val create : elt -> t
+  val create : elt -> t [@@warning "-unused-value-declaration"]
 
-  val compare_size : t -> t -> int
+  val compare_size : t -> t -> int [@@warning "-unused-value-declaration"]
 
-  val merge : from:t -> to_:t -> unit
+  val merge : from:t -> to_:t -> unit [@@warning "-unused-value-declaration"]
 end
 
 module Make (Set : Set) : sig

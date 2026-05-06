@@ -12,6 +12,8 @@ module type NormalizedT = sig
   include Stdlib.Hashtbl.HashedType
 
   val normalize : t -> t
+  [@@warning "-unused-value-declaration"]
+  (** required for the [Make] functor *)
 end
 
 (** normalizer module which uses a hashtable to store normalized representatives *)

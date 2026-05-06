@@ -14,6 +14,7 @@ module type Element = sig
   type t [@@deriving compare, equal]
 
   val is_simpler_than : t -> t -> bool
+  [@@warning "-unused-value-declaration"]
   (** will be used to choose a "simpler" representative for a given equivalence class when possible
   *)
 end

@@ -7,13 +7,10 @@
 
 open! IStd
 module F = Format
-module L = Logging
-module CItv = PulseCItv
 module SatUnsat = PulseSatUnsat
 module Debug = PulseFormulaDebug
 module Var = PulseFormulaVar
 module Q = QSafeCapped
-module Z = ZSafe
 module LinArith = PulseFormulaLinArit
 module Term = PulseFormulaTerm
 open SatUnsat.Import

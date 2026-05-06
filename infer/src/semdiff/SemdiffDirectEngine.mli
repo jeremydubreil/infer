@@ -11,7 +11,7 @@ module F = Format
 module Var : sig
   type t = private string [@@deriving compare, equal]
 
-  val pp : F.formatter -> t -> unit
+  val pp : F.formatter -> t -> unit [@@warning "-unused-value-declaration"]
 
   val of_string : string -> t
 end
@@ -19,7 +19,7 @@ end
 module Name : sig
   type t = private string [@@deriving compare, equal]
 
-  val pp : F.formatter -> t -> unit
+  val pp : F.formatter -> t -> unit [@@warning "-unused-value-declaration"]
 
   val of_string : string -> t
 end
@@ -58,7 +58,7 @@ module Rules : sig
 
   val union : t -> t -> t
 
-  val pp : F.formatter -> t -> unit
+  val pp : F.formatter -> t -> unit [@@warning "-unused-value-declaration"]
 end
 
 val ast_diff :

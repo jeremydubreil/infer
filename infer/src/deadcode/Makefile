@@ -50,8 +50,8 @@ endif
 # Note that we run find under _build directory. Since we copy some
 # sources from subfolders to src/ folder to avoid duplicates we use
 # $(DEPTH_ONE) and iteration over main and library folders.
-LIBRARY_FOLDERS = . ./IR  ./textual ./python ./absint ./atd ./backend ./base ./bufferoverrun ./checkers ./clang ./clang/unit ./concurrency ./cost ./erlang ./integration ./istd ./java ./labs ./sledge/llair ./sledge/nonstdlib ./sledge/nonstdlib/iter ./sledge/nonstdlib/ocaml ./dotnet ./pulse ./scripts ./topl ./unit ./llvm
-INCLUDE_FOLDERS = -I IR -I textual -I textual/unit -I python -I python/unit -I absint -I atd -I backend -I base -I bufferoverrun -I checkers -I clang -I clang/unit -I concurrency -I cost -I erlang -I integration -I istd -I java -I labs -I sledge -I sledge/llair -I sledge/nonstdlib -I sledge/nonstdlib/iter -I sledge/nonstdlib/ocaml -I pulse -I scripts -I topl -I unit -I llvm
+LIBRARY_FOLDERS = . ./IR  ./textual ./python ./absint ./atd ./backend ./base ./bufferoverrun ./checkers ./clang ./clang/unit ./concurrency ./cost ./erlang ./integration ./istd ./java ./labs ./sledge/llair ./sledge/nonstdlib ./sledge/nonstdlib/iter ./sledge/nonstdlib/ocaml ./dotnet ./pulse ./rust ./scripts ./semdiff ./topl ./treesitter ./unit ./llvm
+INCLUDE_FOLDERS = -I IR -I textual -I textual/unit -I python -I python/unit -I absint -I atd -I backend -I base -I bufferoverrun -I checkers -I clang -I clang/unit -I concurrency -I cost -I erlang -I integration -I istd -I java -I labs -I sledge -I sledge/llair -I sledge/nonstdlib -I sledge/nonstdlib/iter -I sledge/nonstdlib/ocaml -I pulse -I rust -I scripts -I semdiff -I topl -I treesitter -I unit -I llvm
 
 ml_src_files = $(shell \
   cd $(INFER_BUILD_DIR); \
@@ -113,6 +113,8 @@ sledge/LlvmSledgeFrontend.cmx:
 	$(QUIET)if [[ $@ =~ (atd|deadcode)/ ]]; then echo '  [@warning "-27-32-34-35-39"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
 #	suppress some warnings for sledge code for now
 	$(QUIET)if [[ $@ =~ sledge/ ]]; then echo '  [@warning "-32-34-60"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
+#	suppress unused-value/unused-module warnings for files block-listed below as WIP
+	$(QUIET)if [[ $@ =~ Llair2Textual ]]; then echo '  [@warning "-32-60"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
 #	compute module name from file name: capitalize first letter
 	$(QUIET)echo $(shell basename $*) | $(GNU_SED) -e "s/\b\(.\)/  \u\1/g" >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo "  = sig " >> $(ALL_INFER_IN_ONE_FILE_ML)
@@ -120,9 +122,12 @@ sledge/LlvmSledgeFrontend.cmx:
 	$(QUIET)echo '# 1 "$*.mli"' >> $(ALL_INFER_IN_ONE_FILE_ML)
 	cat $(INFER_BUILD_DIR)/$*.mli >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo "  end end " >> $(ALL_INFER_IN_ONE_FILE_ML)
-#	silence "unused module" warnings for executables
+#	silence "unused module" warnings for executables and signatures with intentionally exposed
+#	but locally unreferenced module aliases (e.g. textual/Textual provides VarName.HashSet for
+#	consumers even though the deadcode flat build sees no external reference).
 	$(QUIET)if [ $@ = "infer.cmx" ] \
 	        || [ $@ = "inferunit.cmx" ] \
+	        || [ $@ = "textual/Textual.cmx" ] \
 	        ; then \
 	  echo '[@warning "-unused-module"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); \
 	fi
@@ -133,12 +138,17 @@ sledge/LlvmSledgeFrontend.cmx:
 	$(QUIET)echo "include struct  module " >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)if [[ $@ =~ (atd|deadcode)/ ]]; then echo '  [@warning "-27-32-34-35-39"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
 	$(QUIET)if [[ $@ =~ sledge/ ]]; then echo '  [@warning "-32-60"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
+	$(QUIET)if [[ $@ =~ Llair2Textual ]]; then echo '  [@warning "-32-60"] ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
 	$(QUIET)echo $(shell basename $*) | $(GNU_SED) -e "s/\b\(.\)/  \u\1/g" >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo "  : " >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo $(shell basename $*) | $(GNU_SED) -e "s/\b\(.\)/  \u\1/g" >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo "  = struct " >> $(ALL_INFER_IN_ONE_FILE_ML)
 #	HACK to open the LLVM stubs in the only module that needs them
 	$(QUIET)if [[ $@ = llvm/LlvmFrontend.cmx ]]; then echo '  open LlvmSledgeFrontendStubs ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
+#	HACK rust frontend code uses fully-qualified `IR.Unop` / `IR.Binop` references which work in
+#	the regular build because dune wraps each library, but not in the flat deadcode build. Inject
+#	an alias module so those references resolve.
+	$(QUIET)if [[ $@ =~ ^rust/ ]]; then echo '  module IR = struct module Unop = Unop module Binop = Binop end ' >> $(ALL_INFER_IN_ONE_FILE_ML); fi
 	$(QUIET)echo '# 1 "$*.ml"' >> $(ALL_INFER_IN_ONE_FILE_ML)
 	cat $(INFER_BUILD_DIR)/$*.ml >> $(ALL_INFER_IN_ONE_FILE_ML)
 	$(QUIET)echo "  end end" >> $(ALL_INFER_IN_ONE_FILE_ML)
@@ -191,6 +201,15 @@ detect_dead_code: dune
 	printf "" > $(ALL_INFER_IN_ONE_FILE_ML:.ml=.mli)
 #	needed to get the generated code for the lexers and parsers in ../_build
 	$(MAKE) -C .. check
+#	The LlvmSledgeFrontendStubs files are only built by dune when swift=no, so when swift=yes
+#	the copies in _build can be missing or stale. Refresh them from the source tree so the
+#	deadcode build always sees the up-to-date stubs interface.
+	$(QUIET)chmod -f u+w $(INFER_BUILD_DIR)/sledge/LlvmSledgeFrontendStubs.ml \
+	  $(INFER_BUILD_DIR)/sledge/LlvmSledgeFrontendStubs.mli 2>/dev/null || true
+	$(QUIET)cp -f $(INFER_DIR)/src/sledge/LlvmSledgeFrontendStubs.ml \
+	  $(INFER_BUILD_DIR)/sledge/LlvmSledgeFrontendStubs.ml
+	$(QUIET)cp -f $(INFER_DIR)/src/sledge/LlvmSledgeFrontendStubs.mli \
+	  $(INFER_BUILD_DIR)/sledge/LlvmSledgeFrontendStubs.mli
 	$(MAKE) depend
 #	Need to be sequential to avoid getting a garbled file. Need to re-include .depend as it may
 #	have changed. For both of these reasons, run another `make`.
@@ -201,9 +220,9 @@ detect_dead_code: dune
 	mv "$$tmp_file" $(ALL_INFER_IN_ONE_FILE_ML); \
 	sort -u "$$tmp_file_copied" > $(ALL_ML_FILES_COPIED); \
 	rm "$$tmp_file_copied"
-#	build and get dead code warnings
-	$(DUNE_BUILD) @check
-	$(REMOVE) dune
+#	build and get dead code warnings; always remove the local dune file so a failing build
+#	doesn't leave it behind to break subsequent regular `make check` invocations.
+	$(DUNE_BUILD) @check; rc=$$?; $(REMOVE) dune; if [ $$rc -ne 0 ]; then exit $$rc; fi
 	$(MAKE) -j 1 detect_dead_src_file
 
 .PHONY: detect_dead_src_file

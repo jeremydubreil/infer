@@ -4,6 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *)
+open! IStd
 
 (** FFI bindings to the bundled tree-sitter runtime and C grammar. Parses C source files directly
     without shelling out to the tree-sitter CLI. *)
@@ -23,4 +24,5 @@ val parse_file : string -> cst_node
 (** Parse a C source file and return the root CST node (translation_unit). *)
 
 val pp_cst_node : Format.formatter -> ?indent:int -> cst_node -> unit
-(** Pretty-print a CST node tree in S-expression style for debugging. *)
+[@@warning "-unused-value-declaration"]
+(** Pretty-print a CST node tree in S-expression style for debugging. Used only by unit tests. *)

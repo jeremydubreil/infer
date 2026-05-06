@@ -10,6 +10,7 @@ module F = Format
 
 module type Config = sig
   val limit : int
+  [@@warning "-unused-value-declaration"]
   (** the maximum number [N] of bindings to keep around *)
 end
 

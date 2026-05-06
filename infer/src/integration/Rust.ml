@@ -104,7 +104,7 @@ let capture_file json_filename =
   let textual =
     match Charon.UllbcOfJson.crate_of_json json with
     | Ok crate ->
-        RustFrontend.RustMir2Textual.mk_module crate ~file_name
+        RustMir2Textual.mk_module crate ~file_name
     | Error err ->
         L.die UserError "[CHARON ERROR] %s: %s @." err (Yojson.Basic.to_string json)
   in

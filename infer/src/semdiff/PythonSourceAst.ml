@@ -25,21 +25,9 @@ module Node = struct
 
   let type_field_name = "_type"
 
-  let field_args = "args"
-
-  let field_ctx = "ctx"
-
   let field_end_lineno = "end_lineno"
 
-  let field_func = "func"
-
-  let field_id = "id"
-
-  let field_keywords = "keywords"
-
   let field_lineno = "lineno"
-
-  let field_value = "value"
 
   let get_type fields =
     StringMap.find_opt type_field_name fields
@@ -89,14 +77,6 @@ module Node = struct
     match get_type fields with Str name -> String.equal name type_name | _ -> false
 
 
-  let is_line_number_field field_name =
-    String.equal field_name field_lineno || String.equal field_name field_end_lineno
-
-
-  let is_type_annotation_field field_name =
-    String.equal field_name "annotation" || String.equal field_name "returns"
-
-
   let get_line_number (fields : dict) : int option =
     match StringMap.find_opt field_lineno fields with Some (Int l1) -> Some l1 | _ -> None
 
@@ -134,10 +114,6 @@ module Node = struct
   let make_dict_node field_list = Dict (StringMap.of_list field_list)
 
   let find_field field_name fields = StringMap.find_opt field_name fields
-
-  let find_field_or_null field_name fields =
-    Option.value (StringMap.find_opt field_name fields) ~default:Null
-
 
   exception UnsupportedJsonType of Yojson.Safe.t
 

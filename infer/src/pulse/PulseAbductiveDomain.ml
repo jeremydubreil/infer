@@ -137,8 +137,6 @@ let pp_ ~is_summary f
 
 let pp = pp_ ~is_summary:false
 
-let get_path_condition astate = astate.path_condition
-
 let set_path_condition path_condition astate = {astate with path_condition}
 
 let init_loop_header_info id ({path_condition; loop_header_info} as astate) =

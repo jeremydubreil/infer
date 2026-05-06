@@ -7,7 +7,6 @@
 
 open! IStd
 module F = Format
-module L = Logging
 module Var = PulseFormulaVar
 
 (** Domain for tracking dynamic type of variables via positive and negative instanceof constraints

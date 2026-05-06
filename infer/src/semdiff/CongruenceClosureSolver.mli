@@ -21,6 +21,8 @@ type enode = {head: Atom.t; children: Atom.t list} [@@deriving equal, hash]
 type term = Enode of enode | Atom of Atom.t
 
 val pp_term : F.formatter -> term -> unit
+[@@warning "-unused-value-declaration"]
+(** used only by unit tests *)
 
 type t
 
@@ -48,8 +50,6 @@ val representative_of_header : t -> header -> Atom.t
 
 val fold_term_roots : t -> header -> f:(Atom.t -> 'a -> 'a) -> init:'a -> 'a
 
-val iter_app_roots : t -> f:(Atom.t -> unit) -> unit
-
 val iter_term_roots : t -> header -> f:(Atom.t -> unit) -> unit
 
 val set_diff : t -> diff_header:header -> resolved:Atom.t -> unit
@@ -57,8 +57,6 @@ val set_diff : t -> diff_header:header -> resolved:Atom.t -> unit
 val get_diff : t -> (header * Atom.t) option
 
 val equiv_atoms : t -> Atom.t -> Atom.t list
-
-val headers_with_arity : t -> (header * int) list
 
 val get_enode : t -> Atom.t -> enode option
 
@@ -73,6 +71,8 @@ val reset_update_count : t -> unit
 
 val get_update_count : t -> int
 
-val show_stats : t -> unit
+val show_stats : t -> unit [@@warning "-unused-value-declaration"]
+(** used only by unit tests *)
 
-val debug : t -> unit
+val debug : t -> unit [@@warning "-unused-value-declaration"]
+(** used only by unit tests *)

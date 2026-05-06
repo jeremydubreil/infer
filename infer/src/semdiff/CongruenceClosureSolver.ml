@@ -408,8 +408,6 @@ let fold_term_roots state {Atom.index} ~f ~init =
 
 let iter_term_roots state atom ~f = fold_term_roots state atom ~init:() ~f:(fun atom () -> f atom)
 
-let iter_app_roots state ~f = Atom.Set.iter f state.app_roots
-
 let mk_header = mk_atom
 
 let pp_header = Atom.pp
@@ -432,8 +430,6 @@ let mk_term state head children =
         HeaderSet.add (head, List.length children) state.headers_with_arity ;
       term
 
-
-let headers_with_arity state = HeaderSet.elements state.headers_with_arity
 
 let show_stats state =
   let size = Atom.cardinal state.hashcons in

@@ -9,9 +9,6 @@ open! IStd
 
 module type Kind = sig
   include TaintTraceElem.Kind
-
-  val get : Procname.t -> HilExp.t list -> CallFlags.t -> Tenv.t -> (t * IInt.Set.t) list
-  (** return Some kind if the given procname/actuals are a sink, None otherwise *)
 end
 
 module type S = sig

@@ -44,6 +44,8 @@ module type NAME = sig
   val pp : F.formatter -> t -> unit
 
   val is_hack_init : t -> bool
+  [@@warning "-unused-value-declaration"]
+  (** part of the [NAME] signature; used internally via [ProcName.is_hack_init] *)
 
   module Hashtbl : Hashtbl.S with type key = t
 
@@ -97,6 +99,8 @@ module BaseTypeName : sig
   val swift_any_type_name : t
 
   val rust_tuple_class_name : t
+  [@@warning "-unused-value-declaration"]
+  (** used internally by [TypeName.mk_rust_tuple_type_name] *)
 end
 
 module TypeName : sig

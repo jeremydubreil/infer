@@ -300,8 +300,6 @@ module Unsafe : sig
 
   val and_termcond_binop : t -> Term.t -> t
 
-  val and_path_flush : t -> t
-
   val remove_atom : Atom.t -> t -> t
 
   val add_tableau_eq : Var.t -> LinArith.t -> t -> t
@@ -834,10 +832,6 @@ end = struct
 
   let and_termcond_binop (phi : t) (term : Term.t) : t =
     {phi with term_conditions2= Term.Set.add term phi.term_conditions2}
-
-
-  let and_path_flush (phi : t) =
-    {phi with term_conditions2= Term.Set.empty; term_conditions= Atom.Set.empty}
 
 
   let remove_atom_ atom atoms atoms_occurrences =

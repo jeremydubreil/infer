@@ -395,8 +395,6 @@ val add_missed_captures : Typ.Name.Set.t -> t -> t
 
 val declare_unknown_values : t -> t
 
-val get_path_condition : t -> Formula.t
-
 val set_path_condition : Formula.t -> t -> t
 
 val init_loop_header_info : Procdesc.Node.id -> t -> t

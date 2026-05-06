@@ -288,9 +288,6 @@ module type Common = sig
   val capt_int : (Int64.t -> 'f, 'f, accept_more) template_arg
   (** Captures an int *)
 
-  val capt_all : (Typ.template_arg list -> 'f, 'f, end_of_list) template_arg
-  (** Captures all template args *)
-
   val ( ~- ) : string -> ('context, 'f, 'f, 'arg_payload) name_matcher
   (** Starts a path with a name *)
 
@@ -378,12 +375,6 @@ module Common = struct
     let eat_template_arg (f, template_args) =
       match template_args with Typ.TInt i :: rest -> Some (f i, rest) | _ -> None
     in
-    {eat_template_arg}
-
-
-  (** Captures all template args *)
-  let capt_all : (Typ.template_arg list -> 'f, 'f, end_of_list) template_arg =
-    let eat_template_arg (f, template_args) = Some (f template_args, []) in
     {eat_template_arg}
 
 

@@ -10,7 +10,7 @@ open! IStd
 (** To be used in 'list_constraint *)
 type accept_more
 
-and end_of_list
+and end_of_list [@@warning "-unused-type-declaration"]
 
 (* Intermediate matcher types *)
 
@@ -57,9 +57,6 @@ module type Common = sig
 
   val capt_int : (Int64.t -> 'f, 'f, accept_more) template_arg
   (** Captures an int *)
-
-  val capt_all : (Typ.template_arg list -> 'f, 'f, end_of_list) template_arg
-  (** Captures all template args *)
 
   val ( ~- ) : string -> ('context, 'f, 'f, 'arg_payload) name_matcher
   (** Starts a path with a name *)

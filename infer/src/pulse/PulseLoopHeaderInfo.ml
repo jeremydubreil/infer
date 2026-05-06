@@ -34,8 +34,6 @@ let pp fmt map = F.fprintf fmt "{@[<v>%a@]}" (Procdesc.IdMap.pp ~pp_value:pp_loo
 
 let empty = Procdesc.IdMap.empty
 
-let mem id map = Procdesc.IdMap.mem id map
-
 let get id map =
   Procdesc.IdMap.find_opt id map
   |> Option.value ~default:{local_path_condition= Formula.ttrue; stack= []}
@@ -46,15 +44,6 @@ let has_previous_iteration_same_path_stamp id map =
   | info_current :: q ->
       List.exists q ~f:(fun info ->
           Formula.equal_path_stamp info_current.path_stamp info.path_stamp )
-  | _ ->
-      false
-
-
-let is_current_iteration_empty_path_stamp id map =
-  match (get id map).stack with
-  | {path_stamp} :: _ :: _ ->
-      (* this is at minima the 2nd time we loop into this node and the path stamp is empty *)
-      Formula.is_empty_path_stamp path_stamp
   | _ ->
       false
 
@@ -81,5 +70,3 @@ let init_loop_info id map =
 
 
 let remove_loop_info id map = Procdesc.IdMap.remove id map
-
-let get_iteration_index id map = (get id map).stack |> List.length

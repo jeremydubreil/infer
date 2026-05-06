@@ -40,16 +40,6 @@ let set_node (node : Procdesc.Node.t) =
   gs.last_node <- Some node
 
 
-let reset_active_loops () =
-  let gs = DLS.get gs in
-  gs.active_loops <- Procdesc.IdSet.empty
-
-
-let is_active_loop id =
-  let gs = DLS.get gs in
-  Procdesc.IdSet.mem id gs.active_loops
-
-
 let set_active_loops set =
   let gs = DLS.get gs in
   gs.active_loops <- set

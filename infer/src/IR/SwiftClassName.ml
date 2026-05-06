@@ -13,14 +13,6 @@ type t = {mangled: string; plain_name: string option [@ignore]}
 
 let mangled {mangled} = mangled
 
-let pp_full fmt {plain_name; mangled} =
-  match plain_name with
-  | Some plain_name ->
-      F.fprintf fmt "%s [%s]" plain_name mangled
-  | None ->
-      F.pp_print_string fmt mangled
-
-
 let pp_plain_name fmt {plain_name; mangled} =
   F.pp_print_string fmt (Option.value plain_name ~default:mangled)
 
