@@ -38,7 +38,9 @@ JOBS=${JOBS:-$NCPUS}
 pushd "$ROOT_DIR"
 rm -fr "$RELEASE_NAME"
 
-./build-infer.sh --only-setup-opam
+if ! opam switch show >/dev/null 2>&1; then
+  ./build-infer.sh --only-setup-opam
+fi
 eval $(opam env)
 touch .release
 ./autogen.sh
