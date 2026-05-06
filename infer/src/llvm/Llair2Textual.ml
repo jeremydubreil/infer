@@ -1460,6 +1460,7 @@ let init_module_state (llair_program : Llair.program) lang =
     Field.OffsetIndex.build_field_offset_map ~mangled_map ~plain_map lang struct_map functions
   in
   let struct_map = Type.update_struct_map_with_field_names field_offset_map struct_map in
+  let struct_map = Globals.process_wvd_globals ~lang ~mangled_map globals_map struct_map in
   let proc_map =
     List.fold proc_decls ~init:Textual.QualifiedProcName.Map.empty ~f:(fun proc_map proc_decl ->
         Textual.QualifiedProcName.Map.add proc_decl.Textual.ProcDecl.qualified_name proc_decl

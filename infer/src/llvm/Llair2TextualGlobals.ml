@@ -133,14 +133,7 @@ let process_wvd_global ~lang ~mangled_map global_name struct_map =
         let struct_ =
           match Textual.TypeName.Map.find_opt class_name struct_map with
           | Some (struct_ : Textual.Struct.t) ->
-              let has_llvm_layout =
-                List.exists struct_.fields ~f:(fun f ->
-                    String.is_prefix
-                      (Textual.FieldName.to_string f.Textual.FieldDecl.qualified_name.name)
-                      ~prefix:"field_" )
-              in
-              if has_llvm_layout then struct_
-              else if
+              if
                 List.exists struct_.fields ~f:(fun (field : Textual.FieldDecl.t) ->
                     Textual.FieldName.equal field.qualified_name.name field_name )
               then struct_
@@ -154,12 +147,23 @@ let process_wvd_global ~lang ~mangled_map global_name struct_map =
   else struct_map
 
 
+let process_wvd_globals ~lang ~mangled_map globals_map struct_map =
+  Textual.VarName.Map.fold
+    (fun _var global struct_map ->
+      match global with
+      | GlobalDefn.{name; init= Some _} ->
+          let global_name = Global.name name in
+          process_wvd_global ~lang ~mangled_map global_name struct_map
+      | _ ->
+          struct_map )
+    globals_map struct_map
+
+
 let process_global_item ~lang ~mangled_map ~class_method_index ~method_class_index _var global
     struct_map =
   match global with
   | GlobalDefn.{name; init= Some exp_typ} ->
       let global_name = Global.name name in
-      let struct_map = process_wvd_global ~lang ~mangled_map global_name struct_map in
       let suffix = "C" ^ class_virtual_table_suffix in
       if String.is_suffix global_name ~suffix then (
         let class_name =

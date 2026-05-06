@@ -24,6 +24,13 @@ val process_globals :
   -> Llair.GlobalDefn.t Llair2TextualState.VarMap.t
   -> Llair2TextualState.struct_map
 
+val process_wvd_globals :
+     lang:Textual.Lang.t
+  -> mangled_map:Llair2TextualState.mangled_map
+  -> Llair.GlobalDefn.t Llair2TextualState.VarMap.t
+  -> Llair2TextualState.struct_map
+  -> Llair2TextualState.struct_map
+
 val to_textual_global :
      f_to_textual_loc:(Llair.Loc.t -> Textual.Location.t)
   -> f_to_textual_exp:

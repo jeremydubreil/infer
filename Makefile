@@ -186,6 +186,7 @@ SWIFT_DIRECT_TESTS += \
   swift_annotreach \
   swift_frontend \
   swift_bitcode \
+  swift_bitcode-handcrafted \
   swift_pulse \
   swift_multifile \
   swift_interop-pulse \
