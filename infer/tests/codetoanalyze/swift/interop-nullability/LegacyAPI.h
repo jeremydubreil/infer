@@ -52,4 +52,47 @@
 @end
 #endif
 
+// Test surface for shipping-readiness FP investigation. Each declaration
+// pairs with a Swift call site in NullabilityTests.swift that asserts the
+// checker does (or does not) fire on the patterns that show up in real
+// fbobjc code.
+
+// NS_ASSUME_NONNULL_BEGIN/END is the dominant convention for annotating
+// modern ObjC headers. Inside the block, bare [T*] returns are treated as
+// [_Nonnull] by Apple's clang importer, so Swift sees [T] (not [T?] or
+// [T!]) and infer should agree.
+NS_ASSUME_NONNULL_BEGIN
+@interface AssumedNonnullAPI : NSObject
+// Bare [NSString*] inside the block - implicitly [_Nonnull].
+- (NSString*)getAssumedNonnullString;
+// Explicit [nullable] override inside the block - the annotation wins.
+- (nullable NSString*)getExplicitlyNullableInsideBlock;
+@end
+NS_ASSUME_NONNULL_END
+
+// Factory / convention methods. Apple's clang importer applies special
+// nullability rules to [init], [new], [alloc], etc. The checker should
+// not fire on bare returns from these even when no explicit annotation
+// is present.
+@interface FactoryAPI : NSObject
+- (instancetype)init;
++ (instancetype)new;
++ (instancetype)factoryInstance;
+@end
+
+// NSError** out-parameter convention: a [BOOL] (or other non-pointer)
+// return paired with a trailing [NSError**] error parameter. The
+// declaration's return type is not a pointer, so MISSING_NULLABILITY
+// must not fire even though [NSError**] itself is unannotated.
+@interface ErrorOutParamAPI : NSObject
+- (BOOL)doThingWithError:(NSError**)error;
+@end
+
+// Class method (+) parity with instance methods (-): an unannotated
+// pointer-returning class method should be reported just like an
+// unannotated instance method.
+@interface ClassMethodAPI : NSObject
++ (NSString*)classGetUnannotatedString;
+@end
+
 #pragma clang diagnostic pop

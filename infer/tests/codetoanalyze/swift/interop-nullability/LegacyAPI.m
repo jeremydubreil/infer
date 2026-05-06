@@ -35,3 +35,33 @@
   return nil;
 }
 @end
+
+@implementation AssumedNonnullAPI
+- (NSString*)getAssumedNonnullString {
+  return @"nonnull-by-block";
+}
+- (NSString*)getExplicitlyNullableInsideBlock {
+  return nil;
+}
+@end
+
+@implementation FactoryAPI
+- (instancetype)init {
+  return [super init];
+}
++ (instancetype)factoryInstance {
+  return [[self alloc] init];
+}
+@end
+
+@implementation ErrorOutParamAPI
+- (BOOL)doThingWithError:(NSError**)error {
+  return YES;
+}
+@end
+
+@implementation ClassMethodAPI
++ (NSString*)classGetUnannotatedString {
+  return @"class-unannotated";
+}
+@end

@@ -51,3 +51,74 @@ func unannotatedReturn_castAsOptional_good(api: LegacyAPI) {
     print(s.length)
   }
 }
+
+// `NS_ASSUME_NONNULL_BEGIN/END` is the dominant ObjC-annotation style.
+// Bare `NSString*` inside the block is implicitly `_Nonnull`, so Swift
+// imports the result as `String` and infer should not flag a
+// missing-nullability annotation.
+func assumeNonnullBlock_good(api: AssumedNonnullAPI) {
+  let s = api.getAssumedNonnullString()
+  print(s.count)
+}
+
+// Inside the same block, an explicit `nullable` override is honored. The
+// declaration carries an annotation, so MISSING_NULLABILITY must not fire
+// (the call site uses `if let`, which is the safe pattern).
+func nullableOverrideInsideAssumeNonnullBlock_good(api: AssumedNonnullAPI) {
+  if let s = api.getExplicitlyNullableInsideBlock() {
+    print(s.count)
+  }
+}
+
+// Surprisingly, unannotated `- (instancetype)init`,
+// `+ (instancetype)new`, and convention-named factory methods are NOT
+// auto-treated as nonnull by Swift's clang importer when they're outside
+// an `NS_ASSUME_NONNULL_BEGIN` block: they're all imported as
+// `FactoryAPI?`. The Swift caller is forced to handle the nil case, so
+// the safe `if let` pattern is crash-free regardless of what the checker
+// says. These tests pin the current MISSING_NULLABILITY behavior on
+// safe-Swift-side use of unannotated factories -- a shipping-readiness
+// FP-rate signal we want to track.
+func factoryInit_safeUse() {
+  if let api = FactoryAPI() {
+    print(api)
+  }
+}
+
+// `+new` and convention-named factories currently fire
+// MISSING_NULLABILITY even when the Swift caller handles the optional
+// safely via `if let`. Whether this is the right behavior is a
+// shipping-readiness question -- technically the declaration is missing
+// an annotation, but Swift already forces the user to handle nil, so
+// there's no crash risk. Pinned as `_FP` to flag the open question.
+func factoryNew_safeUse_FP() {
+  if let api = FactoryAPI.new() {
+    print(api)
+  }
+}
+
+func factoryClassMethod_safeUse_FP() {
+  if let api = FactoryAPI.factoryInstance() {
+    print(api)
+  }
+}
+
+// Cocoa's `NSError**` out-parameter convention: a non-pointer return
+// (here `BOOL`) paired with a trailing `NSError**`. The return type is
+// not a pointer, so MISSING_NULLABILITY must not fire even though the
+// `NSError**` parameter itself carries no annotation.
+func errorOutParam_good(api: ErrorOutParamAPI) {
+  do {
+    try api.doThing()
+  } catch {
+    print(error)
+  }
+}
+
+// Class methods (`+`) should be reported the same as instance methods
+// (`-`) when the pointer return is unannotated. This guards against the
+// checker accidentally exempting one method kind.
+func classMethodUnannotated_bad() {
+  let s = ClassMethodAPI.classGetUnannotatedString()!
+  print(s.count)
+}
