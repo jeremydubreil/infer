@@ -28,13 +28,13 @@ let is_float_swift lang typ =
     match typ with
     | Typ.Ptr (Struct struct_name, _) -> (
       match TypeName.swift_plain_name_of_type_name struct_name with
-      | Some plain_name when String.equal plain_name cgfloat ->
+      | Some plain_name when String.equal plain_name cgfloat || String.equal plain_name "Double" ->
           true
       | _ -> (
         match TypeName.swift_mangled_name_of_type_name struct_name with
         | Some mangled_name when String.is_substring mangled_name ~substring:cgfloat ->
             true
-        | Some "TSf" ->
+        | Some ("TSf" | "TSd") ->
             true
         | _ ->
             false ) )
