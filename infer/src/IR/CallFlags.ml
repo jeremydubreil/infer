@@ -20,6 +20,10 @@ type t =
   ; cf_is_objc_block: bool
   ; cf_is_objc_getter_setter: bool
   ; cf_virtual: bool
+  ; cf_return_null_checked: bool
+        (** true if the value returned by this call is null-checked by the caller before use.
+            Read by nullability checkers to suppress missing-annotation reports at the call site
+            when the caller already handles a possible nil. *)
   ; cf_caller_ret_annots: Annot.Item.t
         (** annotations the caller has decided about the return value of this specific call,
             independent of any annotations on the callee's procdesc. Populated by frontends that
@@ -35,6 +39,7 @@ let pp f
      ; cf_is_objc_block
      ; cf_is_objc_getter_setter
      ; cf_virtual
+     ; cf_return_null_checked
      ; cf_caller_ret_annots }
      [@warning "+missing-record-field-pattern"] ) =
   if cf_assign_last_arg then F.pp_print_string f " assign_last" ;
@@ -43,6 +48,7 @@ let pp f
   if cf_is_objc_block then F.pp_print_string f " objc_block" ;
   if cf_is_objc_getter_setter then F.pp_print_string f " objc_getter_setter" ;
   if cf_virtual then F.pp_print_string f " virtual" ;
+  if cf_return_null_checked then F.pp_print_string f " return_null_checked" ;
   if not (List.is_empty cf_caller_ret_annots) then
     F.fprintf f " caller_ret_annots=%a" Annot.Item.pp cf_caller_ret_annots ;
   ()
@@ -55,4 +61,5 @@ let default =
   ; cf_is_objc_block= false
   ; cf_is_objc_getter_setter= false
   ; cf_virtual= false
+  ; cf_return_null_checked= false
   ; cf_caller_ret_annots= Annot.Item.empty }

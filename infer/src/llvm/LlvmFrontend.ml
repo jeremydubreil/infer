@@ -137,6 +137,7 @@ let capture_llair source_file module_state =
           Error (f errors)
     in
     if Config.debug_mode then dump_textual_file source_file textual ;
+    if Textual.Lang.is_swift lang then Cfg.iter_sorted cfg ~f:CallReturnNullChecked.process ;
     let sil = {TextualParser.TextualFile.sourcefile= textual_source_file; cfg; tenv} in
     let use_global_tenv = if Textual.Lang.is_swift lang then true else false in
     TextualParser.TextualFile.capture ~textual_module:transformed_textual ~use_global_tenv sil ;

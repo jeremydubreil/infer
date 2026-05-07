@@ -83,6 +83,7 @@ module TransferFunctions = struct
               (* 3. Check for issue - No need for complex StatusDomain lifting here *)
               if
                 CallStatus.equal status Unannotated
+                && (not call_flags.cf_return_null_checked)
                 && SwiftObjCNullabilityIssue.should_report_at loc
                 && not (SwiftObjCNullabilityIssue.is_system_framework_callee attrs)
               then

@@ -114,7 +114,8 @@ let check_missing_nullability proc_name : unit DSL.model_monad =
       let combined_annots = call_flags.CallFlags.cf_caller_ret_annots @ attrs.ret_annots in
       if
         (not (Annotations.ia_is_nullable combined_annots))
-        && not (Annotations.ia_is_nonnull combined_annots)
+        && (not (Annotations.ia_is_nonnull combined_annots))
+        && not call_flags.CallFlags.cf_return_null_checked
       then
         if
           SwiftObjCNullabilityIssue.should_report_at location
