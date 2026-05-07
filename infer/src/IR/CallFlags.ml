@@ -21,9 +21,9 @@ type t =
   ; cf_is_objc_getter_setter: bool
   ; cf_virtual: bool
   ; cf_return_null_checked: bool
-        (** true if the value returned by this call is null-checked by the caller before use.
-            Read by nullability checkers to suppress missing-annotation reports at the call site
-            when the caller already handles a possible nil. *)
+        (** true if the value returned by this call is null-checked by the caller before use. Read
+            by nullability checkers to suppress missing-annotation reports at the call site when the
+            caller already handles a possible nil. *)
   ; cf_caller_ret_annots: Annot.Item.t
         (** annotations the caller has decided about the return value of this specific call,
             independent of any annotations on the callee's procdesc. Populated by frontends that
