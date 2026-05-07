@@ -270,11 +270,14 @@ let builtins_matcher builtin args : unit -> unit DSL.model_monad =
   | DynamicCall -> (
     match args with arg :: args -> dynamic_call arg args | [] -> unknown args )
   | DerivedEnumEquals -> (
-      let arg1, arg2, args = ProcnameDispatcherBuiltins.expect_at_least_2_args args builtin_s in
-      (* we are modelling the case for simple enums where there are two args here, in the case
-         of complex enums there can be more args, but we are not modelling that yet. *)
+      (* We are modelling the case for simple enums where there are exactly two args.
+         In the case of complex enums there can be more args, but we are not modelling
+         that yet. Be defensive on the lower bound too: malformed Textual can produce
+         a [__derived_enum_equals] call with fewer than 2 args (observed in production
+         on some Swift [isEqual] translations); fall back to [unknown] in that case
+         instead of [die]ing and abandoning the whole procedure analysis. *)
       match args with
-      | [] ->
+      | [arg1; arg2] ->
           derived_enum_equals arg1 arg2
       | _ ->
           unknown args )
