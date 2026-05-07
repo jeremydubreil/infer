@@ -70,7 +70,7 @@ define .plain_name = "init" $s5Hello9MyTrackerCACycfc(self: *__infer_swift_type<
       n10 = load &L_selector(init) @[7:0]
       n11 = load &var4 @[7:0]
       n13 = $builtins.objc_msgSendSuper2(n11, n10) @[7:0]
-      n14 = $builtins.llvm_nondet() @[7:0]
+      n14 = n13 @[7:0]
       store &self <- n13 @[7:0]
       n16 = load &self @[7:0]
       ret n13 @[7:0]
@@ -97,7 +97,7 @@ define .plain_name = "reportStatus" $s5Hello9MyTrackerC12reportStatusSiyFTo(var1
   #: @[0:0]
       n1 = load &var1 @[0:0]
       n2 = load &swift_isaMask @[0:0]
-      n3 = $builtins.llvm_nondet() @[0:0]
+      n3 = &var1 @[0:0]
       n4 = load &var1 @[0:0]
       n5 = __infer_swift_type<T5Hello9MyTrackerC,MyTracker>.$s5Hello9MyTrackerC12reportStatusSiyF(n4) @[0:0]
       jmp 8::ret @[0:0]
@@ -150,7 +150,7 @@ define .plain_name = "testDynamicPropagation" $s5Hello22testDynamicPropagation3o
       jmp 24::ret @[16:22]
       
   #24::ret: @[16:22]
-      n36 = $builtins.llvm_nondet() @[16:22]
+      n36 = &obj @[16:22]
       if __sil_eq(__sil_cast(<int>, n35), 0) then jmp 30 else jmp 28::jmp::31 @[13:0]
       
   #28::jmp::31: @[13:0]

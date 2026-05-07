@@ -1280,6 +1280,25 @@ let xlate_builtin_inst emit_inst x name_segs instr num_actuals loc =
       emit_inst ~prefix (Inst.free ~ptr ~loc)
   | ["abort"] | ["llvm"; "trap"] ->
       emit_term (Term.abort ~loc)
+  | "llvm" :: "objc"
+    :: ( "retain"
+       | "retainAutoreleasedReturnValue"
+       | "autorelease"
+       | "autoreleaseReturnValue"
+       | "unsafeClaimAutoreleasedReturnValue"
+       | "retainBlock" )
+    :: _
+    when num_actuals >= 1 ->
+      (* These ARC helpers are semantic identities on their first argument
+         [i8* -> i8*]; the LLVM intrinsic form is what Swift's compiler
+         emits after every ObjC msgSend with a non-trivial return.
+         Lowering them as [Inst.move] preserves the call-result to
+         downstream-use chain that the catch-all [Inst.nondet] would
+         otherwise sever. *)
+      let reg = xlate_name x instr in
+      let prefix, arg = xlate_value x (Llvm.operand instr 0) in
+      let reg_exps = IArray.of_array [|(reg, arg)|] in
+      emit_inst ~prefix (Inst.move ~reg_exps ~loc)
   | [bname] | "llvm" :: bname :: _ -> (
     match Builtin.of_name bname with
     | Some name ->

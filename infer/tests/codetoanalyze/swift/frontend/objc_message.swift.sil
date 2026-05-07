@@ -110,7 +110,7 @@ define .plain_name = "configure" $s5Hello7BCNCellC9configureyyF(self: *__infer_s
       
   #5::ret: @[16:0]
       store &newView <- n1 @[16:0]
-      n3 = $builtins.llvm_nondet() @[19:31]
+      n3 = n1 @[19:31]
       n4 = load &$s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvpWvd @[19:29]
       n5 = load &self @[19:29]
       n6 = n5.__infer_swift_type<T5Hello7BCNCellC,BCNCell>.nuxContentView @[19:29]
@@ -195,7 +195,7 @@ define .plain_name = "init" $s5Hello7BCNCellC5frameACSo6CGRectV_tcfc(var1: float
       n53 = load &var11 @[13:0]
       n54 = load &var10 @[13:0]
       n57 = $builtins.objc_msgSendSuper2(n54, n32, n53) @[13:0]
-      n58 = $builtins.llvm_nondet() @[13:0]
+      n58 = n57 @[13:0]
       store &self <- n57 @[13:0]
       n60 = load &self @[13:0]
       ret n57 @[13:0]
@@ -261,9 +261,9 @@ define .plain_name = "init" $s5Hello7BCNCellC5coderACSgSo7NSCoderC_tcfc(coder: *
       jmp 25 @[13:0]
       
   #20: @[13:0]
-      n25 = $builtins.llvm_nondet() @[13:0]
+      n27 = __sil_cast(<*__infer_swift_type<ptr_elt>>, __sil_cast(<int>, n16)) @[13:0]
       store &self <- __sil_cast(<*__infer_swift_type<ptr_elt>>, __sil_cast(<int>, n16)) @[13:0]
-      n29 = load &self @[13:0]
+      n31 = load &self @[13:0]
       jmp 20::jmp::25 @[13:0]
       
   #20::jmp::25: @[13:0]
@@ -310,13 +310,14 @@ define .plain_name = "init" $s5Hello7BCNCellC5coderACSgSo7NSCoderC_tcfC(var1: *_
 define .plain_name = "nuxContentView.set" $s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvs(var1: int, self: *__infer_swift_type<,BCNCell>) : void {
   local var6: *int, value: *__infer_swift_type<ptr_elt>
   #: @[14:0]
-      n1 = $builtins.llvm_nondet() @[14:0]
-      n2 = load &$s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvpWvd @[14:0]
-      n3 = load &self @[14:0]
-      n4 = n3.__infer_swift_type<T5Hello7BCNCellC,BCNCell>.nuxContentView @[14:0]
-      n5 = load n4 @[14:0]
-      n6 = load &var1 @[14:0]
-      store n4 <- n6 @[14:0]
+      n1 = load &var1 @[14:0]
+      n2 = __sil_cast(<*__infer_swift_type<ptr_elt>>, n1) @[14:0]
+      n3 = load &$s5Hello7BCNCellC14nuxContentViewAA05DummydE0CSgvpWvd @[14:0]
+      n4 = load &self @[14:0]
+      n5 = n4.__infer_swift_type<T5Hello7BCNCellC,BCNCell>.nuxContentView @[14:0]
+      n6 = load n5 @[14:0]
+      n7 = load &var1 @[14:0]
+      store n5 <- n7 @[14:0]
       ret null @[14:0]
       
 } @?
@@ -330,7 +331,7 @@ define .plain_name = "nuxContentView.get" $s5Hello7BCNCellC14nuxContentViewAA05D
       n2 = load &self @[14:0]
       n3 = n2.__infer_swift_type<T5Hello7BCNCellC,BCNCell>.nuxContentView @[14:0]
       n4 = load n3 @[14:0]
-      n5 = $builtins.llvm_nondet() @[14:0]
+      n6 = __sil_cast(<*__infer_swift_type<ptr_elt>>, n4) @[14:0]
       ret n4 @[14:0]
       
 } @?
@@ -440,7 +441,7 @@ define .plain_name = "init" $s5Hello16DummyContentViewC5frameACSo6CGRectV_tcfc(v
       n51 = load &var10 @[3:0]
       n52 = load &var9 @[3:0]
       n55 = $builtins.objc_msgSendSuper2(n52, n30, n51) @[3:0]
-      n56 = $builtins.llvm_nondet() @[3:0]
+      n56 = n55 @[3:0]
       store &self <- n55 @[3:0]
       n58 = load &self @[3:0]
       ret n55 @[3:0]
@@ -508,9 +509,9 @@ define .plain_name = "init" $s5Hello16DummyContentViewC5coderACSgSo7NSCoderC_tcf
       jmp 23 @[3:0]
       
   #18: @[3:0]
-      n23 = $builtins.llvm_nondet() @[3:0]
+      n25 = __sil_cast(<*__infer_swift_type<ptr_elt>>, __sil_cast(<int>, n14)) @[3:0]
       store &self <- __sil_cast(<*__infer_swift_type<ptr_elt>>, __sil_cast(<int>, n14)) @[3:0]
-      n27 = load &self @[3:0]
+      n29 = load &self @[3:0]
       jmp 18::jmp::23 @[3:0]
       
   #18::jmp::23: @[3:0]

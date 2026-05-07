@@ -1744,7 +1744,7 @@ define .plain_name = "init" $s5Hello5ParamC4size7qualityAcA8TestSizeVSg_AA7Quali
       n177 = load &L_selector(init) @[61:0]
       n178 = load &var19 @[61:0]
       n180 = $builtins.objc_msgSendSuper2(n178, n177) @[61:0]
-      n181 = $builtins.llvm_nondet() @[61:0]
+      n181 = n180 @[61:0]
       store &self <- n180 @[61:0]
       n183 = load &size @[61:0]
       n184 = $s5Hello8TestSizeVSgWOh(n183) @[61:0]
@@ -2005,7 +2005,7 @@ define .plain_name = "init" $s5Hello5ParamC4size4modeACSo6CGSizeV_AA8SizeModeOtc
       
   #19::ret: @[70:0]
       n25 = load &self @[70:0]
-      n26 = $builtins.llvm_nondet() @[70:0]
+      n26 = n24 @[70:0]
       store &self <- n24 @[70:0]
       n29 = swift_getObjectType(n25) @[70:0]
       jmp 22::ret @[70:0]
@@ -2104,7 +2104,7 @@ define .plain_name = "init" $s5Hello5ParamC4size4mode7qualityACSo6CGSizeV_AA8Siz
       
   #32::ret: @[74:0]
       n42 = load &self @[74:0]
-      n43 = $builtins.llvm_nondet() @[74:0]
+      n43 = n41 @[74:0]
       store &self <- n41 @[74:0]
       n46 = swift_getObjectType(n42) @[74:0]
       jmp 35::ret @[74:0]
@@ -2143,13 +2143,13 @@ define .plain_name = "stringValue.get" $s5Hello5ParamC11stringValueSSvgTo(var1: 
   #: @[0:0]
       n1 = load &var1 @[0:0]
       n2 = load &swift_isaMask @[0:0]
-      n3 = $builtins.llvm_nondet() @[0:0]
+      n3 = &var1 @[0:0]
       n4 = load &var1 @[0:0]
       n5 = $s5Hello5ParamC11stringValueSSvg(n4) @[0:0]
       jmp 8::ret @[0:0]
       
   #11::ret: @[0:0]
-      n12 = $builtins.llvm_nondet() @[0:0]
+      n12 = n11 @[0:0]
       ret n12 @[0:0]
       
   #8::ret: @[0:0]
@@ -2280,7 +2280,7 @@ define .plain_name = "init" $s5Hello27BCNTypeaheadSuggestionsCellC5frameACSo6CGR
       n49 = load &var11 @[107:0]
       n50 = load &var10 @[107:0]
       n53 = $builtins.objc_msgSendSuper2(n50, n28, n49) @[107:0]
-      n54 = $builtins.llvm_nondet() @[107:0]
+      n54 = n53 @[107:0]
       store &self <- n53 @[107:0]
       n56 = load &self @[107:0]
       ret n53 @[107:0]
@@ -2346,9 +2346,9 @@ define .plain_name = "init" $s5Hello27BCNTypeaheadSuggestionsCellC5coderACSgSo7N
       jmp 22 @[107:0]
       
   #17: @[107:0]
-      n21 = $builtins.llvm_nondet() @[107:0]
+      n23 = __sil_cast(<*__infer_swift_type<ptr_elt>>, __sil_cast(<int>, n12)) @[107:0]
       store &self <- __sil_cast(<*__infer_swift_type<ptr_elt>>, __sil_cast(<int>, n12)) @[107:0]
-      n25 = load &self @[107:0]
+      n27 = load &self @[107:0]
       jmp 17::jmp::22 @[107:0]
       
   #17::jmp::22: @[107:0]

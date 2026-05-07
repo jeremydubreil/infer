@@ -1,12 +1,12 @@
-// Regression test: lazy var inner closure assigns `delegate = self` on a
-// receiver whose concrete type is statically known, so the Swift compiler
-// emits the assignment as an inline existential-container store
-// (getelementptr + store on the existential's value/witness slots) rather
-// than dispatching through the witness-table `delegate.set` method.
-// The Sledge frontend currently bails to [Llair.Exp.nondet] for the
-// resulting static-byte-offset GEP on an opaque pointer, so Pulse misses
-// the retain cycle. Marked `_bad_FN` to record the false negative; flipped
-// to `_bad` once detection lands.
+// Lazy var inner closure assigns `delegate = self` on a receiver whose
+// concrete type is statically known. Pulse must follow the call result of
+// the lazy-getter through ARC's post-call `retainAutoreleasedReturnValue`
+// handshake to reach the `delegate.set` and detect the retain cycle.
+//
+// The companion case lives in rc_delegate.swift: there the receiver is
+// protocol-typed (`var contentView: ContentViewType`), the compiler must
+// dispatch through the witness method, and the cycle is detected via that
+// path.
 
 protocol BarDelegate: AnyObject {
     func didTap()
@@ -34,7 +34,7 @@ extension BarViewController: BarDelegate {
     func didTap() {}
 }
 
-func test_lazy_concrete_delegate_bad_FN() {
+func test_lazy_concrete_delegate_bad() {
     let vc = BarViewController()
     vc.loadView()
 }
