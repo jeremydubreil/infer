@@ -8,3 +8,5 @@
 
 global $s5Outer0A12NestedHelperC9someFieldSivpWvd: int
 
+type __infer_swift_type<T5Outer0A12NestedHelperC,NestedHelper> = {someField: __infer_swift_type<ptr_elt>}
+

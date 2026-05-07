@@ -169,7 +169,16 @@ let extract_class_and_field_from_wvd mangled =
         if pos >= len then None
         else
           let end_digits = consume_digits pos in
-          if Int.equal pos end_digits then None
+          if Int.equal pos end_digits then
+            (* No length-prefix digit at [pos]: this is typically a Swift
+               substitution back-reference (e.g. "0A26..." for nested types)
+               or the leftover marker after a substitution-compressed
+               identifier (e.g. "05AudioB9ViewModel..." where the parser
+               consumed "05Audio" as length=5, leaving "B" here). Skip the
+               non-digit char and continue scanning so we can still locate
+               the trailing class/struct boundary marker (C/V) and the
+               field's length-prefix. *)
+            parse (pos + 1)
           else
             let len_str = String.sub mangled ~pos ~len:(end_digits - pos) in
             match int_of_string_opt len_str with

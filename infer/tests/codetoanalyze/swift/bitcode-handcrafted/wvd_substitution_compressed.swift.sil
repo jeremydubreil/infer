@@ -8,3 +8,5 @@
 
 global $s8Recorder05AudioB9ViewModelC4nameSSvpWvd: int
 
+type __infer_swift_type<T8Recorder05AudioB9ViewModelC,ViewModel> = {name: __infer_swift_type<ptr_elt>}
+
