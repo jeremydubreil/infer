@@ -391,7 +391,10 @@ let config_unsafe checker =
       ; activates= [] }
   | SwiftObjCNullability ->
       { id= "swift-objc-nullability"
-      ; kind= UserFacing {title= "Swift/Obj-C Nullability"; markdown_body= ""}
+      ; kind=
+          UserFacing
+            { title= "Swift/Obj-C Nullability"
+            ; markdown_body= [%blob "./documentation/checkers/SwiftObjCNullability.md"] }
       ; support= mk_support_func ~swift:Support ~clang:Support ()
       ; short_documentation=
           "Detects missing nullability annotations in Objective-C methods called from Swift, which \
