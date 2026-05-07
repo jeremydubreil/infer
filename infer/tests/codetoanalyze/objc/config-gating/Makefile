@@ -7,9 +7,13 @@ TESTS_DIR = ../../..
 
 CLANG_OPTIONS = -c $(OBJC_CLANG_OPTIONS) -fobjc-arc
 INFER_OPTIONS = --config-gating-only --debug-exceptions \
-  --config-gating-method 'ConfigGating\.getConfigFlag:' \
+  --config-gating-method 'Configs\.feature_x' \
+  --config-gating-method 'Configs\.feature_y' \
+  --config-gating-method 'Configs\.feature_z' \
+  --config-gating-method 'Configs\.stored_config' \
   --config-gating-method 'Config\.isEnabled:' \
   --config-gating-method 'Config\.getValue:' \
+  --config-gating-method 'Config\.featureEnabled' \
   --config-gating-report-ungated
 INFERPRINT_OPTIONS = --issues-tests
 

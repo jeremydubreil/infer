@@ -11,6 +11,7 @@
 
 - (BOOL)isEnabled:(int)code;
 - (int)getValue:(int)code;
+@property (nonatomic, readonly) BOOL featureEnabled;
 
 @end
 
@@ -22,6 +23,10 @@
 
 - (int)getValue:(int)code {
   return 0;
+}
+
+- (BOOL)featureEnabled {
+  return NO;
 }
 
 @end
@@ -64,6 +69,13 @@ void cmDoSomethingElse(void) {}
 // Negated check
 - (void)negated_check {
   if (![config isEnabled:42]) {
+    cmDoSomething();
+  }
+}
+
+// Zero-arg property getter used as config check
+- (void)property_check {
+  if (config.featureEnabled) {
     cmDoSomething();
   }
 }

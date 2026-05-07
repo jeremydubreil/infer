@@ -7,26 +7,50 @@
 
 #import <Foundation/Foundation.h>
 
-@interface ConfigGating : NSObject
+@interface Configs : NSObject
 
-+ (BOOL)getConfigFlag:(NSString*)name;
+@property (nonatomic, readonly) BOOL feature_x;
+@property (nonatomic, readonly) BOOL feature_y;
+@property (nonatomic, readonly) BOOL feature_z;
+@property (nonatomic, readonly) BOOL stored_config;
 
 @end
 
-@implementation ConfigGating
+@implementation Configs
 
-// Stub: recognized as a config read by the checker
-+ (BOOL)getConfigFlag:(NSString*)name {
+- (BOOL)feature_x {
   return NO;
 }
+
+- (BOOL)feature_y {
+  return NO;
+}
+
+- (BOOL)feature_z {
+  return NO;
+}
+
+- (BOOL)stored_config {
+  return NO;
+}
+
+@end
 
 void doSomething(void) {}
 
 void doSomethingElse(void) {}
 
+@interface ConfigGating : NSObject {
+  Configs* configs;
+}
+
+@end
+
+@implementation ConfigGating
+
 // Simple gated call: doSomething is gated by feature_x=true
 - (void)simple_gated_call_bad {
-  if ([ConfigGating getConfigFlag:@"feature_x"]) {
+  if (configs.feature_x) {
     doSomething();
   }
 }
@@ -38,7 +62,7 @@ void doSomethingElse(void) {}
 
 // Both branches gated by the same config (different polarities)
 - (void)both_branches_gated_bad {
-  if ([ConfigGating getConfigFlag:@"feature_y"]) {
+  if (configs.feature_y) {
     doSomething();
   } else {
     doSomethingElse();
@@ -47,7 +71,7 @@ void doSomethingElse(void) {}
 
 // After the join point, the guard is removed
 - (void)join_removes_guard_ok {
-  if ([ConfigGating getConfigFlag:@"feature_z"]) {
+  if (configs.feature_z) {
     doSomething();
   } else {
     doSomethingElse();
@@ -58,7 +82,7 @@ void doSomethingElse(void) {}
 
 // Config stored in a variable before being checked
 - (void)config_in_variable_bad {
-  BOOL flag = [ConfigGating getConfigFlag:@"stored_config"];
+  BOOL flag = configs.stored_config;
   if (flag) {
     doSomething();
   }

@@ -121,16 +121,16 @@ let is_config_method procname =
 
 
 (** Extract a config name from the call arguments. Tries string constant first (static method
-    pattern), then int constant at arg index 1 (instance method pattern with receiver at index 0).
-*)
-let get_config_name _callee args =
+    pattern), then int constant at arg index 1 (instance method pattern with receiver at index 0),
+    then falls back to the method name. *)
+let get_config_name callee args =
   match args with
   | (Exp.Const (Cstr config_name), _) :: _ ->
       config_name
   | _receiver :: (Exp.Const (Cint field_code), _) :: _ ->
       F.asprintf "config:%a" IntLit.pp field_code
   | _ ->
-      "unknown_config"
+      Procname.get_method callee
 
 
 (** Extract config info from a pruned expression: returns (config_name, branch_value) indicating
