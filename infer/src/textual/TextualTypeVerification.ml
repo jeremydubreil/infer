@@ -909,8 +909,29 @@ let rec typecheck_node (node : Node.t) : unit monad =
   let* already_typechecked = has_node_been_typechecked node in
   if already_typechecked then visit_next ()
   else
+    let* lang = get_lang in
     let* () = iter node.ssa_parameters ~f:(fun (id, typ) -> set_ident_type id typ) in
-    let* instrs = mapM node.instrs ~f:(fun instr -> catch (typecheck_instr instr) ~with_:instr) in
+    let* instrs =
+      mapM node.instrs ~f:(fun instr ->
+          (* For Swift: if typechecking can't infer a [typ] for a [Load]/[Store]
+             that came in with [typ= None], fall back to [Some Void] so SIL
+             emission doesn't later raise [TextualTransformError "to_sil should
+             come after type inference"] and abandon the whole procedure.
+             Other frontends already produce well-typed Load/Store, so leave
+             their behaviour unchanged. *)
+          let fallback : Instr.t =
+            if not (Textual.Lang.is_swift lang) then instr
+            else
+              match (instr : Instr.t) with
+              | Load {id; exp; typ= None; loc} ->
+                  Instr.Load {id; exp; typ= Some Typ.Void; loc}
+              | Store {exp1; typ= None; exp2; loc} ->
+                  Instr.Store {exp1; typ= Some Typ.Void; exp2; loc}
+              | _ ->
+                  instr
+          in
+          catch (typecheck_instr instr) ~with_:fallback )
+    in
     let* last = typecheck_terminator node.last_loc node.last in
     let node = {node with instrs; last} in
     let* () = mark_node_as_typechecked node in

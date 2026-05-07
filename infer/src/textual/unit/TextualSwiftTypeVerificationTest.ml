@@ -51,3 +51,45 @@ let%expect_test "Swift Double satisfies Float-typed return" =
     Veryfing the transformed module...
     verification succeeded
     |}]
+
+
+(* In Swift mode, when a [Load]/[Store] with [typ= None] cannot have its type
+   recovered during type inference (e.g., the loaded expression is not a
+   pointer), the verifier falls back to [Some Void] so SIL emission does not
+   later raise the [TextualTransformError "to_sil should come after type
+   inference"] and abandon the whole procedure. Other frontends are left
+   unchanged. *)
+let text_load_typ_fallback =
+  {|
+       .source_language = "swift"
+       .source_file = "fake.sil"
+
+       define f() : void {
+         #start:
+           n0 = load 42
+           ret null
+       }
+       |}
+
+
+let%expect_test "Swift Load with un-inferrable typ falls back to Void" =
+  parse_string_and_verify_keep_going_lenient text_load_typ_fallback ;
+  [%expect
+    {|
+    lenient verification succeeded - no warnings
+    ------
+    .source_language = "swift"
+
+    .source_file = "fake.sil"
+
+    define f() : void {
+      #start:
+          n0:void = load 42
+          ret null
+
+    }
+
+
+    Verifying the transformed module...
+    verification succeeded
+    |}]
