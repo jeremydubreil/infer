@@ -33,5 +33,11 @@ let is_system_framework_path path =
   || String.is_substring path ~substring:".framework/Headers/"
 
 
+(* The callee's [translation_unit] is the .m file Clang was invoked on at capture time, not the
+   header where the method was declared — so it never points at an Apple-SDK or prebuilt-framework
+   path. The actual declaration site is in [attrs.loc.file], populated from the decl's source
+   range; for an Apple-framework method it points at e.g.
+   [.../iPhoneOS17.4.sdk/System/Library/Frameworks/UIKit.framework/Headers/UIViewController.h],
+   which is what we want to substring-match against. *)
 let is_system_framework_callee (attrs : ProcAttributes.t) =
-  is_system_framework_path (SourceFile.to_abs_path attrs.translation_unit)
+  is_system_framework_path (SourceFile.to_abs_path attrs.loc.file)
