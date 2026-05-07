@@ -106,6 +106,8 @@ let string_of_ptr (exp : Llair.Exp.t) =
     | Llair.Exp.Ap1 (GetElementPtr (Static offset), _, base) | Llair.Exp.Ap1 (Select offset, _, base)
       ->
         Option.map (aux base) ~f:(fun b -> b ^ "_idx_" ^ Int.to_string offset)
+    | Llair.Exp.Ap1 (GetElementPtr (StaticByteOffset n), _, base) ->
+        Option.map (aux base) ~f:(fun b -> b ^ "_byteoff_" ^ Int.to_string n)
     | Llair.Exp.Ap1 (GetElementPtr (DynamicWvd name), _, base) ->
         Option.map (aux base) ~f:(fun b -> b ^ "_wvd_" ^ name)
     | Llair.Exp.Ap1 ((Convert _ | Signed _ | Unsigned _), _, base) ->
@@ -225,9 +227,62 @@ let infer_from_term wvd_types protocol_types module_state (term : Llair.term) =
  * 4. Alias Resolution: Flow Protocol types across registers sharing the same memory path.
  * 5. Pass the combined map to `ProcState` for safe translation overriding.
  *)
+(* Detect [%X := call $s<mangled>Ma (...)] and record [X.id -> mangled_class_name].
+   Swift's [Ma] accessors return a [swift::metadata_response] whose [field_0] is the
+   class metadata pointer; downstream calls to [swift_allocObject] use that field to
+   identify the type being allocated.  We later use this map to recover the receiver's
+   type at byte-offset GEP sites that the optimiser stripped. *)
+let record_metadata_call ~metadata_class_map (call : Llair.callee Llair.call) =
+  match (call.callee, call.areturn) with
+  | Direct {func= {name; _}; _}, Some areturn ->
+      let func_name = Llair.FuncName.name name in
+      if String.is_suffix func_name ~suffix:"Ma" && String.is_prefix func_name ~prefix:"$s" then
+        let middle = String.sub func_name ~pos:2 ~len:(String.length func_name - 4) in
+        let mangled = "T" ^ middle in
+        Hashtbl.set metadata_class_map ~key:(Llair.Reg.id areturn) ~data:mangled
+  | _ ->
+      ()
+
+
+(* Detect [%Y := call swift_allocObject (metadata_resp[0]: ..., ...)] and tag [Y.id]
+   with [Ptr (Struct typename)] in [protocol_types], where [typename] is recovered
+   from [metadata_class_map] populated by [record_metadata_call]. *)
+let record_alloc_object_call ~metadata_class_map ~protocol_types module_state
+    (call : Llair.callee Llair.call) =
+  match (call.callee, call.areturn) with
+  | Direct {func= {name; _}; _}, Some areturn
+    when String.equal (Llair.FuncName.name name) "swift_allocObject" -> (
+      let metadata_arg_opt =
+        if NS.IArray.length call.actuals > 0 then Some (NS.IArray.get call.actuals 0) else None
+      in
+      let metadata_reg_id =
+        match metadata_arg_opt with
+        | Some (Llair.Exp.Ap1 (Select 0, _, Reg {id; _})) ->
+            Some id
+        | Some (Reg {id; _}) ->
+            Some id
+        | _ ->
+            None
+      in
+      match Option.bind metadata_reg_id ~f:(Hashtbl.find metadata_class_map) with
+      | Some mangled ->
+          let ModuleState.{lang; mangled_map; struct_map; _} = module_state in
+          let typename =
+            TypeName.struct_name_of_mangled_name lang ~mangled_map:(Some mangled_map) struct_map
+              mangled
+          in
+          Hashtbl.set protocol_types ~key:(Llair.Reg.id areturn)
+            ~data:(Textual.Typ.mk_ptr (Struct typename))
+      | None ->
+          () )
+  | _ ->
+      ()
+
+
 let infer_func module_state (func : Llair.func) =
   let wvd_types = Hashtbl.create (module Int) in
   let protocol_types = Hashtbl.create (module Int) in
+  let metadata_class_map = Hashtbl.create (module Int) in
   let load_reg_map = Hashtbl.create (module Int) in
   let visited = Hash_set.create (module String) in
   let rec visit_block (b : Llair.block) =
@@ -235,6 +290,12 @@ let infer_func module_state (func : Llair.func) =
       Hash_set.add visited b.lbl ;
       NS.IArray.iter ~f:(infer_from_inst wvd_types protocol_types load_reg_map module_state) b.cmnd ;
       infer_from_term wvd_types protocol_types module_state b.term ;
+      ( match b.term with
+      | Call call ->
+          record_metadata_call ~metadata_class_map call ;
+          record_alloc_object_call ~metadata_class_map ~protocol_types module_state call
+      | _ ->
+          () ) ;
       match b.term with
       | Switch {tbl; els} ->
           NS.IArray.iter ~f:(fun (_, (jump : Llair.jump)) -> visit_block jump.dst) tbl ;

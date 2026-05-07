@@ -21,6 +21,19 @@ val field_of_pos : Textual.TypeName.t -> int -> Textual.qualified_fieldname
 val field_of_pos_with_map :
   Llair2TextualState.field_offset_map -> Textual.TypeName.t -> int -> Textual.qualified_fieldname
 
+val swift_class_header_bytes : int
+(** Number of bytes consumed by a Swift class header (metadata pointer + reference count) — these
+    bytes precede the first declared field in LLVM's view but are not represented as fields in
+    Textual structs. *)
+
+val lookup_field_by_byte_offset :
+  State.struct_map -> Textual.TypeName.t -> int -> Textual.qualified_fieldname option
+(** Given a Swift class struct typename and an LLVM byte offset, return the qualified field that
+    starts exactly at that offset, or [None] if no field's start aligns with [byte_offset]. Walks
+    the struct's declared fields from [swift_class_header_bytes], advancing the cursor by each
+    field's estimated byte size. Conservative: returns [None] for unknown struct names, for offsets
+    falling inside the header, and for offsets that don't land on a field boundary. *)
+
 val tuple_field_of_pos : Textual.TypeName.t -> int -> Textual.qualified_fieldname
 
 module OffsetIndex : sig

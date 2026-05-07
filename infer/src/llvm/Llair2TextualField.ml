@@ -135,6 +135,52 @@ let field_of_pos_with_map field_offset_map type_name pos =
       field_of_pos type_name pos
 
 
+(* --- Byte-offset based field lookup --------------------------------------- *)
+(* Swift class instances are laid out in LLVM as
+     { metadata_ptr (8B), refcount (8B), <user fields...> }
+   so user fields begin 16 bytes past the start of the object.  Textual omits
+   the header from the field list, so an LLVM byte offset of 16 corresponds to
+   the *first* declared Textual field. *)
+let swift_class_header_bytes = 16
+
+(* Conservative byte size for a Textual field's type, used only for advancing
+   the byte-offset cursor while looking up a field by byte offset.
+   - Optional / existential containers (Swift mangling suffix [Sg] or [P])
+     occupy two pointer-sized slots (value + witness), i.e. 16 bytes.
+   - Everything else is treated as a single pointer (8 bytes).
+   The estimates only need to be accurate enough for the lookup to land on the
+   correct field boundary; on a mismatch the caller falls back to [llvm_nondet]. *)
+let estimate_field_byte_size (typ : Textual.Typ.t) =
+  let is_existential_or_optional name =
+    String.is_suffix ~suffix:"Sg" name || String.is_suffix ~suffix:"_p" name
+  in
+  match typ with
+  | Textual.Typ.Ptr (Struct {name; _}, _)
+    when is_existential_or_optional (Textual.BaseTypeName.to_string name) ->
+      16
+  | _ ->
+      8
+
+
+let lookup_field_by_byte_offset struct_map type_name byte_offset =
+  if byte_offset < swift_class_header_bytes then None
+  else
+    match Textual.TypeName.Map.find_opt type_name struct_map with
+    | None ->
+        None
+    | Some (textual_struct : Textual.Struct.t) ->
+        let rec walk fields cursor =
+          match fields with
+          | [] ->
+              None
+          | (field_decl : Textual.FieldDecl.t) :: rest ->
+              if Int.equal cursor byte_offset then Some field_decl.qualified_name
+              else if cursor > byte_offset then None
+              else walk rest (cursor + estimate_field_byte_size field_decl.typ)
+        in
+        walk textual_struct.fields swift_class_header_bytes
+
+
 let tuple_field_prefix = "__infer_tuple_field_"
 
 let tuple_field_of_pos type_name pos =

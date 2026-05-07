@@ -14,6 +14,13 @@ open! NS
 
 type gep_idx =
   | Static of int  (** Get element pointer when the type is a simple pointer *)
+  | StaticByteOffset of int
+      (** Get element pointer with a constant *byte* offset on an opaque pointer (LLVM
+          [getelementptr i8, ptr X, i64 N]). Distinct from [Static] because [n] is in bytes rather
+          than source-element units; the receiver carries no struct type information at the GEP site
+          (the optimiser stripped it). [Llair2Textual] resolves this to a typed field access by
+          consulting a struct-derived byte-offset map, and falls back to [llvm_nondet] when no field
+          matches. *)
   | DynamicWvd of string
       (** Get element pointer for Swift dynamic field access, storing the mangled Wvd global name
           containing the field offset *)
@@ -299,6 +306,8 @@ val record : LlairTyp.t -> t iarray -> t
 val select : LlairTyp.t -> t -> int -> t
 
 val gep : LlairTyp.t -> t -> int -> t
+
+val gep_byte : LlairTyp.t -> t -> int -> t
 
 val gep_wvd : LlairTyp.t -> t -> string -> t
 

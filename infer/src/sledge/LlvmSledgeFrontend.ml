@@ -1011,10 +1011,13 @@ and xlate_opcode : x -> Llvm.llvalue -> Llvm.Opcode.t -> Inst.t list * Exp.t =
         let typ = xlate_type x lltyp1 in
         let exp =
           match Option.bind ~f:Int64.unsigned_to_int (Llvm.int64_of_const op1) with
-          | Some _n ->
-              (* TODO: Handle static opaque byte offsets (e.g. jumping past Swift object headers).
-                 Currently returning nondet to match prior behavior until we have a test case. *)
-              Llair.Exp.nondet typ
+          | Some n ->
+              (* Static byte offset on an opaque pointer (e.g. [getelementptr i8, ptr X, i64 N]
+                 emitted when [-O] inlines a Swift accessor and erases the struct type from the
+                 GEP).  Modelled as [GetElementPtr (StaticByteOffset n)] so [Llair2Textual] can
+                 resolve [n] to a typed field via a struct-derived byte-offset map; downstream
+                 it falls back to [llvm_nondet] (the prior behavior) when no field matches. *)
+              Llair.Exp.gep_byte typ ptr n
           | None -> (
             (* --- Intercept dynamic Swift Wvd offsets using our new IR node --- *)
             match get_wvd_global op1 with

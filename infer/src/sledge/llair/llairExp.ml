@@ -12,7 +12,8 @@ open! NS
 [@@@warning "+missing-record-field-pattern"]
 
 module T = struct
-  type gep_idx = Static of int | DynamicWvd of string [@@deriving compare, equal, sexp]
+  type gep_idx = Static of int | StaticByteOffset of int | DynamicWvd of string
+  [@@deriving compare, equal, sexp]
 
   type op1 =
     (* conversion *)
@@ -206,6 +207,8 @@ module T = struct
         pf "%a[%i]:%a" pp rcd idx LlairTyp.pp typ
     | Ap1 (GetElementPtr (Static idx), typ, rcd) ->
         pf "gep %a[%i]:%a" pp rcd idx LlairTyp.pp typ
+    | Ap1 (GetElementPtr (StaticByteOffset n), typ, rcd) ->
+        pf "gepByte %a[+%i]:%a" pp rcd n LlairTyp.pp typ
     | Ap1 (GetElementPtr (DynamicWvd name), typ, rcd) ->
         pf "gepFromWvd %a[%s]:%a" pp rcd name LlairTyp.pp typ
     | Ap2 (Update idx, _, rcd, elt) ->
@@ -385,6 +388,8 @@ and typ_of exp =
   | Ap3 (Conditional, typ, _, _, _)
   | ApN (Record, typ, _) ->
       typ
+  | Ap1 (GetElementPtr (StaticByteOffset _), typ, _) ->
+      LlairTyp.pointer ~elt:typ
   | Ap1 (GetElementPtr (DynamicWvd _), _, _) ->
       assert false
 [@@warning "-missing-record-field-pattern"]
@@ -508,6 +513,8 @@ let record typ elts = ApN (Record, typ, elts) |> check invariant
 let select typ rcd idx = Ap1 (Select idx, typ, rcd) |> check invariant
 
 let gep typ rcd idx = Ap1 (GetElementPtr (Static idx), typ, rcd)
+
+let gep_byte typ rcd n = Ap1 (GetElementPtr (StaticByteOffset n), typ, rcd)
 
 let gep_wvd typ rcd wvd_name = Ap1 (GetElementPtr (DynamicWvd wvd_name), typ, rcd)
 

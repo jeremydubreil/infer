@@ -452,6 +452,59 @@ let rec to_textual_exp ~(proc_state : ProcState.t) loc ?generate_typ_exp (exp : 
       ProcState.update_var_offset ~proc_state var_name n ;
       let store_instr = Textual.Instr.Store {exp1= new_var; exp2= exp; typ= None; loc} in
       (new_var, None, store_instr :: instrs)
+  | Ap1 (GetElementPtr (StaticByteOffset n), _typ, llair_rcv_exp) as full_exp -> (
+      (* Constant byte offset on an opaque pointer (e.g. [-O] inlined a Swift accessor and
+         erased the struct type from the GEP).  Try to resolve the receiver to a known Swift
+         class struct and look up a field whose declared offset matches [n]; fall back to a
+         non-deterministic value when no such field exists, matching the prior behavior of
+         this code path. *)
+      let try_typed_field () =
+        let rcv_exp, rcv_typ_opt, rcv_instrs = to_textual_exp loc ~proc_state llair_rcv_exp in
+        (* Prefer the type recovered by [Llair2TextualTypeInference] for the receiver Reg if
+           available — it survives the optimiser's opaque-pointer erasure for receivers that
+           come out of [swift_allocObject] and similar. *)
+        let rcv_typ_opt =
+          match llair_rcv_exp with
+          | Llair.Exp.Reg {id; _} ->
+              Option.first_some (Hashtbl.find proc_state.inferred_types id) rcv_typ_opt
+          | _ ->
+              rcv_typ_opt
+        in
+        let extract_struct_name (typ : Textual.Typ.t) =
+          match typ with
+          | Textual.Typ.Ptr (Struct name, _) | Textual.Typ.Ptr (Ptr (Struct name, _), _) ->
+              Some name
+          | _ ->
+              None
+        in
+        let rcv_struct_name_opt = Option.bind rcv_typ_opt ~f:extract_struct_name in
+        match rcv_struct_name_opt with
+        | None ->
+            None
+        | Some struct_name -> (
+          match Field.lookup_field_by_byte_offset struct_map struct_name n with
+          | None ->
+              None
+          | Some field ->
+              let deref_instrs, rcv_exp = add_deref ~proc_state rcv_exp loc in
+              let field_exp = Textual.Exp.Field {exp= rcv_exp; field} in
+              let field_typ = Type.lookup_field_type ~struct_map struct_name field in
+              Some (field_exp, field_typ, deref_instrs @ rcv_instrs) )
+      in
+      match try_typed_field () with
+      | Some result ->
+          result
+      | None ->
+          let textual_typ =
+            Type.to_textual_typ lang ~mangled_map ~struct_map (Llair.Typ.pointer ~elt:_typ)
+          in
+          let undef, _, undef_instrs =
+            undef_exp
+              ~reason:(F.asprintf "byte offset %d on opaque pointer not resolved to a field" n)
+              ~sourcefile:proc_state.sourcefile ~loc ~typ:textual_typ
+              ~proc:proc_state.qualified_name full_exp
+          in
+          (undef, Some textual_typ, undef_instrs) )
   | Ap1 (GetElementPtr (DynamicWvd wvd_name), typ, base_ptr) as full_exp -> (
       let base_exp, base_typ_opt, base_instrs = to_textual_exp loc ~proc_state base_ptr in
       let base_deref_instrs, base_exp_deref = add_deref ~proc_state base_exp loc in
