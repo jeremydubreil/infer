@@ -22,13 +22,31 @@ let is_any_type_llvm lang typ =
   || (Textual.Lang.is_swift lang && Typ.equal typ Textual.Typ.any_type_swift)
 
 
+(* The CG geometry value types ([CGPoint], [CGSize], [CGRect]) are simple
+   Swift/ObjC structs whose only fields are [CGFloat]s (2, 2 and 4 of them
+   respectively). The Textual frontend currently does not always model the
+   GEP/field-selection that turns a [*CGPoint] into a pointer to its first
+   [CGFloat] field, so the verifier sees the raw struct pointer flowing into
+   a [*float] slot (or vice versa). At the byte-layout level these are
+   compatible — a [*CGPoint] points at the same address as the [*CGFloat] of
+   its first member — so we tolerate them here for the same reason we
+   tolerate plain [CGFloat]/[TSf]/[TSd]: the alternative is a noisy stream
+   of false-positive verifier rejections that a proper frontend fix has not
+   yet replaced. *)
+let cg_geometry_struct_names = ["CGPoint"; "CGSize"; "CGRect"]
+
+let is_cg_geometry_name name =
+  List.exists cg_geometry_struct_names ~f:(fun s -> String.is_substring name ~substring:s)
+
+
 let is_float_swift lang typ =
   if Textual.Lang.is_swift lang then
     let cgfloat = "CGFloat" in
-    match typ with
-    | Typ.Ptr (Struct struct_name, _) -> (
+    let struct_name_is_float_like struct_name =
       match TypeName.swift_plain_name_of_type_name struct_name with
-      | Some plain_name when String.equal plain_name cgfloat || String.equal plain_name "Double" ->
+      | Some plain_name
+        when String.equal plain_name cgfloat || String.equal plain_name "Double"
+             || is_cg_geometry_name plain_name ->
           true
       | _ -> (
         match TypeName.swift_mangled_name_of_type_name struct_name with
@@ -36,8 +54,17 @@ let is_float_swift lang typ =
             true
         | Some ("TSf" | "TSd") ->
             true
+        | Some mangled_name when is_cg_geometry_name mangled_name ->
+            true
         | _ ->
-            false ) )
+            false )
+    in
+    (* Accept both [Ptr (Struct ...)] and bare [Struct ...]: production failures
+       appear at both pointer depths because [compat] peels pointers symmetrically
+       on both sides before consulting this predicate. *)
+    match typ with
+    | Typ.Ptr (Struct struct_name, _) | Typ.Struct struct_name ->
+        struct_name_is_float_like struct_name
     | _ ->
         false
   else false

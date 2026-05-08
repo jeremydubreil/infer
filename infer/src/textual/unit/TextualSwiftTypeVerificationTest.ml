@@ -93,3 +93,135 @@ let%expect_test "Swift Load with un-inferrable typ falls back to Void" =
     Verifying the transformed module...
     verification succeeded
     |}]
+
+
+(* The CG geometry value types ([CGPoint], [CGSize], [CGRect]) are structs
+   whose fields are all [CGFloat]s. The Textual frontend sometimes drops the
+   field-selection step, so the verifier sees a raw struct pointer flowing
+   into a [*float] slot (or vice versa). The two patterns below mirror what
+   we observe in production logs:
+
+   1. [**__infer_swift_type<struct::CGPoint>] given for a [*float] slot —
+      [compat] unwraps both pointers once, then matches [Float] against
+      [Ptr (Struct CGPoint)] via [is_float_swift].
+   2. [**float] given for a [**__infer_swift_type<TSo6CGSizeV,CGSize>] slot —
+      [compat] unwraps both pointers twice, then matches [Float] against
+      bare [Struct CGSize], which [is_float_swift] also accepts. *)
+let text_cgpoint_double_ptr_as_float_ptr =
+  {|
+       .source_language = "swift"
+       .source_file = "fake.sil"
+
+       declare make_cgpoint_pp() : **__infer_swift_type<struct::CGPoint>
+
+       define returns_cgpoint_pp_as_float_p() : *float {
+         #start:
+           n0 = make_cgpoint_pp()
+           ret n0
+       }
+       |}
+
+
+let%expect_test "Swift **CGPoint satisfies *float return" =
+  parse_string_and_verify_keep_going text_cgpoint_double_ptr_as_float_ptr ;
+  [%expect
+    {|
+    verification succeeded - no warnings
+    ------
+    .source_language = "swift"
+
+    .source_file = "fake.sil"
+
+    declare make_cgpoint_pp() : **__infer_swift_type<struct::CGPoint>
+
+    define returns_cgpoint_pp_as_float_p() : *float {
+      #start:
+          n0 = make_cgpoint_pp()
+          ret n0
+
+    }
+
+
+    Veryfing the transformed module...
+    verification succeeded
+    |}]
+
+
+let text_cgsize_pp_satisfied_by_float_pp =
+  {|
+       .source_language = "swift"
+       .source_file = "fake.sil"
+
+       declare make_float_pp() : **float
+
+       define returns_float_pp_as_cgsize_pp() : **__infer_swift_type<TSo6CGSizeV,CGSize> {
+         #start:
+           n0 = make_float_pp()
+           ret n0
+       }
+       |}
+
+
+let%expect_test "Swift **CGSize return slot accepts **float" =
+  parse_string_and_verify_keep_going text_cgsize_pp_satisfied_by_float_pp ;
+  [%expect
+    {|
+    verification succeeded - no warnings
+    ------
+    .source_language = "swift"
+
+    .source_file = "fake.sil"
+
+    declare make_float_pp() : **float
+
+    define returns_float_pp_as_cgsize_pp() : **__infer_swift_type<TSo6CGSizeV,CGSize> {
+      #start:
+          n0 = make_float_pp()
+          ret n0
+
+    }
+
+
+    Veryfing the transformed module...
+    verification succeeded
+    |}]
+
+
+let text_cgrect_double_ptr_as_float_ptr =
+  {|
+       .source_language = "swift"
+       .source_file = "fake.sil"
+
+       declare make_cgrect_pp() : **__infer_swift_type<TSo6CGRectV,CGRect>
+
+       define returns_cgrect_pp_as_float_p() : *float {
+         #start:
+           n0 = make_cgrect_pp()
+           ret n0
+       }
+       |}
+
+
+let%expect_test "Swift **CGRect satisfies *float return" =
+  parse_string_and_verify_keep_going text_cgrect_double_ptr_as_float_ptr ;
+  [%expect
+    {|
+    verification succeeded - no warnings
+    ------
+    .source_language = "swift"
+
+    .source_file = "fake.sil"
+
+    declare make_cgrect_pp() : **__infer_swift_type<TSo6CGRectV,CGRect>
+
+    define returns_cgrect_pp_as_float_p() : *float {
+      #start:
+          n0 = make_cgrect_pp()
+          ret n0
+
+    }
+
+
+    Veryfing the transformed module...
+    verification succeeded
+    |}]
