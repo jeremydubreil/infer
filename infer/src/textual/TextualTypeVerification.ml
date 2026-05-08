@@ -103,8 +103,15 @@ let rec compat lang ~assigned:(t1 : Typ.t) ~given:(t2 : Typ.t) =
   | (_, Ptr (Void, _) | Ptr (Void, _), _) when Textual.Lang.is_c lang || Textual.Lang.is_swift lang
     ->
       true
-  | Float, typ | typ, Float ->
-      is_float_swift lang typ
+  (* Guard the [Float] vs [typ] case so it falls through to the [is_any_type_llvm]
+     check below when [is_float_swift] says no. Without the guard, a value of
+     type [Ptr (Struct __infer_swift_type<ptr_elt>)] (Swift's "any type"
+     placeholder, one pointer level above what the [is_any_type_llvm] check at
+     line ~93 already handles) flowing into a [Float] slot would be rejected,
+     even though [ptr_elt] semantically subsumes any Swift type including
+     [Float]. *)
+  | (Float, typ | typ, Float) when is_float_swift lang typ ->
+      true
   | Ptr (typ1, _), typ2 | typ1, Ptr (typ2, _) ->
       is_any_type_llvm lang typ1 || is_any_type_llvm lang typ2
   | _, _ ->

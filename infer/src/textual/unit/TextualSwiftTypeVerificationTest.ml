@@ -225,3 +225,52 @@ let%expect_test "Swift **CGRect satisfies *float return" =
     Veryfing the transformed module...
     verification succeeded
     |}]
+
+
+(* [__infer_swift_type<ptr_elt>] is the canonical Swift "any type" placeholder
+   the frontend emits when LLVM-level pointer-element types cannot be resolved
+   (see [BaseTypeName.swift_any_type_name] and [Typ.any_type_swift] in
+   [Textual.ml]). It already participates in [is_any_type_llvm] at the bare-
+   struct level. The pattern below — a [**__infer_swift_type<ptr_elt>] flowing
+   into a [*float] slot — peels both pointers once and lands on
+   [Float] vs [Ptr (Struct ptr_elt)]. The guarded [is_float_swift] case then
+   falls through to the [Ptr _, _ | _, Ptr _] arm, which consults
+   [is_any_type_llvm] on the inner [Struct ptr_elt] and accepts it. *)
+let text_ptr_elt_double_ptr_as_float_ptr =
+  {|
+       .source_language = "swift"
+       .source_file = "fake.sil"
+
+       declare make_ptr_elt_pp() : **__infer_swift_type<ptr_elt>
+
+       define returns_ptr_elt_pp_as_float_p() : *float {
+         #start:
+           n0 = make_ptr_elt_pp()
+           ret n0
+       }
+       |}
+
+
+let%expect_test "Swift **ptr_elt satisfies *float return" =
+  parse_string_and_verify_keep_going text_ptr_elt_double_ptr_as_float_ptr ;
+  [%expect
+    {|
+    verification succeeded - no warnings
+    ------
+    .source_language = "swift"
+
+    .source_file = "fake.sil"
+
+    declare make_ptr_elt_pp() : **__infer_swift_type<ptr_elt>
+
+    define returns_ptr_elt_pp_as_float_p() : *float {
+      #start:
+          n0 = make_ptr_elt_pp()
+          ret n0
+
+    }
+
+
+    Veryfing the transformed module...
+    verification succeeded
+    |}]
