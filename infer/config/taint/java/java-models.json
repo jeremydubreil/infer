@@ -1,0 +1,1851 @@
+{
+  "pulse-taint-sources": [
+    {
+      "class_names": [
+        "android.app.Activity"
+      ],
+      "method_names": [
+        "getIntent"
+      ],
+      "kinds": [
+        "Intent",
+        "IntentForInsecureIntentHandling"
+      ]
+    },
+    {
+      "class_names": [
+        "android.support.v4.app.FragmentActivity"
+      ],
+      "method_names": [
+        "getIntent"
+      ],
+      "kinds": [
+        "IntentForInsecureIntentHandling"
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "argument_constraints": [
+        {
+          "index": 1,
+          "type_matches": [
+            "android.net.Uri"
+          ]
+        }
+      ],
+      "kinds": [
+        "IntentFromURI"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "parseUri",
+        "setData",
+        "setDataAndNormalize",
+        "setDataAndType",
+        "setDataAndTypeAndNormalize"
+      ],
+      "kinds": [
+        "IntentFromURI"
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "getData"
+      ],
+      "kinds": [
+        "IntentForInsecureIntentHandling"
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "getStringExtra"
+      ],
+      "kinds": [
+        "Intent"
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.SharedPreferences"
+      ],
+      "method_names": [
+        "getString"
+      ],
+      "kinds": [
+        "PrivateData"
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.ClipboardManager"
+      ],
+      "method_names": [
+        "getPrimaryClip",
+        "getText"
+      ],
+      "kinds": [
+        "UserControlledString"
+      ]
+    },
+    {
+      "class_names": [
+        "android.text.ClipboardManager"
+      ],
+      "method_names": [
+        "getPrimaryClip",
+        "getText"
+      ],
+      "kinds": [
+        "UserControlledString"
+      ]
+    },
+    {
+      "class_names": [
+        "android.location.Location"
+      ],
+      "method_names": [
+        "getAltitude",
+        "getBearing",
+        "getLatitude",
+        "getLongitude",
+        "getSpeed"
+      ],
+      "kinds": [
+        "PrivateData"
+      ]
+    },
+    {
+      "class_names": [
+        "android.telephony.TelephonyManager"
+      ],
+      "method_names": [
+        "getDeviceId",
+        "getLine1Number",
+        "getSimSerialNumber",
+        "getSubscriberId",
+        "getVoiceMailNumber"
+      ],
+      "kinds": [
+        "PrivateData"
+      ]
+    },
+    {
+      "class_names": [
+        "android.webkit.WebResourceRequest"
+      ],
+      "method_names": [
+        "getUrl"
+      ],
+      "kinds": [
+        "UserControlledURI"
+      ]
+    },
+    {
+      "class_names": [
+        "android.widget.EditText"
+      ],
+      "method_names": [
+        "getText"
+      ],
+      "kinds": [
+        "UserControlledString"
+      ]
+    },
+    {
+      "class_names": [
+        "android.app.Activity",
+        "android.app.Fragment",
+        "android.support.v4.app.Fragment",
+        "androidx.fragment.app.Fragment"
+      ],
+      "method_names": [
+        "onActivityResult",
+        "onNewIntent"
+      ],
+      "kinds": [
+        "Intent"
+      ],
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "android.content.Intent"
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.app.Service"
+      ],
+      "method_names": [
+        "onBind",
+        "onRebind",
+        "onStart",
+        "onStartCommand",
+        "onTaskRemoved",
+        "onUnbind"
+      ],
+      "kinds": [
+        "Intent"
+      ],
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "android.content.Intent"
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.BroadcastReceiver"
+      ],
+      "method_names": [
+        "onReceive"
+      ],
+      "kinds": [
+        "Intent"
+      ],
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "android.content.Intent"
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.ContentProvider"
+      ],
+      "method_names": [
+        "bulkInsert",
+        "call",
+        "delete",
+        "insert",
+        "getType",
+        "openAssetFile",
+        "openFile",
+        "openPipeHelper",
+        "openTypedAssetFile",
+        "query",
+        "refresh",
+        "update"
+      ],
+      "kinds": [
+        "UserControlledURI"
+      ],
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "android.net.Uri",
+          "java.lang.String"
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.webkit.WebChromeClient"
+      ],
+      "method_names": [
+        "onJsAlert",
+        "onJsBeforeUnload",
+        "onJsConfirm",
+        "onJsPrompt"
+      ],
+      "kinds": [
+        "UserControlledURI"
+      ],
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "java.lang.String"
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.webkit.WebViewClient"
+      ],
+      "method_names": [
+        "onLoadResource",
+        "shouldInterceptRequest",
+        "shouldOverrideUrlLoading"
+      ],
+      "kinds": [
+        "UserControlledURI"
+      ],
+      "taint_target": [
+        "ArgumentsMatchingTypes",
+        [
+          "java.lang.String",
+          "android.webkit.WebResourceRequest"
+        ]
+      ]
+    },
+    {
+      "overrides_of_class_with_annotation": "ThriftService",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.servlet.http.HttpServlet",
+        "javax.servlet.http.HttpServlet"
+      ],
+      "method_names": [
+        "doDelete",
+        "doGet",
+        "doHead",
+        "doOptions",
+        "doPatch",
+        "doPost",
+        "doPut",
+        "doTrace",
+        "service"
+      ],
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "class_names": [
+        "java.net.Socket"
+      ],
+      "method_names": [
+        "getInputStream"
+      ],
+      "kinds": [
+        "Endpoint"
+      ]
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.DELETE",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.GET",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.HttpMethod",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.OPTIONS",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.PATCH",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.POST",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "javax.ws.rs.PUT",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "org.springframework.web.bind.annotation.DeleteMapping",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "org.springframework.web.bind.annotation.GetMapping",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "org.springframework.web.bind.annotation.PatchMapping",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "org.springframework.web.bind.annotation.PostMapping",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "org.springframework.web.bind.annotation.PutMapping",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "method_with_annotation": "org.springframework.web.bind.annotation.RequestMapping",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "class_with_annotation": "org.jboss.annotation.ejb.RemoteBinding",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "class_with_annotation": "org.jboss.annotation.ejb.RemoteHomeBinding",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "overrides_of_class_with_annotation": "javax.ejb.Remote",
+      "kinds": [
+        "Endpoint"
+      ],
+      "taint_target": "AllArguments"
+    }
+  ],
+  "pulse-taint-sinks": [
+    {
+      "class_names": [
+        "android.app.Activity"
+      ],
+      "method_names": [
+        "startActivityFromChild",
+        "startActivityFromFragment"
+      ],
+      "kinds": [
+        "StartComponent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.app.Activity",
+        "android.content.Context",
+        "android.support.v4.app.Fragment",
+        "androidx.fragment.app.Fragment"
+      ],
+      "method_names": [
+        "startIntentSenderForResult"
+      ],
+      "kinds": [
+        "StartComponent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          2
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.app.Activity"
+      ],
+      "method_names": [
+        "startIntentSenderFromChild"
+      ],
+      "kinds": [
+        "StartComponent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          3
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.app.Fragment",
+        "android.content.Context",
+        "android.support.v4.app.Fragment",
+        "androidx.fragment.app.Fragment"
+      ],
+      "method_names": [
+        "startActivity"
+      ],
+      "kinds": [
+        "StartComponent",
+        "StartComponentForInsecureIntentHandling"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.app.Fragment",
+        "android.content.Context",
+        "android.support.v4.app.Fragment",
+        "androidx.fragment.app.Fragment"
+      ],
+      "method_names": [
+        "bindService",
+        "sendBroadcast",
+        "sendBroadcastAsUser",
+        "sendOrderedBroadcast",
+        "sendOrderedBroadcastAsUser",
+        "sendStickyBroadcast",
+        "sendStickyBroadcastAsUser",
+        "sendStickyOrderedBroadcast",
+        "sendStickyOrderedBroadcastAsUser",
+        "startActivities",
+        "startActivityForResult",
+        "startActivityIfNeeded",
+        "startNextMatchingActivity",
+        "startService",
+        "stopService"
+      ],
+      "kinds": [
+        "StartComponent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Context"
+      ],
+      "method_names": [
+        "startIntentSender"
+      ],
+      "kinds": [
+        "StartComponent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "parseUri",
+        "getIntent",
+        "getIntentOld"
+      ],
+      "kinds": [
+        "CreateIntent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "setComponent",
+        "setData",
+        "setDataAndNormalize",
+        "setDataAndType",
+        "setDataAndTypeAndNormalize",
+        "setPackage"
+      ],
+      "kinds": [
+        "CreateIntent"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.content.Intent"
+      ],
+      "method_names": [
+        "setClassName"
+      ],
+      "kinds": [
+        "CreateIntent"
+      ]
+    },
+    {
+      "class_names": [
+        "android.text.Html"
+      ],
+      "method_names": [
+        "fromHtml"
+      ],
+      "kinds": [
+        "HTML"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "android.util.Log"
+      ],
+      "method_names": [
+        "e",
+        "println",
+        "w",
+        "wtf"
+      ],
+      "kinds": [
+        "Logging"
+      ]
+    },
+    {
+      "class_names": [
+        "android.webkit.WebView"
+      ],
+      "method_names": [
+        "evaluateJavascript",
+        "loadData",
+        "loadDataWithBaseURL",
+        "loadUrl",
+        "postUrl",
+        "postWebMessage"
+      ],
+      "kinds": [
+        "JavaScript"
+      ]
+    },
+    {
+      "class_names": [
+        "java.io.File"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "CreateFile"
+      ]
+    },
+    {
+      "class_names": [
+        "java.nio.file.FileSystem"
+      ],
+      "method_names": [
+        "getPath"
+      ],
+      "kinds": [
+        "CreateFile"
+      ]
+    },
+    {
+      "class_names": [
+        "java.nio.file.Paths"
+      ],
+      "method_names": [
+        "get"
+      ],
+      "kinds": [
+        "CreateFile"
+      ]
+    },
+    {
+      "class_names": [
+        "java.io.ObjectInputStream"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "java.lang.Class"
+      ],
+      "method_names": [
+        "forName"
+      ],
+      "kinds": [
+        "ClassLoading"
+      ]
+    },
+    {
+      "class_names": [
+        "java.lang.ClassLoader"
+      ],
+      "method_names": [
+        "loadClass"
+      ],
+      "kinds": [
+        "ClassLoading"
+      ]
+    },
+    {
+      "class_names": [
+        "java.lang.ClassLoader"
+      ],
+      "method_names": [
+        "defineClass"
+      ],
+      "kinds": [
+        "ClassLoading"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "java.lang.ProcessBuilder"
+      ],
+      "method_names": [
+        "<init>",
+        "command"
+      ],
+      "kinds": [
+        "ShellExec"
+      ]
+    },
+    {
+      "class_names": [
+        "java.lang.Runtime"
+      ],
+      "method_names": [
+        "exec"
+      ],
+      "kinds": [
+        "ShellExec"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "java.sql.Statement"
+      ],
+      "method_names": [
+        "addBatch",
+        "execute"
+      ],
+      "kinds": [
+        "SQLInjection"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "java.sql.Statement"
+      ],
+      "method_names": [
+        "executeQuery"
+      ],
+      "kinds": [
+        "SQLRead"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "java.sql.Statement"
+      ],
+      "method_names": [
+        "executeUpdate",
+        "executeLargeUpdate"
+      ],
+      "kinds": [
+        "SQLWrite"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "java.io.FileInputStream",
+        "java.io.FileOutputStream",
+        "java.io.FileReader"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "CreateFile"
+      ]
+    },
+    {
+      "class_names": [
+        "java.nio.file.Files"
+      ],
+      "method_names": [
+        "newInputStream"
+      ],
+      "kinds": [
+        "CreateFile"
+      ]
+    },
+    {
+      "class_names": [
+        "java.beans.XMLDecoder"
+      ],
+      "method_names": [
+        "readObject"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "org.yaml.snakeyaml.Yaml"
+      ],
+      "method_names": [
+        "compose",
+        "composeAll",
+        "load",
+        "loadAll",
+        "loadAs",
+        "parse"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.commons.lang.SerializationUtils",
+        "org.apache.commons.lang3.SerializationUtils"
+      ],
+      "method_names": [
+        "deserialize"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "flexjson.JSONDeserializer"
+      ],
+      "method_names": [
+        "deserialize",
+        "deserializeInto",
+        "use"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "com.google.gson.Gson"
+      ],
+      "method_names": [
+        "fromJson"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "com.alibaba.fastjson.JSON"
+      ],
+      "method_names": [
+        "parse",
+        "parseArray",
+        "parseObject"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "com.esotericsoftware.kryo.Kryo"
+      ],
+      "method_names": [
+        "readClassAndObject",
+        "readObject",
+        "readObjectOrNull"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "com.thoughtworks.xstream.XStream"
+      ],
+      "method_names": [
+        "fromXML"
+      ],
+      "kinds": [
+        "Deserialization"
+      ]
+    },
+    {
+      "class_names": [
+        "java.sql.Connection"
+      ],
+      "method_names": [
+        "prepareCall",
+        "prepareStatement"
+      ],
+      "kinds": [
+        "SQLInjection"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "org.springframework.jdbc.core.JdbcTemplate"
+      ],
+      "method_names": [
+        "batchUpdate",
+        "execute",
+        "query",
+        "queryForList",
+        "queryForMap",
+        "queryForObject",
+        "queryForRowSet",
+        "queryForStream",
+        "update"
+      ],
+      "kinds": [
+        "SQLInjection"
+      ]
+    },
+    {
+      "class_names": [
+        "org.hibernate.query.sql.internal.NativeQueryImpl",
+        "org.springframework.jdbc.object.BatchSqlUpdate",
+        "org.springframework.jdbc.object.MappingSqlQuery",
+        "org.springframework.jdbc.object.MappingSqlQueryWithParameters",
+        "org.springframework.jdbc.object.SqlCall",
+        "org.springframework.jdbc.object.SqlFunction",
+        "org.springframework.jdbc.object.SqlQuery",
+        "org.springframework.jdbc.object.SqlUpdate",
+        "org.springframework.jdbc.object.UpdatableSqlQuery"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "SQLInjection"
+      ]
+    },
+    {
+      "class_names": [
+        "org.hibernate.Session",
+        "org.hibernate.SharedSessionContract",
+        "org.hibernate.query.QueryProducer"
+      ],
+      "method_names": [
+        "createMutationQuery",
+        "createNamedQuery",
+        "createNativeMutationQuery",
+        "createNativeQuery",
+        "createQuery",
+        "createSQLQuery",
+        "createSelectionQuery"
+      ],
+      "kinds": [
+        "SQLInjection"
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.persistence.EntityManager",
+        "javax.persistence.EntityManager"
+      ],
+      "method_names": [
+        "createMutationQuery",
+        "createNativeMutationQuery",
+        "createNativeQuery",
+        "createQuery"
+      ],
+      "kinds": [
+        "SQLInjection"
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.commons.exec.CommandLine"
+      ],
+      "method_names": [
+        "<init>",
+        "addArgument",
+        "addArguments",
+        "parse"
+      ],
+      "kinds": [
+        "ShellExec"
+      ]
+    },
+    {
+      "class_names": [
+        "java.io.PrintWriter",
+        "java.io.Writer"
+      ],
+      "method_names": [
+        "format",
+        "print",
+        "printf",
+        "println",
+        "write"
+      ],
+      "kinds": [
+        "HTML"
+      ]
+    },
+    {
+      "class_names": [
+        "java.util.logging.Logger"
+      ],
+      "method_names": [
+        "log"
+      ],
+      "kinds": [
+        "Logging"
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.servlet.http.HttpSession",
+        "javax.servlet.http.HttpSession"
+      ],
+      "method_names": [
+        "putValue",
+        "setAttribute"
+      ],
+      "kinds": [
+        "HttpSession"
+      ],
+      "taint_target": "AllArguments"
+    },
+    {
+      "class_names": [
+        "jakarta.servlet.http.Cookie",
+        "javax.servlet.http.Cookie"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "Cookie"
+      ]
+    },
+    {
+      "class_names": [
+        "javax.naming.directory.DirContext",
+        "javax.naming.directory.InitialDirContext",
+        "javax.naming.event.EventDirContext",
+        "javax.naming.ldap.InitialLdapContext",
+        "javax.naming.ldap.LdapContext"
+      ],
+      "method_names": [
+        "search"
+      ],
+      "kinds": [
+        "LDAPQuery"
+      ]
+    },
+    {
+      "class_names": [
+        "javax.xml.xpath.XPath",
+        "javax.xml.xpath.XPathExpression"
+      ],
+      "method_names": [
+        "compile",
+        "evaluate"
+      ],
+      "kinds": [
+        "XPathQuery"
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.http.client.utils.URIBuilder"
+      ],
+      "method_names": [
+        "<init>",
+        "setHost",
+        "setPath"
+      ],
+      "kinds": [
+        "SSRF"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "okhttp3.Request"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "SSRF"
+      ]
+    },
+    {
+      "class_names": [
+        "okhttp3.Request.Builder"
+      ],
+      "method_names": [
+        "setUrl",
+        "uri",
+        "url"
+      ],
+      "kinds": [
+        "SSRF"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.http.client.methods.RequestBuilder"
+      ],
+      "method_names": [
+        "delete",
+        "get",
+        "head",
+        "options",
+        "patch",
+        "post",
+        "put",
+        "trace"
+      ],
+      "kinds": [
+        "SSRF"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.http.client.methods.RequestBuilder"
+      ],
+      "method_names": [
+        "<init>",
+        "setUri"
+      ],
+      "kinds": [
+        "SSRF"
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.http.client.methods.HttpDelete",
+        "org.apache.http.client.methods.HttpGet",
+        "org.apache.http.client.methods.HttpPatch",
+        "org.apache.http.client.methods.HttpPost",
+        "org.apache.http.client.methods.HttpPut"
+      ],
+      "method_names": [
+        "<init>"
+      ],
+      "kinds": [
+        "SSRF"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.http.client.methods.HttpRequestBase"
+      ],
+      "method_names": [
+        "setURI"
+      ],
+      "kinds": [
+        "SSRF"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "org.apache.commons.httpclient.HttpMethodBase"
+      ],
+      "method_names": [
+        "<init>",
+        "setPath",
+        "setURI"
+      ],
+      "kinds": [
+        "SSRF"
+      ]
+    },
+    {
+      "class_names": [
+        "org.springframework.web.client.RestTemplate"
+      ],
+      "method_names": [
+        "delete",
+        "exchange",
+        "execute",
+        "getForEntity",
+        "getForObject",
+        "headForHeaders",
+        "optionsForAllow",
+        "patchForObject",
+        "postForEntity",
+        "postForLocation",
+        "postForObject",
+        "put"
+      ],
+      "kinds": [
+        "SSRF"
+      ],
+      "taint_target": [
+        "ArgumentPositions",
+        [
+          0
+        ]
+      ]
+    },
+    {
+      "class_names": [
+        "java.net.URL"
+      ],
+      "method_names": [
+        "getContent",
+        "openConnection",
+        "openStream"
+      ],
+      "kinds": [
+        "SSRF"
+      ]
+    },
+    {
+      "class_names": [
+        "javax.imageio.ImageIO"
+      ],
+      "method_names": [
+        "read"
+      ],
+      "kinds": [
+        "SSRF"
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.xml.parsers.DocumentBuilder",
+        "javax.xml.parsers.DocumentBuilder"
+      ],
+      "method_names": [
+        "parse"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.xml.parsers.SAXParser",
+        "javax.xml.parsers.SAXParser"
+      ],
+      "method_names": [
+        "parse"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "org.xml.sax.XMLReader"
+      ],
+      "method_names": [
+        "parse"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.xml.stream.XMLInputFactory",
+        "javax.xml.stream.XMLInputFactory"
+      ],
+      "method_names": [
+        "createFilteredReader",
+        "createXMLEventReader",
+        "createXMLStreamReader"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "org.jdom.input.SAXBuilder",
+        "org.jdom2.input.SAXBuilder"
+      ],
+      "method_names": [
+        "build"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "jakarta.xml.bind.Unmarshaller",
+        "javax.xml.bind.Unmarshaller"
+      ],
+      "method_names": [
+        "unmarshal"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "org.simpleframework.xml.core.Persister"
+      ],
+      "method_names": [
+        "read"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "javax.xml.xpath.XPath",
+        "javax.xml.xpath.XPathExpression"
+      ],
+      "method_names": [
+        "evaluate"
+      ],
+      "kinds": [
+        "XXE"
+      ]
+    },
+    {
+      "class_names": [
+        "org.mozilla.javascript.Context"
+      ],
+      "method_names": [
+        "compileFunction",
+        "compileReader",
+        "compileString",
+        "evaluateReader",
+        "evaluateString"
+      ],
+      "kinds": [
+        "ScriptEval"
+      ]
+    },
+    {
+      "class_names": [
+        "javax.script.ScriptEngine"
+      ],
+      "method_names": [
+        "compile",
+        "eval"
+      ],
+      "kinds": [
+        "ScriptEval"
+      ]
+    }
+  ],
+  "pulse-taint-sanitizers": [
+    {
+      "class_names": [
+        "java.lang.Object"
+      ],
+      "method_names": [
+        "makeConcatWithConstants"
+      ],
+      "kinds": [
+        "StringConcatenation"
+      ]
+    },
+    {
+      "class_names": [
+        "java.lang.StringBuilder"
+      ],
+      "method_names": [
+        "append"
+      ],
+      "kinds": [
+        "StringConcatenation"
+      ]
+    }
+  ],
+  "pulse-taint-policies": [
+    {
+      "short_description": "Untrusted Android Intent creation",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint",
+            "Intent",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "CreateIntent"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Untrusted file creation",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Intent",
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "CreateFile"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Untrusted file creation risk",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "CreateFile"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Untrusted deserialization",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Intent",
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "Deserialization"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Untrusted deserialization risk",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "Deserialization"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Cross-site scripting",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint",
+            "Intent",
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "HTML"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "JavaScript injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint",
+            "Intent",
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "JavaScript"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "SQL injection risk",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint",
+            "Intent",
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "SQLInjection"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "User-controlled SQL risk",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint",
+            "Intent",
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "SQLRead",
+            "SQLWrite"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Insecure Intent handling",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "IntentForInsecureIntentHandling"
+          ],
+          "sink_kinds": [
+            "StartComponentForInsecureIntentHandling"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Create Intent from URI",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "IntentFromURI",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "StartComponent"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Logging private data",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "PrivateData"
+          ],
+          "sink_kinds": [
+            "Logging"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Shell Injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Intent",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sink_kinds": [
+            "ShellExec"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Shell Injection risk",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "ShellExec"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Class Loading Injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Intent",
+            "UserControlledString",
+            "UserControlledURI"
+          ],
+          "sanitizer_kinds": [
+            "StringConcatenation"
+          ],
+          "sink_kinds": [
+            "ClassLoading"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Class Loading Injection risk",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sanitizer_kinds": [
+            "StringConcatenation"
+          ],
+          "sink_kinds": [
+            "ClassLoading"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Trust boundary violation",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "HttpSession"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Untrusted cookie creation",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "Cookie"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "LDAP injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "LDAPQuery"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "XPath injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "XPathQuery"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Server-side request forgery",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "SSRF"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "XML external entity injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "XXE"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Script injection",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "ScriptEval"
+          ]
+        }
+      ]
+    },
+    {
+      "short_description": "Logging untrusted data",
+      "taint_flows": [
+        {
+          "source_kinds": [
+            "Endpoint"
+          ],
+          "sink_kinds": [
+            "Logging"
+          ]
+        }
+      ]
+    }
+  ]
+}
