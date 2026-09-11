@@ -221,6 +221,37 @@ CAMLprim value bigstring_find(value v_str, value v_needle,
   return ptr_to_offset(start, v_pos, r);
 }
 
+/* memmem() is a GNU extension. glibc, macOS and the BSDs all provide it, but the Windows C
+   runtimes do not, so under mingw-w64 (and MSVC) the call below compiles to an implicit
+   declaration -- which GCC 14 reports as an error, and which would truncate the returned
+   pointer to int even if it linked. Provide a fallback for those targets only; Cygwin is
+   deliberately excluded because newlib does declare memmem.
+
+   Semantics match glibc's, which the caller relies on: an empty needle matches at the start of
+   the haystack, and a needle longer than the haystack never matches. The naive scan is O(n*m)
+   rather than glibc's Two-Way algorithm, but this is only reached on Windows and the call is
+   not on any hot path in infer. */
+#if defined(__MINGW32__) || defined(_MSC_VER)
+static void *bigstring_memmem_fallback(const void *haystack, size_t haystacklen,
+                                       const void *needle, size_t needlelen)
+{
+  const char *h = (const char *) haystack;
+  const char *n = (const char *) needle;
+  const char *last;
+  const char *p;
+
+  if (needlelen == 0) return (void *) h;
+  if (haystacklen < needlelen) return NULL;
+
+  last = h + haystacklen - needlelen;
+  for (p = h; p <= last; p++) {
+    if (*p == *n && memcmp(p, n, needlelen) == 0) return (void *) p;
+  }
+  return NULL;
+}
+#define memmem bigstring_memmem_fallback
+#endif
+
 CAMLprim value bigstring_memmem(value v_haystack, value v_needle,
                                 value v_haystack_pos, value v_haystack_len,
                                 value v_needle_pos, value v_needle_len)

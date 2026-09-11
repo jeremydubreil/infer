@@ -246,6 +246,23 @@ install_opam_deps () {
     # opam use the package's own metadata instead of opam-repository's copy. Pinned on every
     # platform so Linux/macOS builds exercise the same code path and cannot silently drift.
     opam pin add --no-action base_bigstring "$INFER_ROOT"/dependencies/base_bigstring
+    # parmap and ANSITerminal both fail to compile under mingw with GCC 14, which promoted
+    # -Wincompatible-pointer-types and -Wimplicit-function-declaration from warnings to errors.
+    # Neither is fixed upstream (both are the latest release, and both defects are still present
+    # on their respective master branches), so we vendor them verbatim with a one-line fix each:
+    #
+    #   - parmap declares `long len` and passes `&len` to caml_output_value_to_malloc and
+    #     caml_ba_alloc, which take `intnat *`. Windows x86_64 is LLP64, so `long` is 4 bytes
+    #     while `intnat` is 8 -- a genuine memory-corruption bug there, not just a type
+    #     complaint. `intnat` is identical to `long` on LP64 Unix, so this is a no-op elsewhere.
+    #   - ANSITerminal passes an `int *` where FillConsoleOutputCharacter wants an LPDWORD. The
+    #     file it lives in is compiled on Windows only (src/dune picks between the _unix_ and
+    #     _win_ stubs via choose_implementation.exe), so this cannot affect other platforms.
+    #
+    # Pinned unconditionally for the same reason as base_bigstring above: so that Linux and
+    # macOS exercise the same code path and it cannot silently drift.
+    opam pin add --no-action parmap "$INFER_ROOT"/dependencies/parmap
+    opam pin add --no-action ANSITerminal "$INFER_ROOT"/dependencies/ANSITerminal
     # camlzip checks that it is within the required version that the zip/jar file declares as
     # needed to decompress it:
     #   https://github.com/xavierleroy/camlzip/blob/dd86042ac5eba8ba21e3d98b2f3e3dd82fc14033/zip.ml#L197-L198
