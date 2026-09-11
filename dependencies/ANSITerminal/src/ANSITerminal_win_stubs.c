@@ -21,6 +21,7 @@
    LICENSE for more details.
 */
 
+#include <io.h>
 #include <stdio.h>
 #include <string.h>
 #define CAML_INTERNALS
@@ -29,10 +30,14 @@
 #include <caml/alloc.h>
 #include <caml/memory.h>
 #include <caml/callback.h>
+/* caml_raise_with_args() lives here; without this GCC 14 reports the call below as an implicit
+   declaration, which is an error since GCC 14 promoted -Wimplicit-function-declaration. */
+#include <caml/fail.h>
 #include <windows.h>
 
-/* From otherlibs/win32unix/channels.c */
-extern long _get_osfhandle(int);
+/* From otherlibs/win32unix/channels.c, except that the declaration is taken from <io.h> above
+   instead of being repeated here: _get_osfhandle() returns intptr_t, and re-declaring it as
+   `long` would truncate the handle to 32 bits on 64-bit Windows, which is LLP64. */
 #define HANDLE_OF_CHAN(vchan) ((HANDLE) _get_osfhandle(Channel(vchan)->fd))
 
 static HANDLE hStdout;
