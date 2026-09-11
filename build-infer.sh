@@ -276,7 +276,16 @@ install_opam_deps () {
     # to pin camlzip after the fact instead; this will only rebuild javalib and sawja and only
     # the first time that we pin camlzip)
     opam pin add --no-action camlzip "$INFER_ROOT"/dependencies/camlzip
-    opam install --deps-only "$INFER_ROOT"/opam/infer.opam$locked
+    # The path has to be passed as an explicitly relative "./..." one. `opam install` only
+    # treats an argument as a file at all if it contains Filename.dir_sep or starts with "."
+    # (opam 2.5.2, src/client/opamArg.ml:861-864). On native Windows dir_sep is "\", but MSYS2
+    # hands opam.exe a forward-slash path, so an absolute "$INFER_ROOT/opam/infer.opam.locked"
+    # becomes D:/a/infer/infer/opam/infer.opam.locked, matches neither test, and is parsed as a
+    # package atom instead -- failing with `Invalid character ':' in package name`. Upstream opam
+    # fixed this after 2.5.2 by accepting either separator on win32. Leading "." satisfies the
+    # check on every platform, so this stays a single code path rather than an OS-specific
+    # branch. The `cd` keeps it independent of the caller's working directory.
+    ( cd "$INFER_ROOT" && opam install --deps-only ./opam/infer.opam$locked )
 }
 
 # regardless of the LLVM toolchain used to provide the LLVM libraries, we need our own LLVM OCaml
