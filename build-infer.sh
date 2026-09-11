@@ -230,6 +230,22 @@ install_opam_deps () {
     opam pin add --no-action name_matcher_parser "$INFER_ROOT"/dependencies/charon
     opam pin add --no-action ppx_show "$INFER_ROOT"/dependencies/ppx_show
     opam pin add --no-action pyml "$INFER_ROOT"/dependencies/pyml
+    # base_bigstring is unavailable on Windows according to opam-repository, which declares
+    #   available: arch != "x86_32" & os != "win32"
+    # That blocks the whole build, because core (which infer uses pervasively) depends on
+    # base_bigstring and pins it to = v0.17.0.
+    #
+    # The exclusion is stale metadata, not a real constraint:
+    #   - the package's own base_bigstring.opam says only `arch != "arm32" & arch != "x86_32"`,
+    #     with no mention of win32;
+    #   - src/base_bigstring_stubs.c has dedicated __MINGW32__ and _MSC_VER branches for its
+    #     byteswap intrinsics, i.e. Windows is deliberately supported upstream;
+    #   - core itself is marked win32-available while depending on base_bigstring.
+    #
+    # So we vendor the upstream v0.17.0 sources verbatim (no patch) and pin them, which makes
+    # opam use the package's own metadata instead of opam-repository's copy. Pinned on every
+    # platform so Linux/macOS builds exercise the same code path and cannot silently drift.
+    opam pin add --no-action base_bigstring "$INFER_ROOT"/dependencies/base_bigstring
     # camlzip checks that it is within the required version that the zip/jar file declares as
     # needed to decompress it:
     #   https://github.com/xavierleroy/camlzip/blob/dd86042ac5eba8ba21e3d98b2f3e3dd82fc14033/zip.ml#L197-L198
