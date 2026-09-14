@@ -1,0 +1,73 @@
+# TEMPORARY: find what still allocates without bound during the sil pulse test on Windows.
+
+name: windows-alloc-debug
+
+on:
+  push:
+    branches:
+      - windows-alloc-debug
+
+jobs:
+  debug:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Windows dependencies
+        shell: C:\msys64\usr\bin\bash.exe --noprofile --norc -eo pipefail {0}
+        run: |
+          export PATH="/mingw64/bin:/usr/bin:$PATH"
+          pacman -S --needed --noconfirm autoconf-wrapper automake-wrapper make
+          github_path="$(cygpath -u "$GITHUB_PATH")"
+          echo 'C:\msys64\mingw64\bin' >> "$github_path"
+          echo 'C:\msys64\usr\bin' >> "$github_path"
+
+      - name: Setup Java SDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Use OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ocaml-variants.5.4.1+options
+          windows-compiler: mingw
+          windows-environment: msys2
+
+      - run: ./build-infer.sh --yes --user-opam-switch java
+
+      - name: Where does the sil capture spin?
+        run: |
+          set +e
+          ROOT="$PWD"
+          INFER="$ROOT/infer/bin/infer.exe"
+          cd infer/tests/codetoanalyze/sil/pulse
+
+          # INFER_MEMPROF=n prints the OCaml call stack of every nth sampled allocation, which is
+          # the only way to see OCaml frames here: gdb cannot unwind them and a Gc alarm needs a
+          # major cycle to complete.
+          probe () {
+            tag="$1" ; shift
+            echo "======== BEGIN $tag: $*"
+            rm -rf "infer-out-$tag"
+            INFER_MEMPROF=400 timeout -v -s KILL 90 "$INFER" --quiet --no-progress-bar \
+              --pulse-only --no-pulse-force-continue --debug-exceptions --dump-duplicate-symbols \
+              -o "infer-out-$tag" "$@" > "/tmp/$tag.console" 2>&1
+            echo "-------- rc=$? console_bytes=$(wc -c < "/tmp/$tag.console")"
+            echo "-------- results dir"
+            ls -d infer-out-* 2>&1 | head
+            find "infer-out-$tag" -maxdepth 1 2>&1 | head -20
+            echo "-------- the last few allocation call stacks"
+            grep -c '^MEMPROF ' "/tmp/$tag.console" | sed 's/^/MEMPROF samples printed: /'
+            awk '/^MEMPROF /{n++} n>0' "/tmp/$tag.console" | tail -90
+            echo "======== END $tag"
+          }
+
+          # one relative path, then the absolute path make passes for the hack models
+          probe rel --capture-textual alloc.sil
+          probe abs --capture-textual "$ROOT/infer/lib/hack/models.sil"
