@@ -41,6 +41,32 @@ jobs:
 
       - run: ./build-infer.sh --yes --user-opam-switch java
 
+      - name: How far does the java capture get?
+        run: |
+          set +e
+          ROOT="$PWD"
+          INFER="$ROOT/infer/bin/infer.exe"
+          cd infer/tests/codetoanalyze/java/pulse
+          CP="$(make --no-print-directory print-CLASSPATH | sed 's/^CLASSPATH=//')"
+          echo "======== class path"
+          echo "$CP" | tr ';:' '\n'
+          rm -rf infer-out-java
+          "$INFER" --project-root ../../.. -o infer-out-java --pulse-only --debug \
+            --debug-exceptions -- javac -g --release 21 -cp "$CP" *.java taint/*.java \
+            > /tmp/java.console 2>&1
+          echo "======== rc=$?"
+          head -40 /tmp/java.console
+          echo "======== results dir"
+          ls infer-out-java infer-out-java/tmp 2>&1 | head -30
+          echo "======== javac -verbose output, head"
+          head -30 infer-out-java/tmp/javac*.out 2>&1
+          echo "======== javac -verbose output, tail"
+          tail -20 infer-out-java/tmp/javac*.out 2>&1
+          echo "======== infer log, tail"
+          tail -80 infer-out-java/logs 2>&1
+          echo "======== does the whole test pass?"
+          make test 2>&1 | tail -40
+
       - name: Where does the sil capture spin?
         run: |
           set +e
