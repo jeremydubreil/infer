@@ -110,7 +110,32 @@ let log_environment_info () =
   print_cores_used ()
 
 
+(* TEMPORARY: with INFER_MEMPROF=<n> set, print the OCaml call stack of every [n]th sampled
+   allocation. gdb cannot unwind OCaml frames on Windows and a Gc alarm needs a major cycle to
+   complete, but a memprof callback runs on the allocating stack itself, so this says where
+   infer.exe is spinning. *)
+let install_alloc_sampler () =
+  match Stdlib.Sys.getenv_opt "INFER_MEMPROF" with
+  | None ->
+      ()
+  | Some every ->
+      let every = Option.value (int_of_string_opt every) ~default:200 in
+      let samples = ref 0 in
+      let sample : Stdlib.Gc.Memprof.allocation -> unit option =
+       fun alloc ->
+        incr samples ;
+        if Int.equal (!samples % every) 0 then
+          Printf.eprintf "MEMPROF sample=%d size=%d\n%s\n%!" !samples alloc.size
+            (Stdlib.Printexc.raw_backtrace_to_string alloc.callstack) ;
+        None
+      in
+      ignore
+        (Stdlib.Gc.Memprof.start ~sampling_rate:1e-5 ~callstack_size:25
+           {Stdlib.Gc.Memprof.null_tracker with alloc_minor= sample; alloc_major= sample} )
+
+
 let () =
+  install_alloc_sampler () ;
   ( match Config.check_version with
   | Some check_version ->
       if not (String.equal check_version Version.versionString) then
