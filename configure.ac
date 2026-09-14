@@ -374,6 +374,11 @@ AS_IF([test "$OPAM" != "no"], [
   AC_MSG_RESULT([$OPAMROOT])
   AC_MSG_CHECKING([current opam switch])
   OPAMSWITCH=$("$OPAM" switch show)
+dnl For a local switch on Windows, `opam switch show` prints a native path, e.g. `D:\a\infer\infer`.
+dnl dune reads the backslashes in that path as escape sequences when it parses dune-workspace, so
+dnl normalise to forward slashes, which both dune and opam accept on Windows.
+  AS_IF([test x"$WINDOWS_BUILD" = x"yes"],
+    [OPAMSWITCH=$(printf '%s' "$OPAMSWITCH" | tr '\\' '/')])
   AC_MSG_RESULT([$OPAMSWITCH])
 ], [
   OPAMROOT=no
