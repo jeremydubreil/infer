@@ -36,7 +36,9 @@ jobs:
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
 
+      - run: ./build-infer.sh --yes java
       - run: ./build-infer.sh --yes --user-opam-switch java
+      - run: ./build-infer.sh --yes java --no-opam-lock
       - run: make -C infer/src clean
       - run: make -j -C infer/src byte
       - run: make -j direct_sil_pulse_test
