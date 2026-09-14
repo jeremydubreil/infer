@@ -55,19 +55,23 @@ jobs:
             tag="$1" ; shift
             echo "======== BEGIN $tag: $*"
             rm -rf "infer-out-$tag"
-            INFER_MEMPROF=400 timeout -v -s KILL 90 "$INFER" --quiet --no-progress-bar \
-              --pulse-only --no-pulse-force-continue --debug-exceptions --dump-duplicate-symbols \
-              -o "infer-out-$tag" "$@" > "/tmp/$tag.console" 2>&1
+            INFER_MEMPROF=2000 timeout -v -s KILL 60 "$INFER" "$@" > "/tmp/$tag.console" 2>&1
             echo "-------- rc=$? console_bytes=$(wc -c < "/tmp/$tag.console")"
+            echo "-------- console, without the MEMPROF lines"
+            grep -v '^MEMPROF \|^\s*Called from\|^\s*Raised by' "/tmp/$tag.console" | head -20
             echo "-------- results dir"
-            ls -d infer-out-* 2>&1 | head
             find "infer-out-$tag" -maxdepth 1 2>&1 | head -20
             echo "-------- the last few allocation call stacks"
             grep -c '^MEMPROF ' "/tmp/$tag.console" | sed 's/^/MEMPROF samples printed: /'
-            awk '/^MEMPROF /{n++} n>0' "/tmp/$tag.console" | tail -90
+            awk '/^MEMPROF /{n++} n>0' "/tmp/$tag.console" | tail -80
             echo "======== END $tag"
           }
 
-          # one relative path, then the absolute path make passes for the hack models
-          probe rel --capture-textual alloc.sil
-          probe abs --capture-textual "$ROOT/infer/lib/hack/models.sil"
+          # does the binary get through its own initialisation at all?
+          probe version --version
+          # a relative -o, an absolute -o, then the paths the test really uses
+          probe rel -o infer-out-rel --capture-textual alloc.sil
+          probe abs -o /tmp/infer-out-abs --capture-textual alloc.sil
+          probe test --quiet --no-progress-bar --pulse-only --no-pulse-force-continue \
+            --debug-exceptions --dump-duplicate-symbols -o infer-out-test \
+            --capture-textual alloc.sil --capture-textual "$ROOT/infer/lib/hack/models.sil"
