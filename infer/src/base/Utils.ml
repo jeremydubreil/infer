@@ -82,7 +82,19 @@ let create_outfile fname =
 (** close an outfile *)
 let close_outf outf = Out_channel.close outf.out_c
 
+(** [Filename] follows the conventions of the platform infer runs on, and those of Windows do not
+    suit the path rewriting below: ':' is a directory separator there, so [Filename.parts "C:/dir"]
+    is [["."; "C"; "dir"]] and the drive letter would come back without its colon. So split the
+    drive off before splitting a path into parts, and put it back afterwards. *)
+let split_windows_drive path =
+  if Sys.win32 && String.length path >= 2 && Char.equal path.[1] ':' && Char.is_alpha path.[0] then
+    (Some (String.prefix path 2), String.drop_prefix path 2)
+  else (None, path)
+
+
 let normalize_path_from ~root fname =
+  let root_drive, root = split_windows_drive root in
+  let fname_drive, fname = split_windows_drive fname in
   let add_entry (rev_done, rev_root) entry =
     match (entry, rev_done, rev_root) with
     | ".", _, _ ->
@@ -114,17 +126,22 @@ let normalize_path_from ~root fname =
   in
   let rev_result, rev_root = Filename.parts fname |> List.fold ~init:([], rev_root) ~f:add_entry in
   (* don't use [Filename.of_parts] because it doesn't like empty lists and produces relative paths
-     "./like/this" instead of "like/this" *)
-  let filename_of_rev_parts = function
-    | [] ->
-        "."
-    | _ :: _ as rev_parts ->
-        let parts = List.rev rev_parts in
-        if String.equal (List.hd_exn parts) "/" then
-          "/" ^ String.concat ~sep:Filename.dir_sep (List.tl_exn parts)
-        else String.concat ~sep:Filename.dir_sep parts
+     "./like/this" instead of "like/this". Join with '/' rather than [Filename.dir_sep], which is a
+     backslash on Windows: infer builds its paths with [^/] and compares them as strings. *)
+  let filename_of_rev_parts drive rev_parts =
+    let path =
+      match rev_parts with
+      | [] ->
+          "."
+      | _ :: _ ->
+          let parts = List.rev rev_parts in
+          if String.equal (List.hd_exn parts) "/" then
+            "/" ^ String.concat ~sep:"/" (List.tl_exn parts)
+          else String.concat ~sep:"/" parts
+    in
+    match drive with None -> path | Some drive -> drive ^ path
   in
-  (filename_of_rev_parts rev_result, filename_of_rev_parts rev_root)
+  (filename_of_rev_parts fname_drive rev_result, filename_of_rev_parts root_drive rev_root)
 
 
 let normalize_path fname = fname |> normalize_path_from ~root:"." |> fst
