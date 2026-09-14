@@ -248,8 +248,9 @@ install_opam_deps () {
     opam pin add --no-action base_bigstring "$INFER_ROOT"/dependencies/base_bigstring
     # parmap and ANSITerminal both fail to compile under mingw with GCC 14, which promoted
     # -Wincompatible-pointer-types and -Wimplicit-function-declaration from warnings to errors.
-    # Neither is fixed upstream (both are the latest release, and both defects are still present
-    # on their respective master branches), so we vendor them verbatim with a one-line fix each:
+    # Neither is fixed in a release (both are the latest release, and both defects are still
+    # present on their respective master branches), so we vendor them verbatim with a one-line fix
+    # each:
     #
     #   - parmap declares `long len` and passes `&len` to caml_output_value_to_malloc and
     #     caml_ba_alloc, which take `intnat *`. Windows x86_64 is LLP64, so `long` is 4 bytes
@@ -258,6 +259,14 @@ install_opam_deps () {
     #   - ANSITerminal passes an `int *` where FillConsoleOutputCharacter wants an LPDWORD. The
     #     file it lives in is compiled on Windows only (src/dune picks between the _unix_ and
     #     _win_ stubs via choose_implementation.exe), so this cannot affect other platforms.
+    #
+    #     https://github.com/Chris00/ANSITerminal/pull/9 fixes this defect and the two others we
+    #     patch in ANSITerminal_win_stubs.c, with the same changes we made. It is not a way out of
+    #     this pin: it has sat open and unreviewed since January 2024, and upstream master is still
+    #     identical to the 0.8.5 tag from July 2022, so nothing suggests a release will contain it.
+    #     It also bundles a restructuring we do not want -- it merges the Unix and Windows stubs
+    #     into a single file, deletes choose_implementation.ml, and picks the implementation at run
+    #     time from an ANSITerminal env variable. Worth revisiting if it ever lands and ships.
     #
     # Pinned unconditionally for the same reason as base_bigstring above: so that Linux and
     # macOS exercise the same code path and it cannot silently drift.
