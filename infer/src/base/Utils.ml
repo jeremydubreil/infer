@@ -297,8 +297,23 @@ let out_channel_create_with_dir fname =
     Out_channel.create fname
 
 
+(** On Windows [Unix.realpath] goes through [GetFinalPathNameByHandle], which answers in the
+    extended-length form [\\?\C:\dir\file] (or [\\?\UNC\server\share\file] for network paths). Infer
+    manipulates paths with POSIX conventions, and in particular [Filename.parts] loops forever on a
+    path rooted at a backslash, so bring such a path back to the [C:/dir/file] form. *)
+let of_win32_extended_path path =
+  let path = String.tr ~target:'\\' ~replacement:'/' path in
+  match String.chop_prefix path ~prefix:"//?/UNC/" with
+  | Some share_path ->
+      "//" ^ share_path
+  | None ->
+      String.chop_prefix path ~prefix:"//?/" |> Option.value ~default:path
+
+
 let realpath ?(warn_on_error = true) path =
-  try Unix.realpath path
+  try
+    let real_path = Unix.realpath path in
+    if Sys.win32 then of_win32_extended_path real_path else real_path
   with Unix.Unix_error (code, _, arg) as exn ->
     IExn.reraise_after exn ~f:(fun () ->
         if warn_on_error then
