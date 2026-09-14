@@ -59,3 +59,26 @@ end
    [ocamldep], which runs before ppx expansion. This way any file that depends on [IStd]
    automatically depends on [HashNormalizer], which is enough for now. *)
 module _ = HashNormalizer
+
+(* TEMPORARY: with INFER_MEMPROF=<n> set, print the OCaml call stack of every [n]th sampled
+   allocation. This lives in IStd so that it is installed before any other module of infer is
+   initialised: gdb cannot unwind OCaml frames on Windows and a Gc alarm needs a major cycle to
+   complete, but a memprof callback runs on the allocating stack itself. *)
+let () =
+  match Stdlib.Sys.getenv_opt "INFER_MEMPROF" with
+  | None ->
+      ()
+  | Some every ->
+      let every = Option.value (Stdlib.int_of_string_opt every) ~default:200 in
+      let samples = ref 0 in
+      let sample : Stdlib.Gc.Memprof.allocation -> unit option =
+       fun alloc ->
+        Stdlib.incr samples ;
+        if Int.equal (Int.rem !samples every) 0 then
+          Stdlib.Printf.eprintf "MEMPROF sample=%d size=%d\n%s\n%!" !samples alloc.size
+            (Stdlib.Printexc.raw_backtrace_to_string alloc.callstack) ;
+        None
+      in
+      ignore
+        (Stdlib.Gc.Memprof.start ~sampling_rate:1e-4 ~callstack_size:25
+           {Stdlib.Gc.Memprof.null_tracker with alloc_minor= sample; alloc_major= sample} )
