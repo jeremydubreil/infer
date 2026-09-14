@@ -4,4 +4,6 @@
 ; This source code is licensed under the MIT license found in the
 ; LICENSE file in the root directory of this source tree.
 
-(context (opam (switch @OPAMSWITCH@) (name default) (merlin)))
+; the switch is quoted because on Windows it can be a native path, e.g. `D:\a\infer\infer` for a
+; local switch, and dune only accepts backslashes inside a quoted string (escaped, as `\\`)
+(context (opam (switch "@OPAMSWITCH@") (name default) (merlin)))
