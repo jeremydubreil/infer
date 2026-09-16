@@ -41,7 +41,7 @@ jobs:
 
       - run: ./build-infer.sh --yes --user-opam-switch java
 
-      - name: Which command of the java pulse test hangs?
+      - name: Does the java pulse test still hang?
         run: |
           set +e
           ROOT="$PWD"
@@ -87,33 +87,11 @@ jobs:
             echo "======== END $tag"
           }
 
-          CP="$(make --no-print-directory print-CLASSPATH | sed 's/^CLASSPATH=//')"
-          read -r -a OPTS <<< "$(make --no-print-directory print-INFER_OPTIONS | sed 's/^INFER_OPTIONS=//')"
-          JAVAC="$(make --no-print-directory print-JAVAC | sed 's/^JAVAC=//')"
-          echo "======== JAVAC=$JAVAC"
-          echo "======== INFER_OPTIONS=${OPTS[*]}"
-
-          rm -rf infer-out issues.exp.test
-
-          # 1. the capture and analysis the test really runs, with the test's own flags
-          watch_run capture 420 "$INFER" --project-root ../../.. --dump-duplicate-symbols \
-            -o infer-out "${OPTS[@]}" -- \
-            $JAVAC -g --release 21 -cp "$CP" *.java taint/*.java
-          capture_rc="$RC"
-
-          # 2. the report that turns it into issues.exp.test
-          if [ "$capture_rc" != TIMEOUT ]; then
-            watch_run report 180 "$INFER" report -q --results-dir infer-out --issues-tests \
-              issues.exp.test
-            echo "-------- issues.exp.test: $(wc -l < issues.exp.test 2>/dev/null) lines"
-          fi
-
-          # 3. the comparison with the expected output, as check_no_diff runs it
-          watch_run diff 120 bash -c 'cd ../../.. && git --no-pager diff --color=auto --no-ext-diff \
-            --no-index --word-diff --unified=1 --minimal \
-            $(realpath codetoanalyze/java/pulse/issues.exp) \
-            $(realpath codetoanalyze/java/pulse/issues.exp.test)'
-
-          # 4. and finally the whole thing, from scratch, as CI runs it
-          rm -rf infer-out issues.exp.test
-          watch_run maketest 600 make --trace test
+          # The analysis only re-queues a work packet, and so only used to loop forever, when two
+          # workers really do race for the same procedure, which does not happen on every run: run
+          # the whole test a few times to tell a fix from a lucky schedule.
+          for round in 1 2 3; do
+            rm -rf infer-out issues.exp.test
+            watch_run "maketest$round" 480 make --trace test
+            echo "======== round $round rc=$RC"
+          done
