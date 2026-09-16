@@ -1,4 +1,4 @@
-# TEMPORARY: find what still allocates without bound during the sil pulse test on Windows.
+# TEMPORARY: find which command of the java pulse test hangs on Windows.
 
 name: windows-alloc-debug
 
@@ -41,63 +41,79 @@ jobs:
 
       - run: ./build-infer.sh --yes --user-opam-switch java
 
-      - name: How far does the java capture get?
+      - name: Which command of the java pulse test hangs?
         run: |
           set +e
           ROOT="$PWD"
           INFER="$ROOT/infer/bin/infer.exe"
           cd infer/tests/codetoanalyze/java/pulse
-          CP="$(make --no-print-directory print-CLASSPATH | sed 's/^CLASSPATH=//')"
-          echo "======== class path"
-          echo "$CP" | tr ';:' '\n'
-          rm -rf infer-out-java
-          "$INFER" --project-root ../../.. -o infer-out-java --pulse-only --debug \
-            --debug-exceptions -- javac -g --release 21 -cp "$CP" *.java taint/*.java \
-            > /tmp/java.console 2>&1
-          echo "======== rc=$?"
-          head -40 /tmp/java.console
-          echo "======== results dir"
-          ls infer-out-java infer-out-java/tmp 2>&1 | head -30
-          echo "======== javac -verbose output, head"
-          head -30 infer-out-java/tmp/javac*.out 2>&1
-          echo "======== javac -verbose output, tail"
-          tail -20 infer-out-java/tmp/javac*.out 2>&1
-          echo "======== infer log, tail"
-          tail -80 infer-out-java/logs 2>&1
-          echo "======== does the whole test pass?"
-          make test 2>&1 | tail -40
 
-      - name: Where does the sil capture spin?
-        run: |
-          set +e
-          ROOT="$PWD"
-          INFER="$ROOT/infer/bin/infer.exe"
-          cd infer/tests/codetoanalyze/sil/pulse
-
-          # INFER_MEMPROF=n prints the OCaml call stack of every nth sampled allocation, which is
-          # the only way to see OCaml frames here: gdb cannot unwind them and a Gc alarm needs a
-          # major cycle to complete.
-          probe () {
-            tag="$1" ; shift
+          # Run a command with a watchdog: if it is still alive after $2 seconds, print what the
+          # whole process tree is doing (this is the only way to see which command is stuck: the
+          # test redirects everything to files) and only then kill it.
+          RC=""
+          watch_run () {
+            tag="$1" ; secs="$2" ; shift 2
             echo "======== BEGIN $tag: $*"
-            rm -rf "infer-out-$tag"
-            INFER_MEMPROF=2000 timeout -v -s KILL 60 "$INFER" "$@" > "/tmp/$tag.console" 2>&1
-            echo "-------- rc=$? console_bytes=$(wc -c < "/tmp/$tag.console")"
-            echo "-------- console, without the MEMPROF lines"
-            grep -v '^MEMPROF \|^\s*Called from\|^\s*Raised by' "/tmp/$tag.console" | head -20
-            echo "-------- results dir"
-            find "infer-out-$tag" -maxdepth 1 2>&1 | head -20
-            echo "-------- the last few allocation call stacks"
-            grep -c '^MEMPROF ' "/tmp/$tag.console" | sed 's/^/MEMPROF samples printed: /'
-            awk '/^MEMPROF /{n++} n>0' "/tmp/$tag.console" | tail -80
+            "$@" > "/tmp/$tag.log" 2>&1 &
+            pid=$!
+            waited=0
+            while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$secs" ]; do
+              sleep 5
+              waited=$((waited + 5))
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "-------- $tag IS STILL RUNNING after ${secs}s"
+              echo "-------- processes"
+              powershell -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.Name -match "infer|java|git|make|sh|bash|grep|diff|sed" } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List'
+              echo "-------- infer log, tail"
+              tail -30 infer-out/logs 2>/dev/null
+              echo "-------- _build_logs, tail"
+              for f in "$ROOT"/_build_logs/*; do
+                echo "---- $f"
+                tail -20 "$f"
+              done
+              kill -9 "$pid" 2>/dev/null
+              taskkill //F //T //IM infer.exe 2>/dev/null
+              taskkill //F //T //IM java.exe 2>/dev/null
+              taskkill //F //T //IM javac.exe 2>/dev/null
+              RC="TIMEOUT"
+            else
+              wait "$pid"
+              RC="$?"
+            fi
+            echo "-------- $tag rc=$RC, output tail:"
+            tail -40 "/tmp/$tag.log"
             echo "======== END $tag"
           }
 
-          # does the binary get through its own initialisation at all?
-          probe version --version
-          # a relative -o, an absolute -o, then the paths the test really uses
-          probe rel -o infer-out-rel --capture-textual alloc.sil
-          probe abs -o /tmp/infer-out-abs --capture-textual alloc.sil
-          probe test --quiet --no-progress-bar --pulse-only --no-pulse-force-continue \
-            --debug-exceptions --dump-duplicate-symbols -o infer-out-test \
-            --capture-textual alloc.sil --capture-textual "$ROOT/infer/lib/hack/models.sil"
+          CP="$(make --no-print-directory print-CLASSPATH | sed 's/^CLASSPATH=//')"
+          read -r -a OPTS <<< "$(make --no-print-directory print-INFER_OPTIONS | sed 's/^INFER_OPTIONS=//')"
+          JAVAC="$(make --no-print-directory print-JAVAC | sed 's/^JAVAC=//')"
+          echo "======== JAVAC=$JAVAC"
+          echo "======== INFER_OPTIONS=${OPTS[*]}"
+
+          rm -rf infer-out issues.exp.test
+
+          # 1. the capture and analysis the test really runs, with the test's own flags
+          watch_run capture 420 "$INFER" --project-root ../../.. --dump-duplicate-symbols \
+            -o infer-out "${OPTS[@]}" -- \
+            $JAVAC -g --release 21 -cp "$CP" *.java taint/*.java
+          capture_rc="$RC"
+
+          # 2. the report that turns it into issues.exp.test
+          if [ "$capture_rc" != TIMEOUT ]; then
+            watch_run report 180 "$INFER" report -q --results-dir infer-out --issues-tests \
+              issues.exp.test
+            echo "-------- issues.exp.test: $(wc -l < issues.exp.test 2>/dev/null) lines"
+          fi
+
+          # 3. the comparison with the expected output, as check_no_diff runs it
+          watch_run diff 120 bash -c 'cd ../../.. && git --no-pager diff --color=auto --no-ext-diff \
+            --no-index --word-diff --unified=1 --minimal \
+            $(realpath codetoanalyze/java/pulse/issues.exp) \
+            $(realpath codetoanalyze/java/pulse/issues.exp.test)'
+
+          # 4. and finally the whole thing, from scratch, as CI runs it
+          rm -rf infer-out issues.exp.test
+          watch_run maketest 600 make --trace test
