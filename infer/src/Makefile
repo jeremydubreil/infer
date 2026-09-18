@@ -115,13 +115,18 @@ watch: $(SRC_BUILD_COMMON)
 # The targets below are marked as .PHONY because if you build with one profile `make
 # BUILD_MODE=dev` and then try with another profile `make BUILD_MODE=opt`, make won't
 # trigger a rebuild since it has only partial view on the dependencies.
+#
+# They are phony *names* rather than the promoted paths themselves because on Windows
+# $(INFER_NATIVE_EXE) and $(INFER_BIN) are the same file, and a phony $(INFER_BIN) would make the
+# alias rule below re-run dune -- re-promoting the native executable on top of the bytecode one
+# that `byte` has just installed.
 
-.PHONY: $(INFER_BIN).exe
-$(INFER_BIN).exe: $(SRC_BUILD_COMMON) $(MAKEFILE_LIST)
+.PHONY: infer_exe
+infer_exe: $(SRC_BUILD_COMMON) $(MAKEFILE_LIST)
 	$(QUIET)$(DUNE_BUILD) $(INFER_MAIN).exe
 
-.PHONY: $(INFER_BIN).bc.exe
-$(INFER_BIN).bc.exe: $(SRC_BUILD_COMMON) $(MAKEFILE_LIST)
+.PHONY: infer_bc_exe
+infer_bc_exe: $(SRC_BUILD_COMMON) $(MAKEFILE_LIST)
 	$(QUIET)$(DUNE_BUILD) $(INFER_MAIN).bc.exe
 
 .PHONY: $(INFERTOP_BIN) toplevel
@@ -135,19 +140,19 @@ $(CHECKCOPYRIGHT_BIN): $(SRC_BUILD_COMMON) $(MAKEFILE_LIST)
 checkCopyright: $(CHECKCOPYRIGHT_BIN)
 
 .PHONY: infer
-infer: $(INFER_BIN).exe
-	$(INSTALL_PROGRAM) -C $(INFER_BIN).exe $(INFER_BIN)
+infer: infer_exe
+	$(INSTALL_PROGRAM) -C $(INFER_NATIVE_EXE) $(INFER_BIN)
 	$(MAKE) $(INFER_BIN_ALIASES)
 
 .PHONY: byte
-byte: $(INFER_BIN).bc.exe
-	$(INSTALL_PROGRAM) -C $(INFER_BIN).bc.exe $(INFER_BIN)
+byte: infer_bc_exe
+	$(INSTALL_PROGRAM) -C $(INFER_BYTE_EXE) $(INFER_BIN)
 	$(MAKE) $(INFER_BIN_ALIASES)
 
-INFER_BIN_ALIASES = $(foreach alias,$(INFER_COMMANDS),$(BIN_DIR)/$(alias))
-$(INFER_BIN_ALIASES): Makefile $(BIN_DIR)/$(INFER_MAIN)
+INFER_BIN_ALIASES = $(foreach alias,$(INFER_COMMANDS),$(BIN_DIR)/$(alias)$(EXE))
+$(INFER_BIN_ALIASES): Makefile $(INFER_BIN)
 	$(REMOVE) $@
-	$(QUIET)cd $(@D) && $(LN_S) -f infer $(@F)
+	$(QUIET)cd $(@D) && $(LN_S) -f $(INFER_MAIN)$(EXE) $(@F)
 	$(QUIET)touch $@
 
 roots:=Infer
@@ -226,6 +231,14 @@ endif
 
 BUILD_ARCH := $(shell uname -m)
 
+# On Windows a local opam switch is a native path, e.g. `D:\a\infer\infer`, and dune-workspace has
+# to reproduce it exactly since dune passes it to `opam config env --switch`. Getting a single
+# backslash there takes four in this variable: `sed` turns `\\` into `\` in a replacement (which is
+# what mangled `\a` into a bell character before this was escaped), and dune then turns `\\` into
+# `\` inside the quoted string. `make` itself does no unescaping, and the substitution below is
+# single-quoted so the shell does none either. No-op on Unix, where the switch is a plain name.
+OPAMSWITCH_SEXP := $(subst \,\\\\,$(OPAMSWITCH))
+
 $(GENERATED_FROM_AUTOCONF): $(MAKEFILE_LIST)
 	TMPFILE=$$(mktemp $@.tmp.XXXX); \
 	INFER_GIT_COMMIT=$$(git --work-tree=$(ROOT_DIR) --git-dir=$(ROOT_DIR)/.git rev-parse --short HEAD || printf "unknown"); \
@@ -248,7 +261,7 @@ $(GENERATED_FROM_AUTOCONF): $(MAKEFILE_LIST)
 	  -e "s|@BUILD_ARCH[@]|$(BUILD_ARCH)|g" \
 	  -e "s|@BUILD_RUST_ANALYZERS[@]|$(BUILD_RUST_ANALYZERS)|g" \
 	  -e "s|@BUILD_SWIFT_ANALYZERS[@]|$(BUILD_SWIFT_ANALYZERS)|g" \
-	  -e "s|@OPAMSWITCH[@]|$(OPAMSWITCH)|g" \
+	  -e 's|@OPAMSWITCH[@]|$(OPAMSWITCH_SEXP)|g' \
 	  -e "s|@XCODE_SELECT[@]|$(XCODE_SELECT)|g" \
 	  -e "s|@INFER_MAN_LAST_MODIFIED[@]|$(INFER_MAN_LAST_MODIFIED)|g" \
 	  -e "s|@PYTHON[@]|$(PYTHON)|g" \
