@@ -92,7 +92,11 @@ depends: [
   "ocaml-variants" {= "5.4.1+options"}
   "ocaml_intrinsics_kernel" {= "v0.17.2"}
   "ocamlbuild" {= "0.16.1"}
-  "ocamlfind" {= "1.9.8"}
+  # OS-conditional so that Linux/macOS keep resolving to exactly 1.9.8 as before. No ocamlfind
+  # release currently works on native Windows with OCaml 5: 1.9.6 is `available: os != "win32"`,
+  # and 1.9.8's own `ocaml` bound collapses to `< 5.0` when os-distribution = msys2. See the
+  # rationale in infer.opam.
+  "ocamlfind" {(= "1.9.8" & os != "win32") | (= "1.9.9~preview" & os = "win32")}
   "ocamlgraph" {= "2.2.0"}
   "ocplib-endian" {= "1.2"}
   "octavius" {= "1.2.2"}
