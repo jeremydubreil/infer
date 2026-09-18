@@ -89,7 +89,11 @@ case "${OS}" in
             Darwin*)
                 BUILD_PLATFORM=Darwin
                 ;;
-            cygwin*|mingw*)
+            # $OS is normally set to Windows_NT and handled above, but it does not survive every
+            # way of entering a Unix shell on Windows, so also recognise the names uname prints
+            # there: MINGW64_NT-10.0-26100 from the MSYS2 mingw64 shell, MSYS_NT-... from the
+            # MSYS2 msys shell and CYGWIN_NT-... from Cygwin.
+            cygwin*|mingw*|CYGWIN*|MINGW*|MSYS*)
                 BUILD_PLATFORM=Windows
                 ;;
             *)
@@ -263,6 +267,17 @@ AC_SUBST([XCODE_BASE])
 AC_SUBST([HAS_OBJC])
 AC_SUBST([SDKROOT])
 
+
+# On Windows the switch is a mingw one: ocamlc drives x86_64-w64-mingw32-gcc and every C stub in
+# the switch is compiled with it, so infer's C compiler has to be that same mingw gcc. Both the
+# GitHub runner images and the usual developer setups also have an MSVC-targeting clang on the
+# PATH, which AC_PROG_CC below would prefer; that one emits objects for a different ABI and its
+# linker does not search MSYS2's /mingw64, so even the -lz check further down fails. Preferring
+# clang costs nothing here because it is only about the facebook-clang-plugins' clang-specific
+# #pragma's, and the C analyzers are not built on Windows. This only presets CC, which AC_PROG_CC
+# treats as a user override, so `./configure CC=...` still wins.
+AS_IF([test x"$WINDOWS_BUILD" = x"yes" && test x"$CC" = x],
+      [AC_CHECK_PROGS([CC], [x86_64-w64-mingw32-gcc gcc])])
 
 # prefer clang over gcc because the plugins makes use of
 # clang-specific #pragma's

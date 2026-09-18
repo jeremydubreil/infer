@@ -17,4 +17,24 @@ JSR305 = $(DEPENDENCIES_DIR)/java/jsr-305/jsr305.jar
 KOTLIN_ANNOTATIONS = $(DEPENDENCIES_DIR)/java/kotlin-annotations/kotlin-annotations-jvm-1.3.72.jar
 SUNTOOLS = $(DEPENDENCIES_DIR)/java/sun-tools/tools.jar
 
-CLASSPATH=$(ANDROID):$(ANDROIDX_COLLECTION):$(ANDROIDSUPPORT):$(INFER_ANNOTATIONS_JAR):$(GUAVA):$(JACKSON):$(JSR305):$(INJECT):$(KOTLIN_ANNOTATIONS):$(SUNTOOLS):$(TEST_CLASSPATH):.
+# Windows expects the entries of a class path in native form and separated by ';' rather than ':',
+# which is a drive separator there. `cygpath -m` answers the `D:/dir` form, which javac, the JVM and
+# infer's java frontend (it splits on `JFile.sep`, a ';' there) all understand.
+ifeq ($(WINDOWS_BUILD),yes)
+CLASSPATH_SEP := ;
+native_path = $(shell cygpath -m '$(1)')
+else
+CLASSPATH_SEP := :
+native_path = $(1)
+endif
+
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+classpath_of = \
+  $(subst $(SPACE),$(CLASSPATH_SEP),$(strip $(foreach entry,$(1),$(call native_path,$(entry)))))
+
+# the '.' is where javac writes the classes it compiles, and stays as it is: a relative path needs no
+# conversion, and every user of $(CLASSPATH) runs javac in the directory it refers to
+CLASSPATH = $(call classpath_of,$(ANDROID) $(ANDROIDX_COLLECTION) $(ANDROIDSUPPORT) \
+  $(INFER_ANNOTATIONS_JAR) $(GUAVA) $(JACKSON) $(JSR305) $(INJECT) $(KOTLIN_ANNOTATIONS) \
+  $(SUNTOOLS) $(TEST_CLASSPATH))$(CLASSPATH_SEP).
