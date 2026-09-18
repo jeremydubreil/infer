@@ -31,7 +31,21 @@ depends: [
   "menhir" {>= "20220210"}
   "mtime" {>="2"}
   "ocaml" {>="5.4.1"}
-  "ocamlfind" {build}
+  # No released ocamlfind works on native Windows with OCaml 5, so Windows needs the 1.9.9
+  # preview. Every earlier version in opam-repository is ruled out:
+  #   - 1.9.5 and older: "ocaml" {< "5.0"}, contradicting the `ocaml >= 5.4.1` above;
+  #   - 1.9.6:           available: os != "win32";
+  #   - 1.9.8:           "ocaml" {... & (os != "cygwin" & os-distribution != "msys2" | < "5.0") ...},
+  #                      which collapses to `ocaml < 5.0` on msys2, and so also contradicts it.
+  # 1.9.9~preview drops both the availability exclusion and the os-conditioned bound, because
+  # findlib upstream fixed Windows between 1.9.8 and that snapshot -- it reworked the cygpath
+  # handling and CR stripping in its configure script and added MSYS2 to its own CI.
+  #
+  # Constrained only on win32 so that Linux/macOS keep resolving exactly as they did before;
+  # `>=` rather than `=` so a 1.9.9 or later release supersedes the preview automatically. Note
+  # 1.9.9~preview carries `flags: avoid-version`, which is a soft solver preference, and it is
+  # the only remaining candidate on Windows, so the solver still selects it.
+  "ocamlfind" {build & (os != "win32" | >= "1.9.9~preview")}
   "ocamlgraph"
   "ounit" {>="2.0.5"}
   "parmap" {>="1.0-rc8"}

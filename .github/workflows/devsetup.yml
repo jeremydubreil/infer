@@ -13,10 +13,18 @@ jobs:
           - ubuntu-latest
           - macos-26
           - macos-26-intel
+          - windows-2025
         ocaml-compiler:
           - ocaml-variants.5.4.1+options
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # The build is bash- and GNU make-driven on every platform (build-infer.sh uses `set -e -o
+        # pipefail -u`, uname and getconf, and Makefile.config pins `SHELL := bash`), so it cannot
+        # run under the Windows runner's default PowerShell. On Windows this resolves to the MSYS2
+        # bash that the dependency step below puts first on the PATH.
+        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -24,6 +32,32 @@ jobs:
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: brew install automake coreutils zlib
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        # autogen.sh runs `autoreconf -fi` and the whole build is driven by GNU make, neither of
+        # which ships with the runner's default shells. MSYS2 is preinstalled on GitHub's Windows
+        # images, so we use it both as the build shell and as opam's Unix environment
+        # (windows-environment below). Using one Unix runtime rather than mixing MSYS2 with opam's
+        # internal Cygwin avoids two mount tables and two C runtimes in one build.
+        shell: C:\msys64\usr\bin\bash.exe --noprofile --norc -eo pipefail {0}
+        run: |
+          # The runner image ships MSYS2 at C:\msys64 but deliberately keeps it off PATH, and
+          # --noprofile --norc means /etc/profile never adds it either. So nothing from MSYS2 --
+          # not even pacman or cygpath -- resolves until we put its bin directories on PATH.
+          export PATH="/mingw64/bin:/usr/bin:$PATH"
+          # MSYS2 has no plain `autoconf`/`automake` package; the wrappers are the real package
+          # names and pull in the versioned tools (autoconf2.7x, automake1.1x) as dependencies.
+          # `make` also comes from setup-ocaml below, but this step should stand on its own.
+          pacman -S --needed --noconfirm autoconf-wrapper automake-wrapper make
+          # Expose the MSYS2 tools to the steps that follow. $GITHUB_PATH entries are *prepended*
+          # to PATH, which matters twice over: it is what makes `shell: bash` above resolve to
+          # MSYS2's bash rather than Git for Windows', and Makefile.config pins `SHELL := bash`,
+          # so without winning that race the recipes would run under a second Cygwin runtime with
+          # its own mount table. $GITHUB_PATH itself is a Windows path, so translate it first.
+          github_path="$(cygpath -u "$GITHUB_PATH")"
+          echo 'C:\msys64\mingw64\bin' >> "$github_path"
+          echo 'C:\msys64\usr\bin' >> "$github_path"
 
       - name: Setup Java SDK
         uses: actions/setup-java@v5
@@ -35,6 +69,10 @@ jobs:
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          # Both inputs are ignored on non-Windows runners. mingw is the toolchain the dependency
+          # set was validated against, and the one the vendored C stubs target (__MINGW32__).
+          windows-compiler: mingw
+          windows-environment: msys2
 
       - run: ./build-infer.sh --yes --user-opam-switch java
       - run: make -C infer/src clean
