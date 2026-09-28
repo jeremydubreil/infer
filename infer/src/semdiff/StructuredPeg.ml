@@ -711,17 +711,47 @@ and convert_loop (env : Env.t) (body : S.t) : convert_result =
       List.fold theta_var_placeholders ~init:loop_env.locals ~f:(fun locals (name, placeholder) ->
           LocalsMap.store locals ~name ~atom:(mk_exit_value placeholder) )
     in
-    {loop_env with Env.state= exit_state; locals= exit_locals}
+    ({loop_env with Env.state= exit_state; locals= exit_locals}, mk_exit_value)
+  in
+  (* An exit escaping the loop from inside its body (e.g. a [return] that the compiler inlined into
+     the loop header's exit branch) computes its value from the theta placeholders: rewrite them
+     into their exit values, as if the value had been computed after the loop. *)
+  let subst_thetas ~mk_exit_value atom =
+    let placeholders = theta_state_placeholder :: List.map theta_var_placeholders ~f:snd in
+    let module AtomMap = Stdlib.Map.Make (CC.Atom) in
+    let memo = ref AtomMap.empty in
+    let rec subst atom =
+      match AtomMap.find_opt atom !memo with
+      | Some atom' ->
+          atom'
+      | None ->
+          let atom' =
+            if List.mem placeholders atom ~equal:CC.Atom.equal then mk_exit_value atom
+            else
+              match CC.get_enode cc atom with
+              | Some {head; children} ->
+                  CC.mk_term cc (CC.unsafe_header_of_atom head) (List.map children ~f:subst)
+              | None ->
+                  atom
+          in
+          memo := AtomMap.add atom atom' !memo ;
+          atom'
+    in
+    subst atom
+  in
+  let exit_atom ~mk_exit_value atom =
+    if CC.is_equiv cc atom (mk_const cc "@back_edge") then atom
+    else subst_thetas ~mk_exit_value atom
   in
   match body_result with
   | Exit {depth= 0; atom; cond_stack; env= body_env} ->
-      let exit_env = close_and_exit ~cond_stack body_env in
-      Normal (atom, exit_env)
+      let exit_env, mk_exit_value = close_and_exit ~cond_stack body_env in
+      Normal (exit_atom ~mk_exit_value atom, exit_env)
   | Exit ({depth; _} as e) ->
-      let exit_env = close_and_exit ~cond_stack:e.cond_stack e.env in
-      Exit {depth= depth - 1; atom= e.atom; cond_stack= []; env= exit_env}
+      let exit_env, mk_exit_value = close_and_exit ~cond_stack:e.cond_stack e.env in
+      Exit {depth= depth - 1; atom= exit_atom ~mk_exit_value e.atom; cond_stack= []; env= exit_env}
   | Normal (atom, body_env) ->
-      let exit_env = close_and_exit ~cond_stack:[] body_env in
+      let exit_env, _ = close_and_exit ~cond_stack:[] body_env in
       Normal (atom, exit_env)
 
 

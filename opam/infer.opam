@@ -42,7 +42,7 @@ depends: [
   "ppx_fields_conv" {>= "v0.17" & < "v0.18"}
   "ppx_show"
   "ppx_yojson_conv" {>= "v0.17" & < "v0.18"}
-  "pyml" {= "20220905"}
+  "pyml" {= "20250807"}
   "sawja" {>="1.5.11"}
   "saturn"
   "sedlex" {>="3.0"}

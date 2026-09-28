@@ -419,6 +419,8 @@ let builtin_name builtin =
       "py_typevar_with_constraints"
   | BinaryIntrinsic SetFunctionTypeParams ->
       "py_set_function_type_params"
+  | BinaryIntrinsic SetTypeparamDefault ->
+      "py_set_typeparam_default"
 
 
 let str_py_store_name = "py_store_name"
