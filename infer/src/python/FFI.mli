@@ -21,7 +21,9 @@ module Error : sig
   val pp_kind : Format.formatter -> kind -> unit
 end
 
-type version = Python_3_10 | Python_3_12 [@@deriving equal, compare]
+type version = Python_3_10 | Python_3_12 | Python_3_14 [@@deriving equal, compare]
+
+val pp_version : Format.formatter -> version -> unit
 
 module rec Constant : sig
   type t = private
@@ -34,6 +36,7 @@ module rec Constant : sig
     | PYCBytes of bytes
     | PYCTuple of t array
     | PYCFrozenSet of t list
+    | PYCSlice of {start: t; stop: t; step: t}
     | PYCCode of Code.t
     | PYCNone
   [@@deriving compare, equal]

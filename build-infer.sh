@@ -253,7 +253,7 @@ install_opam_deps () {
 # infer's local opam repository provides:
 #   - our own LLVM OCaml bindings, which we need regardless of the LLVM toolchain used to provide
 #     the LLVM libraries;
-#   - pyml.20220905 with a patch that removes its dependency on stdcompat, whose latest release
+#   - pyml.20250807 with a patch that removes its dependency on stdcompat, whose latest release
 #     (21.1) requires OCaml < 5.4, and a patch that finds libpython when pkg-config lists its
 #     directory only.
 # It must be set up before installing the dependencies.

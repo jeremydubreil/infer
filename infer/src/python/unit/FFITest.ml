@@ -36,11 +36,12 @@ let%test_module "load_code" =
           co_posonlyargcount = 0; co_stacksize = 1; co_kwonlyargcount = 0;
           co_lnotab = [||]; co_consts = [|42; None|];
           instructions =
-          [   0        0 RESUME                            0 ;
-              1        2 LOAD_CONST                        0 (42);
+          [            0 RESUME                            0 ;
+              1        2 LOAD_SMALL_INT                   42 ;
                        4 STORE_NAME                        0 (x);
-                       6 RETURN_CONST                      1 ];
-          version = python3.12 }
+                       6 LOAD_CONST                        1 (None);
+                       8 RETURN_VALUE                      0 ];
+          version = python3.14 }
         |}]
 
 
@@ -56,14 +57,15 @@ let%test_module "load_code" =
           co_kwonlyargcount = 0; co_lnotab = [||];
           co_consts = [|Complex[real:0.000000; imag:5.000000 ]; None|];
           instructions =
-          [   0        0 RESUME                            0 ;
-              1        2 PUSH_NULL                         0 ;
-                       4 LOAD_NAME                         0 (print);
+          [            0 RESUME                            0 ;
+              1        2 LOAD_NAME                         0 (print);
+                       4 PUSH_NULL                         0 ;
                        6 LOAD_CONST                        0 (5j);
                        8 CALL                              1 ;
                       16 POP_TOP                           0 ;
-                      18 RETURN_CONST                      1 ];
-          version = python3.12 }
+                      18 LOAD_CONST                        1 (None);
+                      20 RETURN_VALUE                      0 ];
+          version = python3.14 }
         |}]
 
 
@@ -78,11 +80,12 @@ let%test_module "load_code" =
           co_posonlyargcount = 0; co_stacksize = 1; co_kwonlyargcount = 0;
           co_lnotab = [||]; co_consts = [|None; None|];
           instructions =
-          [   0        0 RESUME                            0 ;
+          [            0 RESUME                            0 ;
               1        2 LOAD_CONST                        0 (Ellipsis);
                        4 STORE_NAME                        0 (x);
-                       6 RETURN_CONST                      1 ];
-          version = python3.12 }
+                       6 LOAD_CONST                        1 (None);
+                       8 RETURN_VALUE                      0 ];
+          version = python3.14 }
         |}]
 
 
@@ -97,10 +100,11 @@ let%test_module "load_code" =
           co_posonlyargcount = 0; co_stacksize = 1; co_kwonlyargcount = 0;
           co_lnotab = [||]; co_consts = [|100000000000000000000; None|];
           instructions =
-          [   0        0 RESUME                            0 ;
+          [            0 RESUME                            0 ;
               1        2 LOAD_CONST                        0 (100000000000000000000);
                        4 STORE_NAME                        0 (x);
-                       6 RETURN_CONST                      1 ];
-          version = python3.12 }
+                       6 LOAD_CONST                        1 (None);
+                       8 RETURN_VALUE                      0 ];
+          version = python3.14 }
         |}]
   end )

@@ -264,4 +264,4 @@ def foo(test):
 |}
   in
   PyIR.test source ;
-  [%expect {| |}]
+  [%expect {| dummy.py:10: SyntaxWarning: 'return' in a 'finally' block |}]
