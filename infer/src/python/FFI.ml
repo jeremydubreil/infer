@@ -54,16 +54,20 @@ module Z = struct
   let pp fmt z = F.pp_print_string fmt (Z.to_string z)
 end
 
-type version = Python_3_10 | Python_3_12 [@@deriving equal, compare]
+type version = Python_3_10 | Python_3_12 | Python_3_14 [@@deriving equal, compare]
 
 let pp_version fmt = function
   | Python_3_10 ->
       F.pp_print_string fmt "python3.10"
   | Python_3_12 ->
       F.pp_print_string fmt "python3.12"
+  | Python_3_14 ->
+      F.pp_print_string fmt "python3.14"
 
 
-let get_version () = match Py.version_pair () with 3, 12 -> Python_3_12 | _ -> Python_3_10
+let get_version () =
+  match Py.version_pair () with 3, 14 -> Python_3_14 | 3, 12 -> Python_3_12 | _ -> Python_3_10
+
 
 type pyConstant =
   | PYCBool of bool
@@ -75,6 +79,7 @@ type pyConstant =
   | PYCBytes of bytes
   | PYCTuple of pyConstant array
   | PYCFrozenSet of pyConstant list
+  | PYCSlice of {start: pyConstant; stop: pyConstant; step: pyConstant}
   | PYCCode of pyCode
   | PYCNone
 
@@ -130,6 +135,8 @@ let rec pp_pyConstant fmt = function
       F.fprintf fmt "(%a)" (Pp.comma_seq pp_pyConstant) (Array.to_list array)
   | PYCFrozenSet list ->
       F.fprintf fmt "{%a}" (Pp.comma_seq pp_pyConstant) list
+  | PYCSlice {start; stop; step} ->
+      F.fprintf fmt "slice(%a, %a, %a)" pp_pyConstant start pp_pyConstant stop pp_pyConstant step
   | PYCCode {co_name} ->
       F.fprintf fmt "<code object %s>" co_name
   | PYCNone ->
@@ -264,7 +271,8 @@ let rec new_py_constant obj =
       let s = Py.String.to_string obj in
       Ok (PYCString s)
     with Py.E _ -> Ok PYCInvalidUnicode )
-  | Unknown ->
+  | Unknown | Iter ->
+      (* frozensets and slices are iterable *)
       let ty = Py.Object.get_type obj in
       let* class_name = read_string "__name__" ty in
       if String.equal "complex" class_name then
@@ -278,6 +286,13 @@ let rec new_py_constant obj =
         (* During testing the order sometimes changed, so let's make it determinist *)
         let lst = List.sort ~compare:compare_pyConstant lst in
         Ok (PYCFrozenSet lst)
+      else if String.equal "slice" class_name then
+        (* since Python 3.14, constant slices are folded *)
+        let read f = read_field obj (fun _ obj -> new_py_constant obj) f in
+        let* start = read "start" in
+        let* stop = read "stop" in
+        let* step = read "step" in
+        Ok (PYCSlice {start; stop; step})
       else Result.map ~f:(fun code -> PYCCode code) (new_py_code obj)
   | Bytes ->
       let s = Py.Bytes.to_bytes obj in
@@ -285,7 +300,7 @@ let rec new_py_constant obj =
   | Float ->
       let f = Py.Float.to_float obj in
       Ok (PYCFloat f)
-  | Callable | Capsule | Closure | Dict | List | Module | Type | Iter | Set ->
+  | Callable | Capsule | Closure | Dict | List | Module | Type | Set ->
       Error (L.InternalError, Error.UnknownByteCodeConstant ty)
 
 
@@ -310,7 +325,7 @@ and new_py_code obj =
     match version with
     | Python_3_10 ->
         read_char_array "co_lnotab" obj
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         Ok [||]
   in
   let* co_consts =
@@ -377,11 +392,12 @@ and new_py_instruction obj =
   let* opt = read_field obj (fun _ x -> Ok x) "arg" in
   let* arg = if Py.is_none opt then Ok 0 else get_int "arg" opt in
   (* [argval] is useful for debugging, but it is difficult to support it for
-     FORMAT_VALUE at the moment, so for this opcode, I'll skip it. It just
+     FORMAT_VALUE and CONVERT_VALUE at the moment, so for these opcodes, I'll skip it. It just
      points to the function to use for formatting, so we don't need it. *)
   let* argval =
     if Py.is_none opt then Ok PYCNone
-    else if String.equal opname "FORMAT_VALUE" then Ok PYCNone
+    else if String.equal opname "FORMAT_VALUE" || String.equal opname "CONVERT_VALUE" then
+      Ok PYCNone
     else
       let* opt = read_field obj (fun _ x -> Ok x) "argval" in
       new_py_constant opt
@@ -391,6 +407,16 @@ and new_py_instruction obj =
   let* starts_line =
     let* opt = read_field obj (fun _ x -> Ok x) "starts_line" in
     if Py.is_none opt then Ok None
+    else if Py.Bool.check opt then
+      (* since Python 3.13, [starts_line] is a boolean and the line is in [line_number] *)
+      if Py.Bool.to_bool opt then
+        let* opt = read_field obj (fun _ x -> Ok x) "line_number" in
+        if Py.is_none opt then Ok None
+        else
+          let* i = get_int "line_number" opt in
+          (* the [RESUME] instruction of a module is attached to the artificial line 0 *)
+          Ok (Option.some_if (i > 0) i)
+      else Ok None
     else
       let* i = get_int "starts_line" opt in
       Ok (Some i)
@@ -432,6 +458,7 @@ module Constant = struct
     | PYCBytes of bytes
     | PYCTuple of t array
     | PYCFrozenSet of t list
+    | PYCSlice of {start: t; stop: t; step: t}
     | PYCCode of Code.t
     | PYCNone
   [@@deriving compare, equal]

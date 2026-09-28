@@ -410,15 +410,12 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              jmp b1
-
-          #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
               _ = $builtins.py_store_fast("y", n1, n4)
-              jmp b2
+              jmp b1
 
-          #b2:
+          #b1:
               n5 = $builtins.py_load_fast("y", n1)
               _ = $builtins.py_nullify_locals(n1, "y")
               ret n5
@@ -435,15 +432,12 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              jmp b1
-
-          #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
               _ = $builtins.py_store_fast("y", n1, n4)
-              jmp b2
+              jmp b1
 
-          #b2:
+          #b1:
               n5 = $builtins.py_load_fast("y", n1)
               _ = $builtins.py_nullify_locals(n1, "y")
               ret n5
@@ -477,9 +471,6 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              jmp b1
-
-          #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
               ret n4
@@ -496,9 +487,6 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              jmp b1
-
-          #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(2))
               ret n4
@@ -536,17 +524,14 @@ def f():
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
+              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
               jmp b1
 
           #b1:
-              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
+              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
               jmp b2
 
           #b2:
-              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
-              jmp b3
-
-          #b3:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_load_fast("y", n1)
               n5 = $builtins.py_binary_add(n3, n4)
@@ -565,17 +550,14 @@ def f():
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
+              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
               jmp b1
 
           #b1:
-              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
+              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
               jmp b2
 
           #b2:
-              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
-              jmp b3
-
-          #b3:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_load_fast("y", n1)
               n5 = $builtins.py_binary_add(n3, n4)
@@ -987,7 +969,15 @@ def f(x):
         θ_i_0 = (@theta_0
                     @undef
                     ($builtins.py_next_iter @theta:state:0 ($builtins.py_get_iter @state0 @param:l)))  [theta_close]
-        PEG: (@ret @theta:state:0 @None)
+        PEG: (@ret
+                 (@exit_value
+                     @theta:state:0
+                     (@not
+                         ($builtins.py_bool
+                             ($builtins.py_has_next_iter
+                                 @theta:state:0
+                                 ($builtins.py_get_iter @state0 @param:l)))))
+                 @None)
         |}]
 
 
@@ -1052,10 +1042,26 @@ def f(l):
       [%expect
         {|
         === PEG ===
-        (@ret @theta:state:0 @None)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:l)))))
+            @None)
         === Tree ===
         @ret
-        ├── @theta:state:0
+        ├── @exit_value
+        │   ├── @theta:state:0
+        │   └── @not
+        │       └── $builtins.py_bool
+        │           └── $builtins.py_has_next_iter
+        │               ├── @theta:state:0
+        │               └── $builtins.py_get_iter
+        │                   ├── @state0
+        │                   └── @param:l
         └── @None
         |}]
 
@@ -1076,10 +1082,26 @@ def f(l):
       [%expect
         {|
         === PEG 1 ===
-        (@ret @theta:state:0 @None)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:l)))))
+            @None)
 
         === PEG 2 ===
-        (@ret @theta:state:0 @None)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:l)))))
+            @None)
 
         equivalent: true
         |}]
@@ -1101,10 +1123,26 @@ def f(l):
       [%expect
         {|
         === PEG 1 ===
-        (@ret @theta:state:0 @None)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:l)))))
+            @None)
 
         === PEG 2 ===
-        (@ret @theta:state:0 @None)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:l)))))
+            @None)
 
         equivalent: false
         |}]
@@ -1135,25 +1173,17 @@ def f(x):
           #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_compare_gt(n3, $builtins.py_make_int(0))
-              if $builtins.py_bool(n4) then jmp b2 else jmp b5
+              if $builtins.py_bool(n4) then jmp b2 else jmp b3
 
           #b2:
-              n5 = $builtins.py_load_fast("x", n1)
-              n6 = $builtins.py_binary_substract(n5, $builtins.py_make_int(1))
-              _ = $builtins.py_store_fast("x", n1, n6)
-              jmp b3
+              n6 = $builtins.py_load_fast("x", n1)
+              n7 = $builtins.py_binary_substract(n6, $builtins.py_make_int(1))
+              _ = $builtins.py_store_fast("x", n1, n7)
+              jmp b1
 
           #b3:
-              n7 = $builtins.py_load_fast("x", n1)
-              n8 = $builtins.py_compare_gt(n7, $builtins.py_make_int(0))
-              if $builtins.py_bool(n8) then jmp b4 else jmp b5
-
-          #b4:
-              jmp b2
-
-          #b5:
-              n9 = $builtins.py_load_fast("x", n1)
-              ret n9
+              n5 = $builtins.py_load_fast("x", n1)
+              ret n5
 
         }
 
@@ -1163,50 +1193,23 @@ def f(x):
         n2     = (@load (@lvar globals))  [let]
         n1     = (@load (@lvar locals))  [let]
         n0     = @None  [let]
-        n3     = @param:x  [load_fast: locals]
-        n4     = ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0))  [let]
-        n5     = @theta:x:0  [load_fast: locals]
-        n6     = ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))  [let]
+        n3     = @theta:x:0  [load_fast: locals]
+        n4     = ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0))  [let]
+        n6     = @theta:x:0  [load_fast: locals]
+        n7     = ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))  [let]
         x      = ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))  [store_fast: locals]
-        n7     = ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))  [load_fast: locals]
-        n8     = ($builtins.py_compare_gt
-                     ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                     ($builtins.py_make_int 0))  [let]
+        n5     = @theta:x:0  [load_fast: locals]
         θ_state_0 = (@theta_0 @state0 @theta:state:0)  [theta_close]
         θ_x_0 = (@theta_0 @param:x ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1)))  [theta_close]
-        n9     = (@phi
-                     ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                     (@exit_value
-                         @theta:x:0
-                         (@not
-                             ($builtins.py_bool
-                                 ($builtins.py_compare_gt
-                                     ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                     ($builtins.py_make_int 0)))))
-                     @param:x)  [load_fast: locals]
 
         === PEG ===
         (@ret
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                (@exit_value
-                    @theta:state:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_gt
-                                ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                ($builtins.py_make_int 0)))))
-                @state0)
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                (@exit_value
-                    @theta:x:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_gt
-                                ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                ($builtins.py_make_int 0)))))
-                @param:x))
+            (@exit_value
+                @theta:state:0
+                (@not ($builtins.py_bool ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0)))))
+            (@exit_value
+                @theta:x:0
+                (@not ($builtins.py_bool ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0))))))
         |}]
 
 
@@ -1223,49 +1226,21 @@ def f(x):
         {|
         === PEG 1 ===
         (@ret
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                (@exit_value
-                    @theta:state:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_gt
-                                ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                ($builtins.py_make_int 0)))))
-                @state0)
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                (@exit_value
-                    @theta:x:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_gt
-                                ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                ($builtins.py_make_int 0)))))
-                @param:x))
+            (@exit_value
+                @theta:state:0
+                (@not ($builtins.py_bool ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0)))))
+            (@exit_value
+                @theta:x:0
+                (@not ($builtins.py_bool ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0))))))
 
         === PEG 2 ===
         (@ret
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                (@exit_value
-                    @theta:state:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_gt
-                                ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                ($builtins.py_make_int 0)))))
-                @state0)
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_gt @param:x ($builtins.py_make_int 0)))
-                (@exit_value
-                    @theta:x:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_gt
-                                ($builtins.py_binary_substract @theta:x:0 ($builtins.py_make_int 1))
-                                ($builtins.py_make_int 0)))))
-                @param:x))
+            (@exit_value
+                @theta:state:0
+                (@not ($builtins.py_bool ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0)))))
+            (@exit_value
+                @theta:x:0
+                (@not ($builtins.py_bool ($builtins.py_compare_gt @theta:x:0 ($builtins.py_make_int 0))))))
 
         equivalent: true
         |}]
@@ -1341,7 +1316,15 @@ def f(l, c):
                     ($builtins.py_next_iter @theta:state:0 ($builtins.py_get_iter @state0 @param:l)))  [theta_close]
 
         === PEG ===
-        (@ret @theta:state:0 @None)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:l)))))
+            @None)
         |}]
 
 

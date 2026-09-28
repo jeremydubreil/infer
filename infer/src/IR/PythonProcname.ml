@@ -139,6 +139,7 @@ type builtin =
   | StoreSubscript
   | Subscript
   | SetFunctionTypeParams
+  | SetTypeparamDefault
   | TypevarWithBound
   | TypevarWithConstraints
   | UnaryInvert
@@ -412,6 +413,8 @@ let show_builtin = function
       "py_subscript"
   | SetFunctionTypeParams ->
       "py_set_function_type_params"
+  | SetTypeparamDefault ->
+      "py_set_typeparam_default"
   | TypevarWithBound ->
       "py_typevar_with_bound"
   | TypevarWithConstraints ->

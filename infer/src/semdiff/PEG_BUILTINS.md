@@ -345,6 +345,7 @@ so they will only be relevant once Phase 2 (loop support) is implemented.
 | `py_typevar_with_bound(...)` | Effectful opaque | `TypeVar(bound=...)` |
 | `py_typevar_with_constraints(...)` | Effectful opaque | `TypeVar(...)` |
 | `py_set_function_type_params(...)` | Effectful opaque | |
+| `py_set_typeparam_default(...)` | Effectful opaque | `TypeVar(default=...)` |
 
 ---
 

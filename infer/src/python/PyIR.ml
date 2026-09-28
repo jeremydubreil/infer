@@ -316,6 +316,7 @@ module BuiltinCaller = struct
     | TypevarWithBound
     | TypevarWithConstraints
     | SetFunctionTypeParams
+    | SetTypeparamDefault
   [@@deriving equal, show, enumerate]
 
   let binary_intrinsics = Array.of_list all_of_binary_intrinsics
@@ -1149,6 +1150,33 @@ module State = struct
   (* TODO: use the [exn_handlers] info to mark statement that can possibly raise * something *)
   let push_stmt ({stmts; loc} as st) stmt = {st with stmts= (loc, stmt) :: stmts}
 
+  (** [SET_FUNCTION_ATTRIBUTE] always follows the [MAKE_FUNCTION] that created the function [id], so
+      the statement that defines [id] is the last one we pushed *)
+  let set_function_attribute ({stmts} as st) id ~flag value =
+    match stmts with
+    | ( loc
+      , Stmt.Let
+          { lhs
+          ; rhs=
+              Exp.Function
+                {qual_name; default_values; default_values_kw; annotations; cells_for_closure} } )
+      :: stmts
+      when SSA.equal lhs id ->
+        let default_values = if Int.equal flag 0x01 then value else default_values in
+        let default_values_kw = if Int.equal flag 0x02 then value else default_values_kw in
+        (* 0x10 is the [__annotate__] function that computes the annotations lazily *)
+        let annotations =
+          if Int.equal flag 0x04 || Int.equal flag 0x10 then value else annotations
+        in
+        let cells_for_closure = if Int.equal flag 0x08 then value else cells_for_closure in
+        let rhs =
+          Exp.Function {qual_name; default_values; default_values_kw; annotations; cells_for_closure}
+        in
+        Some {st with stmts= (loc, Stmt.Let {lhs; rhs}) :: stmts}
+    | _ ->
+        None
+
+
   let size {stack} = Stack.size stack
 
   let add_new_node ({cfg} as st) name ~first_loc ~last_loc ssa_parameters stmts last =
@@ -1333,6 +1361,19 @@ let call_function st version mode =
         | _ ->
             let* self = State.cast_exp st tos1 in
             Ok (`RegularCall (tos2, self :: args, st)) )
+    | Python_3_14 -> (
+        let* self_or_null, st = State.pop st in
+        let* callable, st = State.pop st in
+        match (callable, self_or_null) with
+        | Exp.LoadMethod (self, name), _ ->
+            let id, st = call_method st name self args in
+            let st = State.push st (Exp.Temp id) in
+            Ok (`MethodCall st)
+        | _, Exp.Null ->
+            Ok (`RegularCall (callable, args, st))
+        | _ ->
+            let* self = State.cast_exp st self_or_null in
+            Ok (`RegularCall (callable, self :: args, st)) )
   in
   let* st =
     match prepare_args with
@@ -1387,7 +1428,7 @@ let make_function st version flags =
     | Python_3_10 ->
         let+ _qual_name, st = State.pop st in
         st
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         Ok st
   in
   (* we use our own notion of qualified name *)
@@ -1431,7 +1472,19 @@ let call_function_kw st version argc =
 
 let call_function_ex st version flags =
   let open IResult.Let_syntax in
-  let with_keyword_args = flags land 1 <> 0 in
+  let* with_keyword_args, st =
+    match (version : FFI.version) with
+    | Python_3_10 | Python_3_12 ->
+        Ok (flags land 1 <> 0, st)
+    | Python_3_14 -> (
+        let* tos = State.peek st in
+        match tos with
+        | Exp.Null ->
+            let+ _, st = State.pop st in
+            (false, st)
+        | _ ->
+            Ok (true, st) )
+  in
   let* st =
     if with_keyword_args then
       let* kw_exp, st = State.pop_and_cast st in
@@ -1455,6 +1508,41 @@ let unpack_sequence st count =
   in
   let* () = if count < 0 then external_error st (Error.UnpackSequence count) else Ok () in
   let* st = unpack st (count - 1) in
+  Ok (st, None)
+
+
+let format_conversion flags =
+  match flags land 0x03 with
+  | 0x00 ->
+      None
+  | 0x01 ->
+      Some FormatFunction.Str
+  | 0x02 ->
+      Some FormatFunction.Repr
+  | 0x03 ->
+      Some FormatFunction.Ascii
+  | _ ->
+      L.die InternalError "FORMAT_VALUE: unreachable"
+
+
+let convert_value st flags =
+  let open IResult.Let_syntax in
+  match format_conversion flags with
+  | None ->
+      Ok (st, None)
+  | Some conv_fn ->
+      let* exp, st = State.pop_and_cast st in
+      let* id, st = call_builtin_function st (FormatFn conv_fn) [exp] in
+      let st = State.push st (Exp.Temp id) in
+      Ok (st, None)
+
+
+let format_with_spec st ~has_fmt_spec =
+  let open IResult.Let_syntax in
+  let* fmt_spec, st = if has_fmt_spec then State.pop_and_cast st else Ok (Exp.none, st) in
+  let* exp, st = State.pop_and_cast st in
+  let* id, st = call_builtin_function st Format [exp; fmt_spec] in
+  let st = State.push st (Exp.Temp id) in
   Ok (st, None)
 
 
@@ -1506,7 +1594,11 @@ let pop_jump_if ~next_is st arg next_offset_opt =
   let* next_offset = Offset.get ~loc next_offset_opt in
   let* next_label = State.get_node_name st next_offset in
   let other_target =
-    match st.State.version with Python_3_10 -> 2 * arg | Python_3_12 -> next_offset + (2 * arg)
+    match st.State.version with
+    | Python_3_10 ->
+        2 * arg
+    | Python_3_12 | Python_3_14 ->
+        next_offset + (2 * arg)
   in
   let* other_label = State.get_node_name st other_target in
   let mk_if = mk_if next_is condition in
@@ -1549,7 +1641,7 @@ let for_iter st delta next_offset_opt =
     match st.State.version with
     | Python_3_10 ->
         State.pop_and_cast st
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         let* iter = State.peek st in
         let+ iter = State.cast_exp st iter in
         (iter, st)
@@ -1566,7 +1658,7 @@ let for_iter st delta next_offset_opt =
     | Python_3_10 ->
         (* The iterator object stays on the stack while in the for loop, let's push it back *)
         State.push st iter
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         st
   in
   let st = State.push st (Exp.Temp id) in
@@ -1575,7 +1667,7 @@ let for_iter st delta next_offset_opt =
     match st.State.version with
     | Python_3_10 ->
         (st.State.stack, other_stack)
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         (st.State.stack, st.State.stack)
   in
   let other_offset = delta + next_offset in
@@ -1620,7 +1712,7 @@ let get_cell_name {FFI.Code.co_cellvars; co_freevars; version} st arg argval =
       let sz = Array.length co_cellvars in
       let name = if arg < sz then co_cellvars.(arg) else co_freevars.(arg - sz) in
       Ok (Ident.mk name)
-  | Python_3_12 -> (
+  | Python_3_12 | Python_3_14 -> (
     match argval with
     | FFI.Constant.PYCString str ->
         Ok (Ident.mk str)
@@ -1715,6 +1807,11 @@ let rec convert_ffi_const st (const : FFI.Constant.t) : Exp.opstack_symbol pyres
   | PYCFrozenSet list ->
       let+ values = map_convert_ffi_const st list in
       Exp.Exp (BuildFrozenSet values)
+  | PYCSlice {start; stop; step} ->
+      (* same as [BUILD_SLICE], which only has a step argument when it is not [None] *)
+      let args = match step with PYCNone -> [start; stop] | _ -> [start; stop; step] in
+      let+ values = map_convert_ffi_const st args in
+      Exp.Exp (BuildSlice values)
   | PYCCode c ->
       Ok (Code c)
   | PYCNone ->
@@ -1733,16 +1830,24 @@ let only_supported_in_python_3_10 opname version =
   match version with
   | FFI.Python_3_10 ->
       ()
-  | FFI.Python_3_12 ->
-      L.die UserError "opcode %s should not appear with Python3.12" opname
+  | FFI.Python_3_12 | FFI.Python_3_14 ->
+      L.die UserError "opcode %s should not appear with %a" opname FFI.pp_version version
 
 
 let only_supported_from_python_3_12 opname version =
   match version with
-  | FFI.Python_3_12 ->
+  | FFI.Python_3_12 | FFI.Python_3_14 ->
       ()
   | FFI.Python_3_10 ->
       L.die UserError "opcode %s should not appear with Python3.10" opname
+
+
+let only_supported_from_python_3_14 opname version =
+  match version with
+  | FFI.Python_3_14 ->
+      ()
+  | FFI.Python_3_10 | FFI.Python_3_12 ->
+      L.die UserError "opcode %s should not appear with %a" opname FFI.pp_version version
 
 
 let binary_ops : BinaryOp.t array =
@@ -1763,6 +1868,23 @@ let binary_ops : BinaryOp.t array =
 
 let nb_binary_ops = Array.length binary_ops
 
+(** [BINARY_OP] argument for subscripts, which replaces [BINARY_SUBSCR] in Python 3.14 *)
+let nb_subscr = 2 * nb_binary_ops
+
+(** the constants loaded by [LOAD_COMMON_CONSTANT] in Python 3.14, except [AssertionError] *)
+let common_constants = [|"AssertionError"; "NotImplementedError"; "tuple"; "all"; "any"|]
+
+(** the special methods loaded by [LOAD_SPECIAL] in Python 3.14 *)
+let special_methods = [|"__enter__"; "__exit__"; "__aenter__"; "__aexit__"|]
+
+let get_jump_target st {FFI.Instruction.opname; argval} =
+  match argval with
+  | FFI.Constant.PYCInt target ->
+      Ok (Z.to_int target)
+  | _ ->
+      internal_error st (Error.UnsupportedOpcode opname)
+
+
 let jump_absolute st arg next_offset =
   let open IResult.Let_syntax in
   let offset = next_offset + (2 * arg) in
@@ -1773,6 +1895,30 @@ let jump_absolute st arg next_offset =
 
 
 let count_imported_modules_ref = ref 0
+
+(** Since Python 3.13, [LOAD_CLOSURE] is compiled as [LOAD_FAST] and the argument of [LOAD_FAST]
+    indexes all the local variables, followed by the cells that are not arguments and by the free
+    variables. *)
+let load_fast_or_closure {FFI.Code.co_varnames; co_cellvars; co_freevars; version} st idx =
+  match (version : FFI.version) with
+  | Python_3_10 | Python_3_12 ->
+      load st Fast co_varnames.(idx)
+  | Python_3_14 ->
+      let cells =
+        Array.filter co_cellvars ~f:(fun name ->
+            not (Array.mem co_varnames name ~equal:String.equal) )
+      in
+      let localsplus = Array.concat [co_varnames; cells; co_freevars] in
+      let name = localsplus.(idx) in
+      let is_cell = Array.mem ~equal:String.equal in
+      if is_cell co_cellvars name || is_cell co_freevars name then
+        let rhs = Exp.LoadClosure {slot= idx; name= Ident.mk name} in
+        let lhs, st = State.fresh_id st in
+        let st = State.push_stmt st (Stmt.Let {lhs; rhs}) in
+        let st = State.push st (Exp.Temp lhs) in
+        Ok (st, None)
+      else load st Fast name
+
 
 let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as code)
     ({FFI.Instruction.opname; starts_line; arg; argval} as instr) next_offset_opt =
@@ -1789,8 +1935,10 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         Ok (st, None)
     | "LOAD_NAME" ->
         load st Name co_names.(arg)
-    | "LOAD_GLOBAL" ->
-        let idx = match version with Python_3_10 -> arg | Python_3_12 -> arg lsr 1 in
+    | "LOAD_GLOBAL" -> (
+        let idx =
+          match version with Python_3_10 -> arg | Python_3_12 | Python_3_14 -> arg lsr 1
+        in
         let st =
           match version with
           | Python_3_12 when arg land 1 <> 0 ->
@@ -1798,15 +1946,59 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
           | _ ->
               st
         in
-        load st Global co_names.(idx)
-    | "LOAD_FAST" ->
-        load st Fast co_varnames.(arg)
+        let* st, terminator = load st Global co_names.(idx) in
+        match version with
+        | Python_3_14 when arg land 1 <> 0 ->
+            Ok (State.push_symbol st Null, terminator)
+        | _ ->
+            Ok (st, terminator) )
+    | "LOAD_FAST" | "LOAD_FAST_BORROW" ->
+        load_fast_or_closure code st arg
+    | "LOAD_FAST_LOAD_FAST" | "LOAD_FAST_BORROW_LOAD_FAST_BORROW" ->
+        only_supported_from_python_3_14 opname version ;
+        let* st, _ = load_fast_or_closure code st (arg lsr 4) in
+        load_fast_or_closure code st (arg land 15)
+    | "STORE_FAST_LOAD_FAST" ->
+        only_supported_from_python_3_14 opname version ;
+        let* st, _ = store st Fast co_varnames.(arg lsr 4) in
+        load_fast_or_closure code st (arg land 15)
+    | "STORE_FAST_STORE_FAST" ->
+        only_supported_from_python_3_14 opname version ;
+        let* st, _ = store st Fast co_varnames.(arg lsr 4) in
+        store st Fast co_varnames.(arg land 15)
+    | "LOAD_SMALL_INT" ->
+        only_supported_from_python_3_14 opname version ;
+        let st = State.push st (Exp.of_int arg) in
+        Ok (st, None)
+    | "LOAD_COMMON_CONSTANT" ->
+        only_supported_from_python_3_14 opname version ;
+        if Int.equal arg 0 then assign_to_temp_and_push st AssertionError
+        else load st Global common_constants.(arg)
+    | "LOAD_FROM_DICT_OR_GLOBALS" ->
+        only_supported_from_python_3_14 opname version ;
+        let* _mapping, st = State.pop st in
+        load st Name co_names.(arg)
+    | "LOAD_SPECIAL" ->
+        only_supported_from_python_3_14 opname version ;
+        let* self, st = State.pop_and_cast st in
+        let name = special_methods.(arg) in
+        if String.is_suffix name ~suffix:"exit__" then
+          (* same encoding as [BEFORE_WITH] in Python 3.12 *)
+          let st = State.push_symbol st (ContextManagerExit self) in
+          let st = State.push_symbol st Null in
+          Ok (st, None)
+        else
+          let st = State.push_symbol st (LoadMethod (self, Ident.Special.enter)) in
+          let st = State.push st self in
+          Ok (st, None)
     | "LOAD_ATTR" -> (
-        let idx = match version with Python_3_10 -> arg | Python_3_12 -> arg lsr 1 in
+        let idx =
+          match version with Python_3_10 -> arg | Python_3_12 | Python_3_14 -> arg lsr 1
+        in
         let attr = co_names.(idx) |> Ident.mk in
         let* exp, st = State.pop_and_cast st in
         match version with
-        | Python_3_12 when arg land 1 <> 0 ->
+        | (Python_3_12 | Python_3_14) when arg land 1 <> 0 ->
             let st = State.push_symbol st (LoadMethod (exp, attr)) in
             let st = State.push st exp in
             Ok (st, None)
@@ -1927,6 +2119,9 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
     | "CALL_FUNCTION_KW" ->
         only_supported_in_python_3_10 opname version ;
         call_function_kw st version arg
+    | "CALL_KW" ->
+        only_supported_from_python_3_14 opname version ;
+        call_function_kw st version arg
     | "CALL_FUNCTION_EX" ->
         call_function_ex st version arg
     | "CALL_INTRINSIC_1" ->
@@ -1949,6 +2144,11 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
     | "POP_TOP" ->
         let* _, st = State.pop st in
         Ok (st, None)
+    | "BINARY_OP" when Int.equal arg nb_subscr ->
+        only_supported_from_python_3_14 opname version ;
+        let* index, st = State.pop_and_cast st in
+        let* exp, st = State.pop_and_cast st in
+        assign_to_temp_and_push st (Exp.Subscript {exp; index})
     | "BINARY_OP" ->
         only_supported_from_python_3_12 opname version ;
         let op : BuiltinCaller.t =
@@ -2027,6 +2227,20 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         parse_op st (Unary Invert) 1
     | "MAKE_FUNCTION" ->
         make_function st version arg
+    | "SET_FUNCTION_ATTRIBUTE" -> (
+        only_supported_from_python_3_14 opname version ;
+        let* func, st = State.pop st in
+        let* value, st = State.pop_and_cast st in
+        match func with
+        | Exp.Exp (Temp id) -> (
+          match State.set_function_attribute st id ~flag:arg value with
+          | Some st ->
+              let st = State.push_symbol st func in
+              Ok (st, None)
+          | None ->
+              internal_error st (Error.MakeFunction ("a function", func)) )
+        | _ ->
+            internal_error st (Error.MakeFunction ("a function", func)) )
     | "BUILD_CONST_KEY_MAP" -> (
         let* keys, st = State.pop_and_cast st in
         match keys with
@@ -2129,7 +2343,15 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         let st = State.push st (Exp.Temp lhs) in
         Ok (st, None)
     | "COMPARE_OP" ->
-        let idx = match version with Python_3_10 -> arg | Python_3_12 -> arg lsr 4 in
+        let idx =
+          match version with
+          | Python_3_10 ->
+              arg
+          | Python_3_12 ->
+              arg lsr 4
+          | Python_3_14 ->
+              arg lsr 5
+        in
         let* cmp_op =
           match List.nth CompareOp.all idx with
           | Some op ->
@@ -2158,8 +2380,16 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         let rhs = Exp.LoadSuperAttr {attr; self; class_; super} in
         let st = State.push_stmt st (Let {lhs; rhs}) in
         (* TODO: use [arg land 2] *)
-        let st = if arg land 1 <> 0 then State.push_symbol st Null else st in
-        let st = State.push st (Exp.Temp lhs) in
+        let method_call = arg land 1 <> 0 in
+        let st =
+          match version with
+          | Python_3_14 ->
+              let st = State.push st (Exp.Temp lhs) in
+              if method_call then State.push_symbol st Null else st
+          | Python_3_10 | Python_3_12 ->
+              let st = if method_call then State.push_symbol st Null else st in
+              State.push st (Exp.Temp lhs)
+        in
         Ok (st, None)
     | "LOAD_CLOSURE" ->
         let* name = get_cell_name code st arg argval in
@@ -2173,6 +2403,14 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         only_supported_from_python_3_12 opname version ;
         Ok (st, None)
     | "NOP" ->
+        Ok (st, None)
+    | "NOT_TAKEN" | "TO_BOOL" ->
+        (* branch hint and implicit conversion before conditional jumps *)
+        only_supported_from_python_3_14 opname version ;
+        Ok (st, None)
+    | "POP_ITER" ->
+        only_supported_from_python_3_14 opname version ;
+        let* _, st = State.pop st in
         Ok (st, None)
     | "IS_OP" ->
         let* rhs, st = State.pop_and_cast st in
@@ -2227,6 +2465,15 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         unpack_sequence st arg
     | "FORMAT_VALUE" ->
         format_value st arg
+    | "CONVERT_VALUE" ->
+        only_supported_from_python_3_14 opname version ;
+        convert_value st arg
+    | "FORMAT_SIMPLE" ->
+        only_supported_from_python_3_14 opname version ;
+        format_with_spec st ~has_fmt_spec:false
+    | "FORMAT_WITH_SPEC" ->
+        only_supported_from_python_3_14 opname version ;
+        format_with_spec st ~has_fmt_spec:true
     | "POP_JUMP_IF_TRUE" ->
         pop_jump_if ~next_is:false st arg next_offset_opt
     | "POP_JUMP_IF_FALSE" ->
@@ -2247,10 +2494,18 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         let {State.loc} = st in
         let* next_offset = Offset.get ~loc next_offset_opt in
         jump_absolute st arg next_offset
-    | "JUMP_BACKWARD" | "JUMP_BACKWARD_NO_INTERRUPT" ->
+    | "JUMP_BACKWARD" | "JUMP_BACKWARD_NO_INTERRUPT" -> (
         only_supported_from_python_3_12 opname version ;
-        let next_offset = instr.FFI.Instruction.offset + 2 in
-        jump_absolute st (-arg) next_offset
+        match version with
+        | Python_3_14 ->
+            (* the offset of the jump depends on the inline caches following the instruction *)
+            let* target = get_jump_target st instr in
+            let* label = State.get_node_name st target in
+            let {State.stack} = st in
+            Ok (st, Some (TerminatorBuilder.mk_jump label stack))
+        | Python_3_10 | Python_3_12 ->
+            let next_offset = instr.FFI.Instruction.offset + 2 in
+            jump_absolute st (-arg) next_offset )
     | "JUMP_ABSOLUTE" ->
         let* label = State.get_node_name st (2 * arg) in
         let {State.stack} = st in
@@ -2271,7 +2526,15 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         for_iter st (2 * arg) next_offset_opt
     | "END_FOR" ->
         let* _, st = State.pop st in
-        let* _, st = State.pop st in
+        (* the iterator is popped by [POP_ITER] from Python 3.14 *)
+        let* st =
+          match version with
+          | Python_3_14 ->
+              Ok st
+          | Python_3_10 | Python_3_12 ->
+              let+ _, st = State.pop st in
+              st
+        in
         Ok (st, None)
     | "JUMP_IF_TRUE_OR_POP" ->
         jump_if_or_pop ~jump_if:true st (2 * arg) next_offset_opt
@@ -2521,7 +2784,7 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
           match version with
           | Python_3_10 ->
               State.push st (BoolOfMatchClass (Temp lhs))
-          | Python_3_12 ->
+          | Python_3_12 | Python_3_14 ->
               st
         in
         Ok (st, None)
@@ -2556,13 +2819,30 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
   with Invalid_argument _ -> internal_error st (Error.IndexOutOfBound opname)
 
 
-let get_successors_offset (version : FFI.version) {FFI.Instruction.opname; arg} =
+let get_successors_offset (version : FFI.version) {FFI.Instruction.opname; arg; argval} =
   match opname with
   | "LOAD_ASSERTION_ERROR"
   | "LOAD_CONST"
   | "LOAD_NAME"
   | "LOAD_GLOBAL"
   | "LOAD_FAST"
+  | "LOAD_FAST_BORROW"
+  | "LOAD_FAST_LOAD_FAST"
+  | "LOAD_FAST_BORROW_LOAD_FAST_BORROW"
+  | "STORE_FAST_LOAD_FAST"
+  | "STORE_FAST_STORE_FAST"
+  | "LOAD_SMALL_INT"
+  | "LOAD_COMMON_CONSTANT"
+  | "LOAD_FROM_DICT_OR_GLOBALS"
+  | "LOAD_SPECIAL"
+  | "CALL_KW"
+  | "SET_FUNCTION_ATTRIBUTE"
+  | "NOT_TAKEN"
+  | "TO_BOOL"
+  | "POP_ITER"
+  | "CONVERT_VALUE"
+  | "FORMAT_SIMPLE"
+  | "FORMAT_WITH_SPEC"
   | "LOAD_ATTR"
   | "LOAD_CLASSDEREF"
   | "LOAD_DEREF"
@@ -2714,7 +2994,7 @@ let get_successors_offset (version : FFI.version) {FFI.Instruction.opname; arg} 
     match version with
     | Python_3_10 ->
         `NextInstrOrAbsolute (2 * arg)
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         `NextInstrOrRelative (2 * arg) )
   | "JUMP_IF_TRUE_OR_POP" | "JUMP_IF_FALSE_OR_POP" ->
       `NextInstrWithPopOrAbsolute (2 * arg)
@@ -2722,12 +3002,17 @@ let get_successors_offset (version : FFI.version) {FFI.Instruction.opname; arg} 
     match version with
     | Python_3_10 ->
         `NextInstrOrRelativeWith2Pop (2 * arg)
-    | Python_3_12 ->
+    | Python_3_12 | Python_3_14 ->
         `NextInstrOrRelative (2 * arg) )
   | "JUMP_FORWARD" | "SEND" ->
       `Relative (2 * arg)
-  | "JUMP_BACKWARD" | "JUMP_BACKWARD_NO_INTERRUPT" ->
-      `Relative (-2 * arg)
+  | "JUMP_BACKWARD" | "JUMP_BACKWARD_NO_INTERRUPT" -> (
+    match (version, argval) with
+    | Python_3_14, PYCInt target ->
+        (* the offset of the jump depends on the inline caches following the instruction *)
+        `Absolute (Z.to_int target)
+    | _ ->
+        `Relative (-2 * arg) )
   | "CALL_FINALLY" ->
       `CallFinallyRelative arg
   | "BEGIN_FINALLY" ->
@@ -2742,11 +3027,18 @@ let get_successors_offset (version : FFI.version) {FFI.Instruction.opname; arg} 
       `UnsupportedOpcode
 
 
-let lookup_remaining = function
+(** returns the offset of the next instruction and whether it starts a new node. A new line does not
+    start a new node after [RESUME], which has the line of the function definition, or after the
+    [NOT_TAKEN] and [POP_ITER] instructions of Python 3.14, to avoid nodes without any statement. *)
+let lookup_remaining {FFI.Instruction.opname} = function
   | [] ->
       (None, false)
   | {FFI.Instruction.offset; is_jump_target; starts_line} :: _ ->
-      (Some offset, is_jump_target || Option.is_some starts_line)
+      let starts_line =
+        Option.is_some starts_line
+        && not (List.mem ["RESUME"; "NOT_TAKEN"; "POP_ITER"] opname ~equal:String.equal)
+      in
+      (Some offset, is_jump_target || starts_line)
 
 
 module Subroutine = struct
@@ -2862,7 +3154,7 @@ let build_cfg_skeleton_without_predecessors {FFI.Code.instructions; version} :
     | [] ->
         Ok map
     | instr :: remaining ->
-        let next_offset_opt, next_is_jump_target = lookup_remaining remaining in
+        let next_offset_opt, next_is_jump_target = lookup_remaining instr remaining in
         let* map, action =
           process_instr map action next_offset_opt next_is_jump_target instr instructions
         in
@@ -2994,7 +3286,7 @@ let process_node st code ~offset ~arity previous_last_loc ({instructions; succes
         let {State.loc} = st in
         Error (L.InternalError, loc, Error.NextOffsetMissing)
     | instr :: remaining -> (
-        let next_offset_opt, next_is_jump_target = lookup_remaining remaining in
+        let next_offset_opt, next_is_jump_target = lookup_remaining instr remaining in
         let* st, opt_terminator = parse_bytecode st code instr next_offset_opt in
         let {State.stack} = st in
         State.debug st "              %a@\n" (Stack.pp ~pp:Exp.pp_opstack_symbol) stack ;

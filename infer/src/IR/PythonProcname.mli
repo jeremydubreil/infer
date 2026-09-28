@@ -139,6 +139,7 @@ type builtin =
   | StoreSubscript
   | Subscript
   | SetFunctionTypeParams
+  | SetTypeparamDefault
   | TypevarWithBound
   | TypevarWithConstraints
   | UnaryInvert

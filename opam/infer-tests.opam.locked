@@ -143,7 +143,7 @@ depends: [
   "ppx_yojson_conv_lib" {= "v0.17.0"}
   "ppxlib" {= "0.38.0"}
   "ppxlib_jane" {= "v0.17.4"}
-  "pyml" {= "20220905"}
+  "pyml" {= "20250807"}
   "re" {= "1.14.0"}
   "react" {= "1.2.2"}
   "result" {= "1.5"}
