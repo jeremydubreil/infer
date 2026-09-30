@@ -410,12 +410,15 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              n3 = $builtins.py_load_fast("x", n1)
-              n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
-              _ = $builtins.py_store_fast("y", n1, n4)
               jmp b1
 
           #b1:
+              n3 = $builtins.py_load_fast("x", n1)
+              n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
+              _ = $builtins.py_store_fast("y", n1, n4)
+              jmp b2
+
+          #b2:
               n5 = $builtins.py_load_fast("y", n1)
               _ = $builtins.py_nullify_locals(n1, "y")
               ret n5
@@ -432,12 +435,15 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              n3 = $builtins.py_load_fast("x", n1)
-              n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
-              _ = $builtins.py_store_fast("y", n1, n4)
               jmp b1
 
           #b1:
+              n3 = $builtins.py_load_fast("x", n1)
+              n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
+              _ = $builtins.py_store_fast("y", n1, n4)
+              jmp b2
+
+          #b2:
               n5 = $builtins.py_load_fast("y", n1)
               _ = $builtins.py_nullify_locals(n1, "y")
               ret n5
@@ -471,6 +477,9 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
+              jmp b1
+
+          #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(1))
               ret n4
@@ -487,6 +496,9 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
+              jmp b1
+
+          #b1:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_binary_add(n3, $builtins.py_make_int(2))
               ret n4
@@ -524,14 +536,17 @@ def f():
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
               jmp b1
 
           #b1:
-              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
+              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
               jmp b2
 
           #b2:
+              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
+              jmp b3
+
+          #b3:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_load_fast("y", n1)
               n5 = $builtins.py_binary_add(n3, n4)
@@ -550,14 +565,17 @@ def f():
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
               jmp b1
 
           #b1:
-              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
+              _ = $builtins.py_store_fast("y", n1, $builtins.py_make_int(2))
               jmp b2
 
           #b2:
+              _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
+              jmp b3
+
+          #b3:
               n3 = $builtins.py_load_fast("x", n1)
               n4 = $builtins.py_load_fast("y", n1)
               n5 = $builtins.py_binary_add(n3, n4)
@@ -1112,22 +1130,28 @@ def f(x):
               n2 = globals
               n1 = locals
               n0 = $builtins.py_make_none()
-              n3 = $builtins.py_load_fast("x", n1)
-              n4 = $builtins.py_compare_gt(n3, $builtins.py_make_int(0))
-              if $builtins.py_bool(n4) then jmp b1 else jmp b3
+              jmp b1
 
           #b1:
+              n3 = $builtins.py_load_fast("x", n1)
+              n4 = $builtins.py_compare_gt(n3, $builtins.py_make_int(0))
+              if $builtins.py_bool(n4) then jmp b2 else jmp b5
+
+          #b2:
               n5 = $builtins.py_load_fast("x", n1)
               n6 = $builtins.py_binary_substract(n5, $builtins.py_make_int(1))
               _ = $builtins.py_store_fast("x", n1, n6)
-              jmp b2
-
-          #b2:
-              n7 = $builtins.py_load_fast("x", n1)
-              n8 = $builtins.py_compare_gt(n7, $builtins.py_make_int(0))
-              if $builtins.py_bool(n8) then jmp b1 else jmp b3
+              jmp b3
 
           #b3:
+              n7 = $builtins.py_load_fast("x", n1)
+              n8 = $builtins.py_compare_gt(n7, $builtins.py_make_int(0))
+              if $builtins.py_bool(n8) then jmp b4 else jmp b5
+
+          #b4:
+              jmp b2
+
+          #b5:
               n9 = $builtins.py_load_fast("x", n1)
               ret n9
 

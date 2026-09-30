@@ -224,12 +224,12 @@ AS_IF([test "x$enable_python_analyzers" != "xno"], [
   python_version=$("$PYTHON" --version)
   AC_MSG_RESULT([$python_version])
   case $python_version in
-    Python\ 3.10.*) BUILD_PYTHON_ANALYZERS=yes; break;;
+    Python\ 3.12.*) BUILD_PYTHON_ANALYZERS=yes; break;;
     *) BUILD_PYTHON_ANALYZERS=no;
       AS_IF([test "x$enable_python_analyzers" = "xauto"], [
         AC_MSG_WARN([python version $python_version is not supported, disabling python support])
         ], [
-        AC_MSG_ERROR([python version $python_version is not supported, please install python version 3.10 instead or disable python support with --disable-python-analyzers])
+        AC_MSG_ERROR([python version $python_version is not supported, please install python version 3.12 instead or disable python support with --disable-python-analyzers])
       ]); break;;
   esac
 ]) # end if($enable_python_analyzers)

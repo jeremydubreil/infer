@@ -137,6 +137,8 @@ def main(x: X) -> R:
             lineno=Int: 3
           }
           type_comment=Null
+          type_params=List: [
+          ]
         }
       ]
       type_ignores=List: [
@@ -170,7 +172,8 @@ def main(x: X) -> R:
                     (decorator_list List)
                     (name main)
                     (returns (Name (ctx Load) (id R)))
-                    (type_comment Null))))
+                    (type_comment Null)
+                    (type_params List))))
         (type_ignores List))
     |}]
 
