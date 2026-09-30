@@ -5,7 +5,7 @@ homepage: "http://github.com/thierry-martinez/pyml"
 bug-reports: "http://github.com/thierry-martinez/pyml/issues"
 license: "BSD-2-Clause"
 dev-repo: "git+https://github.com/thierry-martinez/pyml.git"
-patches: ["no-stdcompat.patch" "win-ocaml5.patch"]
+patches: ["no-stdcompat.patch" "pkg-config-library-dir.patch"]
 build: [
   ["dune" "subst"] {dev}
   [
@@ -37,5 +37,5 @@ url {
 }
 extra-files: [
   ["no-stdcompat.patch" "sha256=3ed4dca792d397c6c386cb2b1aa40b089de5a2e6cd5bf63bf1463eced5f5c93b"]
-  ["win-ocaml5.patch" "sha256=1c4c4297d83468eef36098b91e296b89284c13d842ea85b3a578aa115ad31e75"]
+  ["pkg-config-library-dir.patch" "sha256=e00a462f46521dd6b54f0139dc22a231d080f27f1b364e14039c05d6d0d2b8aa"]
 ]

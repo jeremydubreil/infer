@@ -304,7 +304,15 @@ and new_py_code obj =
   let* co_posonlyargcount = read_int "co_posonlyargcount" obj in
   let* co_stacksize = read_int "co_stacksize" obj in
   let* co_kwonlyargcount = read_int "co_kwonlyargcount" obj in
-  let* co_lnotab = read_char_array "co_lnotab" obj in
+  let version = get_version () in
+  let* co_lnotab =
+    (* [co_lnotab] is deprecated since Python 3.12 and raises a warning when accessed *)
+    match version with
+    | Python_3_10 ->
+        read_char_array "co_lnotab" obj
+    | Python_3_12 ->
+        Ok [||]
+  in
   let* co_consts =
     let action f obj =
       if Py.Tuple.check obj then
@@ -342,7 +350,6 @@ pybc.output = l
       Result.all l
     else die_invalid_field ~kind:"list of instructions" "co_code" obj
   in
-  let version = get_version () in
   Ok
     { co_name
     ; co_filename
