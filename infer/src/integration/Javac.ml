@@ -44,12 +44,36 @@ let compile compiler build_prog build_args =
   let verbose_out_file =
     IFilename.temp_file ~in_dir:(ResultsDir.get_path Temporary) "javac" ".out"
   in
+  (* Spawn the compiler rather than hand a command line to a shell: [Escape.escape_shell] quotes for
+     a POSIX shell, but the shell that [Unix.open_process_in] runs on Windows is cmd.exe, which keeps
+     those quotes and so passes javac an argument, and a redirection, that it cannot make sense of.
+     javac writes its -verbose output on stderr, which is what [verbose_out_file] collects. *)
+  let run cmd =
+    let stdout_read, stdout_write = Unix.pipe () in
+    let stdout_in = Unix.in_channel_of_descr stdout_read in
+    let f () =
+      let pid =
+        let stderr_fd =
+          IUnix.openfile verbose_out_file ~mode:[O_WRONLY; O_CREAT; O_TRUNC] ~perm:0o600
+        in
+        Exception.try_finally
+          ~f:(fun () ->
+            UnixLabels.create_process ~prog:(List.hd_exn cmd) ~args:(Array.of_list cmd)
+              ~stdin:Unix.stdin ~stdout:stdout_write ~stderr:stderr_fd )
+          ~finally:(fun () ->
+            (* the child holds the write ends now; keeping ours open would make the read below hang *)
+            Unix.close stdout_write ;
+            Unix.close stderr_fd )
+      in
+      let log = In_channel.input_all stdout_in in
+      (IUnix.waitpid (IUnix.Pid.of_int pid), log)
+    in
+    Exception.try_finally ~f ~finally:(fun () -> In_channel.close stdout_in)
+  in
   let try_run cmd error_k =
-    let shell_cmd = List.map ~f:Escape.escape_shell cmd |> String.concat ~sep:" " in
-    let shell_cmd_redirected = Printf.sprintf "%s 2>'%s'" shell_cmd verbose_out_file in
-    L.(debug Capture Quiet) "Trying to execute: %s@." shell_cmd_redirected ;
-    match Utils.with_process_in shell_cmd_redirected In_channel.input_all with
-    | log, Error err -> (
+    L.(debug Capture Quiet) "Trying to execute: %a@." Pp.cli_args cmd ;
+    match run cmd with
+    | Error err, log -> (
       match error_k with
       | Some k ->
           L.(debug Capture Quiet)
@@ -62,12 +86,12 @@ let compile compiler build_prog build_args =
           L.(die UserError)
             "@\n\
              *** Failed to execute compilation command: %s@\n\
-             *** Command: %s@\n\
+             *** Command: %a@\n\
              *** Output:@\n\
              %s%s@\n\
              *** Infer needs a working compilation command to run.@."
             (IUnix.Exit_or_signal.to_string_hum (Error err))
-            shell_cmd log verbose_errlog )
+            Pp.cli_args cmd log verbose_errlog )
     | exception exn ->
         IExn.reraise_if exn ~f:(fun () ->
             match error_k with
@@ -77,7 +101,7 @@ let compile compiler build_prog build_args =
                 false
             | None ->
                 true )
-    | log, Ok () ->
+    | Ok (), log ->
         L.(debug Capture Quiet) "*** Success. Logs:@\n%s" log
   in
   let fallback () = try_run ("javac" :: cli_file_args) None in

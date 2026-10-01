@@ -60,7 +60,11 @@ int unsetenv(const char* name) {
   return result;
 }
 
-extern int win_CRT_fd_of_filedescr(value handle);
+/* OCaml 5.0 renamed this to caml_win32_CRT_fd_of_filedescr, and caml/unixsupport.h keeps the old
+   name working through a compatibility macro. pyml declared the symbol itself instead, which
+   bypasses that macro and leaves the reference unresolved at link time, so take the declaration
+   from the header. */
+#include <caml/unixsupport.h>
 
 static FILE* file_of_file_descr(value file_descr, const char* mode) {
   CAMLparam1(file_descr);

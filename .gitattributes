@@ -1,3 +1,21 @@
 website/** linguist-documentation
 *.ml linguist-language=OCaml
 *.mli linguist-language=OCaml
+
+# The build is driven by bash and GNU make even on Windows (MSYS2 there).
+# A core.autocrlf=true checkout would CRLF-ify these and break them: a
+# shebang becomes `/usr/bin/env: 'bash\r': No such file or directory`, and
+# Makefile.config's `SHELL := bash -e -o pipefail -u` inherits the same problem.
+*.sh text eol=lf
+Makefile text eol=lf
+Makefile.* text eol=lf
+*.mk text eol=lf
+*.make text eol=lf
+configure.ac text eol=lf
+autogen.sh text eol=lf
+
+# The tests compare the files infer writes byte for byte, with `git diff
+# --no-index`, against the expected output checked in here. Infer writes LF, so
+# a CRLF checkout of the expected output would make every test fail.
+*.exp text eol=lf
+*.sil text eol=lf

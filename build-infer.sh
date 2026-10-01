@@ -230,6 +230,48 @@ install_opam_deps () {
     opam pin add --no-action name_matcher_parser "$INFER_ROOT"/dependencies/charon
     opam pin add --no-action ppx_show "$INFER_ROOT"/dependencies/ppx_show
     opam pin add --no-action pyml "$INFER_ROOT"/dependencies/pyml
+    # base_bigstring is unavailable on Windows according to opam-repository, which declares
+    #   available: arch != "x86_32" & os != "win32"
+    # That blocks the whole build, because core (which infer uses pervasively) depends on
+    # base_bigstring and pins it to = v0.17.0.
+    #
+    # The exclusion is stale metadata, not a real constraint:
+    #   - the package's own base_bigstring.opam says only `arch != "arm32" & arch != "x86_32"`,
+    #     with no mention of win32;
+    #   - src/base_bigstring_stubs.c has dedicated __MINGW32__ and _MSC_VER branches for its
+    #     byteswap intrinsics, i.e. Windows is deliberately supported upstream;
+    #   - core itself is marked win32-available while depending on base_bigstring.
+    #
+    # So we vendor the upstream v0.17.0 sources verbatim (no patch) and pin them, which makes
+    # opam use the package's own metadata instead of opam-repository's copy. Pinned on every
+    # platform so Linux/macOS builds exercise the same code path and cannot silently drift.
+    opam pin add --no-action base_bigstring "$INFER_ROOT"/dependencies/base_bigstring
+    # parmap and ANSITerminal both fail to compile under mingw with GCC 14, which promoted
+    # -Wincompatible-pointer-types and -Wimplicit-function-declaration from warnings to errors.
+    # Neither is fixed in a release (both are the latest release, and both defects are still
+    # present on their respective master branches), so we vendor them verbatim with a one-line fix
+    # each:
+    #
+    #   - parmap declares `long len` and passes `&len` to caml_output_value_to_malloc and
+    #     caml_ba_alloc, which take `intnat *`. Windows x86_64 is LLP64, so `long` is 4 bytes
+    #     while `intnat` is 8 -- a genuine memory-corruption bug there, not just a type
+    #     complaint. `intnat` is identical to `long` on LP64 Unix, so this is a no-op elsewhere.
+    #   - ANSITerminal passes an `int *` where FillConsoleOutputCharacter wants an LPDWORD. The
+    #     file it lives in is compiled on Windows only (src/dune picks between the _unix_ and
+    #     _win_ stubs via choose_implementation.exe), so this cannot affect other platforms.
+    #
+    #     https://github.com/Chris00/ANSITerminal/pull/9 fixes this defect and the two others we
+    #     patch in ANSITerminal_win_stubs.c, with the same changes we made. It is not a way out of
+    #     this pin: it has sat open and unreviewed since January 2024, and upstream master is still
+    #     identical to the 0.8.5 tag from July 2022, so nothing suggests a release will contain it.
+    #     It also bundles a restructuring we do not want -- it merges the Unix and Windows stubs
+    #     into a single file, deletes choose_implementation.ml, and picks the implementation at run
+    #     time from an ANSITerminal env variable. Worth revisiting if it ever lands and ships.
+    #
+    # Pinned unconditionally for the same reason as base_bigstring above: so that Linux and
+    # macOS exercise the same code path and it cannot silently drift.
+    opam pin add --no-action parmap "$INFER_ROOT"/dependencies/parmap
+    opam pin add --no-action ANSITerminal "$INFER_ROOT"/dependencies/ANSITerminal
     # camlzip checks that it is within the required version that the zip/jar file declares as
     # needed to decompress it:
     #   https://github.com/xavierleroy/camlzip/blob/dd86042ac5eba8ba21e3d98b2f3e3dd82fc14033/zip.ml#L197-L198
@@ -243,7 +285,16 @@ install_opam_deps () {
     # to pin camlzip after the fact instead; this will only rebuild javalib and sawja and only
     # the first time that we pin camlzip)
     opam pin add --no-action camlzip "$INFER_ROOT"/dependencies/camlzip
-    opam install --deps-only "$INFER_ROOT"/opam/infer.opam$locked
+    # The path has to be passed as an explicitly relative "./..." one. `opam install` only
+    # treats an argument as a file at all if it contains Filename.dir_sep or starts with "."
+    # (opam 2.5.2, src/client/opamArg.ml:861-864). On native Windows dir_sep is "\", but MSYS2
+    # hands opam.exe a forward-slash path, so an absolute "$INFER_ROOT/opam/infer.opam.locked"
+    # becomes D:/a/infer/infer/opam/infer.opam.locked, matches neither test, and is parsed as a
+    # package atom instead -- failing with `Invalid character ':' in package name`. Upstream opam
+    # fixed this after 2.5.2 by accepting either separator on win32. Leading "." satisfies the
+    # check on every platform, so this stays a single code path rather than an OS-specific
+    # branch. The `cd` keeps it independent of the caller's working directory.
+    ( cd "$INFER_ROOT" && opam install --deps-only ./opam/infer.opam$locked )
 }
 
 # regardless of the LLVM toolchain used to provide the LLVM libraries, we need our own LLVM OCaml
