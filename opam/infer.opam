@@ -31,7 +31,7 @@ depends: [
   "menhir" {>= "20220210"}
   "mtime" {>="2"}
   "ocaml" {>="5.4.1"}
-  "ocamlfind" {build}
+  "ocamlfind" {build & >= "1.9.9~preview"}
   "ocamlgraph"
   "ounit" {>="2.0.5"}
   "ppx_blob"

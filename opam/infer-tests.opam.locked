@@ -92,7 +92,7 @@ depends: [
   "ocaml-variants" {= "5.4.1+options"}
   "ocaml_intrinsics_kernel" {= "v0.17.2"}
   "ocamlbuild" {= "0.16.1"}
-  "ocamlfind" {= "1.9.8"}
+  "ocamlfind" {= "1.9.9~preview"}
   "ocamlgraph" {= "2.2.0"}
   "ocplib-endian" {= "1.2"}
   "octavius" {= "1.2.2"}
