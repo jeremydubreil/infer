@@ -15,6 +15,7 @@ jobs:
           - macos-26-intel
         ocaml-compiler:
           - ocaml-variants.5.4.1+options
+          - ocaml-variants.5.5.1+options
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
