@@ -33,7 +33,11 @@ let compile compiler build_prog build_args =
     let file = IFilename.temp_file ~in_dir:(ResultsDir.get_path Temporary) "javac_args" "" in
     let quoted_file_args =
       List.map file_args ~f:(fun arg ->
-          if String.contains arg '\'' then arg else F.sprintf "'%s'" arg )
+          if String.contains arg '\'' then arg
+          else
+            (* javac reads a backslash in a quoted string as an escape character, and Windows
+               paths are full of them *)
+            F.sprintf "'%s'" (String.substr_replace_all arg ~pattern:"\\" ~with_:"\\\\") )
     in
     Out_channel.with_file file ~f:(fun oc -> Out_channel.output_lines oc quoted_file_args) ;
     file

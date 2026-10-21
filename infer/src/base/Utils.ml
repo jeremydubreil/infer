@@ -99,9 +99,9 @@ let of_win32_path path =
 
 
 (** [Filename] follows the conventions of the platform infer runs on, and those of Windows do not
-    suit the path rewriting below: ':' is a directory separator there, so [Filename.parts "C:/dir"]
-    is [["."; "C"; "dir"]] and the drive letter would come back without its colon. So split the
-    drive off before splitting a path into parts, and put it back afterwards. *)
+    suit the path rewriting below: [Filename.parts] never terminates on a path with a drive letter,
+    as [Filename.dirname "C:/"] is "C:/" again. So split the drive off before splitting a path into
+    parts, and put it back afterwards. *)
 let split_windows_drive path =
   if Sys.win32 then
     let path = of_win32_path path in
@@ -182,9 +182,18 @@ let normalize_path fname = fname |> normalize_path_from ~root:"." |> fst
 
 let flatten_path ?(sep = "-") path =
   let normalized_path = normalize_path path in
-  let path_parts = Filename.parts normalized_path in
-  let process_part = function ".." -> ["dd"] | "." -> [] | other -> [other] in
-  List.bind path_parts ~f:process_part |> String.concat ~sep
+  let process_part = function
+    | ".." ->
+        ["dd"]
+    | "." ->
+        []
+    | drive_root when Sys.win32 && String.is_suffix drive_root ~suffix:":/" ->
+        (* keep the drive letter of "C:/" but not the ':', which a file name cannot contain *)
+        [String.prefix drive_root 1]
+    | other ->
+        [other]
+  in
+  List.bind (path_parts normalized_path) ~f:process_part |> String.concat ~sep
 
 
 (** Convert a filename to an absolute one if it is relative, and normalize "." and ".." *)
