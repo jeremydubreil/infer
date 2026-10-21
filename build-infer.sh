@@ -231,10 +231,19 @@ install_opam_deps () {
         locked=.locked
     fi
 
+    # charon and name_matcher_parser, used by the Rust frontend to read Charon's output, are not in
+    # opam-repository. We vendor a Charon commit because Meta CI does not allow GitHub downloads.
     opam pin add --no-action charon "$OPAM_INFER_ROOT"/dependencies/charon
     opam pin add --no-action name_matcher_parser "$OPAM_INFER_ROOT"/dependencies/charon
+    # ppx_show and pyml depend on stdcompat, whose latest release (21.1) requires OCaml < 5.4. We
+    # vendor them with the stdcompat dependency removed. These pins can go once a stdcompat release
+    # supports OCaml 5.4.
     opam pin add --no-action ppx_show "$OPAM_INFER_ROOT"/dependencies/ppx_show
     opam pin add --no-action pyml "$OPAM_INFER_ROOT"/dependencies/pyml
+    # The latest release of ANSITerminal fails to compile under mingw with GCC 14. We vendor it with
+    # fixes that no release contains yet: its Windows-only stubs get three type and declaration
+    # fixes. It is pinned on every platform so that the same code is built everywhere.
+    opam pin add --no-action ANSITerminal "$OPAM_INFER_ROOT"/dependencies/ANSITerminal
     # camlzip checks that it is within the required version that the zip/jar file declares as
     # needed to decompress it:
     #   https://github.com/xavierleroy/camlzip/blob/dd86042ac5eba8ba21e3d98b2f3e3dd82fc14033/zip.ml#L197-L198
@@ -248,7 +257,32 @@ install_opam_deps () {
     # to pin camlzip after the fact instead; this will only rebuild javalib and sawja and only
     # the first time that we pin camlzip)
     opam pin add --no-action camlzip "$OPAM_INFER_ROOT"/dependencies/camlzip
-    opam install --deps-only "$OPAM_INFER_ROOT"/opam/infer.opam$locked
+    # base_bigstring is unavailable on Windows according to opam-repository, which declares
+    #   available: arch != "x86_32" & os != "win32"
+    # That blocks the whole build, because core (which infer uses pervasively) depends on
+    # base_bigstring and pins it to = v0.17.0.
+    #
+    # The exclusion is stale metadata, not a real constraint:
+    #   - the package's own base_bigstring.opam says only `arch != "arm32" & arch != "x86_32"`,
+    #     with no mention of win32;
+    #   - src/base_bigstring_stubs.c has dedicated __MINGW32__ and _MSC_VER branches for its
+    #     byteswap intrinsics, i.e. Windows is deliberately supported upstream;
+    #   - core itself is marked win32-available while depending on base_bigstring.
+    #
+    # So we vendor the upstream v0.17.0 sources verbatim (no patch) and pin them, which makes
+    # opam use the package's own metadata instead of opam-repository's copy. Pinned on every
+    # platform so Linux/macOS builds exercise the same code path and cannot silently drift.
+    opam pin add --no-action base_bigstring "$OPAM_INFER_ROOT"/dependencies/base_bigstring
+    # The path has to be passed as an explicitly relative "./..." one. `opam install` only
+    # treats an argument as a file at all if it contains Filename.dir_sep or starts with "."
+    # (opam 2.5.2, src/client/opamArg.ml:861-864). On native Windows dir_sep is "\", but MSYS2
+    # hands opam.exe a forward-slash path, so an absolute "$INFER_ROOT/opam/infer.opam.locked"
+    # becomes D:/a/infer/infer/opam/infer.opam.locked, matches neither test, and is parsed as a
+    # package atom instead -- failing with `Invalid character ':' in package name`. Upstream opam
+    # fixed this after 2.5.2 by accepting either separator on win32. Leading "." satisfies the
+    # check on every platform, so this stays a single code path rather than an OS-specific
+    # branch. The `cd` keeps it independent of the caller's working directory.
+    ( cd "$INFER_ROOT" && opam install --deps-only ./opam/infer.opam$locked )
 }
 
 # regardless of the LLVM toolchain used to provide the LLVM libraries, we need our own LLVM OCaml

@@ -1033,7 +1033,8 @@ endif
 OPAM_INSTALLED_LOCKED_DEPS = \
   $$($(OPAM) list --installed --short --columns=package --color=never \
        $$(grep -h -e {= $(ROOT_DIR)/opam/infer.opam.locked $(ROOT_DIR)/opam/ocamlformat.opam.locked \
-          | cut -d\" -f2))
+          | cut -d\" -f2) \
+     | tr -d '\r')
 
 .PHONY: devsetup
 devsetup:
@@ -1043,7 +1044,7 @@ devsetup:
 	  $(OPAM) install --deps-only --locked --yes $(ROOT_DIR)/opam/ocamlformat.opam.locked)
 	$(QUIET)$(call silent_on_success,installing ocamlformat,\
 	  OPAMSWITCH=$(OPAMSWITCH); \
-	  $(OPAM) install ocamlformat.$$($(OPAM) show --color=never -f version $(ROOT_DIR)/opam/ocamlformat.opam.locked) --yes)
+	  $(OPAM) install ocamlformat.$$($(OPAM) show --color=never -f version $(ROOT_DIR)/opam/ocamlformat.opam.locked | tr -d '\r') --yes)
 	$(QUIET)$(call silent_on_success,installing $(OPAM_DEV_DEPS),\
 	  OPAMSWITCH=$(OPAMSWITCH); \
 	  $(OPAM) install --yes --no-depexts $(OPAM_DEV_DEPS) $(OPAM_INSTALLED_LOCKED_DEPS))

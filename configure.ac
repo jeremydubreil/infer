@@ -89,7 +89,11 @@ case "${OS}" in
             Darwin*)
                 BUILD_PLATFORM=Darwin
                 ;;
-            cygwin*|mingw*)
+            # $OS is normally set to Windows_NT and handled above, but it does not survive every
+            # way of entering a Unix shell on Windows, so also recognise the names uname prints
+            # there: MINGW64_NT-10.0-26100 from the MSYS2 mingw64 shell, MSYS_NT-... from the
+            # MSYS2 msys shell and CYGWIN_NT-... from Cygwin.
+            cygwin*|mingw*|CYGWIN*|MINGW*|MSYS*)
                 BUILD_PLATFORM=Windows
                 ;;
             *)
