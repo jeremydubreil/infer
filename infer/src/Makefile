@@ -163,7 +163,10 @@ cluster_flags:=$(foreach cluster,$(clusters),-c $(cluster))
 
 mod_dep.dot: $(ml_src_files)
 	$(MAKE) -C $(DEPENDENCIES_DIR)/ocamldot
-	ocamldep.opt $(inc_flags) $(ml_src_files) \
+#	pass the arguments in a file: on Windows there are too many of them for a command line
+	ARGS=$$(mktemp) && trap 'rm -f "$$ARGS"' EXIT && \
+	printf '%s\n' $(inc_flags) $(ml_src_files) > "$$ARGS" && \
+	ocamldep.opt -args "$$ARGS" \
 	| $(DEPENDENCIES_DIR)/ocamldot/ocamldot $(cluster_flags) $(root_flags) \
 	| grep -v -e "\"IList\"\|\"Utils\"\|\"IStd\"\|\"Infertop\"" \
         > mod_dep.dot
@@ -229,6 +232,14 @@ endif
 
 BUILD_ARCH := $(shell uname -m)
 
+# On Windows a local opam switch is a native path, e.g. `D:\a\infer\infer`, and dune-workspace has
+# to reproduce it exactly since dune passes it to `opam config env --switch`. Getting a single
+# backslash there takes four in this variable: `sed` turns `\\` into `\` in a replacement (which is
+# what mangled `\a` into a bell character before this was escaped), and dune then turns `\\` into
+# `\` inside the quoted string. `make` itself does no unescaping, and the substitution below is
+# single-quoted so the shell does none either. No-op on Unix, where the switch is a plain name.
+OPAMSWITCH_SEXP := $(subst \,\\\\,$(OPAMSWITCH))
+
 $(GENERATED_FROM_AUTOCONF): $(MAKEFILE_LIST)
 	TMPFILE=$$(mktemp $@.tmp.XXXX); \
 	INFER_GIT_COMMIT=$$(git --work-tree=$(ROOT_DIR) --git-dir=$(ROOT_DIR)/.git rev-parse --short HEAD || printf "unknown"); \
@@ -251,7 +262,7 @@ $(GENERATED_FROM_AUTOCONF): $(MAKEFILE_LIST)
 	  -e "s|@BUILD_ARCH[@]|$(BUILD_ARCH)|g" \
 	  -e "s|@BUILD_RUST_ANALYZERS[@]|$(BUILD_RUST_ANALYZERS)|g" \
 	  -e "s|@BUILD_SWIFT_ANALYZERS[@]|$(BUILD_SWIFT_ANALYZERS)|g" \
-	  -e "s|@OPAMSWITCH[@]|$(OPAMSWITCH)|g" \
+	  -e 's|@OPAMSWITCH[@]|$(OPAMSWITCH_SEXP)|g' \
 	  -e "s|@XCODE_SELECT[@]|$(XCODE_SELECT)|g" \
 	  -e "s|@INFER_MAN_LAST_MODIFIED[@]|$(INFER_MAN_LAST_MODIFIED)|g" \
 	  -e "s|@PYTHON[@]|$(PYTHON)|g" \
