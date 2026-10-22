@@ -92,7 +92,9 @@ depends: [
   "ocaml-variants" {= "5.4.1+options"}
   "ocaml_intrinsics_kernel" {= "v0.17.2"}
   "ocamlbuild" {= "0.16.1"}
-  "ocamlfind" {= "1.9.8"}
+  # OS-conditional as in infer.opam.locked: no ocamlfind release works on native Windows with
+  # OCaml 5.
+  "ocamlfind" {(= "1.9.8" & os != "win32") | (= "1.9.9~preview" & os = "win32")}
   "ocamlgraph" {= "2.2.0"}
   "ocplib-endian" {= "1.2"}
   "octavius" {= "1.2.2"}

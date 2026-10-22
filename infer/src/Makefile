@@ -163,7 +163,10 @@ cluster_flags:=$(foreach cluster,$(clusters),-c $(cluster))
 
 mod_dep.dot: $(ml_src_files)
 	$(MAKE) -C $(DEPENDENCIES_DIR)/ocamldot
-	ocamldep.opt $(inc_flags) $(ml_src_files) \
+#	pass the arguments in a file: on Windows there are too many of them for a command line
+	ARGS=$$(mktemp) && trap 'rm -f "$$ARGS"' EXIT && \
+	printf '%s\n' $(inc_flags) $(ml_src_files) > "$$ARGS" && \
+	ocamldep.opt -args "$$ARGS" \
 	| $(DEPENDENCIES_DIR)/ocamldot/ocamldot $(cluster_flags) $(root_flags) \
 	| grep -v -e "\"IList\"\|\"Utils\"\|\"IStd\"\|\"Infertop\"" \
         > mod_dep.dot
