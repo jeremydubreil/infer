@@ -24,7 +24,10 @@ infer-out$(TEST_SUFFIX)/report.json: $(JAVA_DEPS) $(SOURCES) $(MAKEFILE_LIST)
 	  $(INFER_BIN) capture --buck --project-root $(PROJECT_ROOT) -o infer-out-A -- $(JAVAC) $(JAVAC_FLAGS) A.java)
 	$(QUIET)$(call silent_on_success,Capturing B.java,\
 	  $(INFER_BIN) capture --buck --project-root $(PROJECT_ROOT) -o infer-out-B -- $(JAVAC) $(JAVAC_FLAGS) B.java)
-	$(QUIET)echo $$(realpath infer-out-B) > $(ARGSFILE)
+#	infer reads the arguments file itself, so on Windows the path in it has to be in native form
+	$(QUIET)path=$$(realpath infer-out-B) && \
+	  $(if $(filter yes,$(WINDOWS_BUILD)),path=$$(cygpath -m "$$path") &&) \
+	  echo "$$path" > $(ARGSFILE)
 	$(QUIET)$(call silent_on_success,Merging infer-outs,\
 	  $(INFER_BIN) capture --project-root $(PROJECT_ROOT) --merge-capture $$(realpath infer-out-A) --merge-capture @$(ARGSFILE) -o infer-out)
 	$(QUIET)$(call silent_on_success,Testing infer/java in $(TEST_REL_DIR),\
