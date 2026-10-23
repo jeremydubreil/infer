@@ -48,7 +48,6 @@ depends: [
   "ocamlfind" {build & (os != "win32" | >= "1.9.9~preview")}
   "ocamlgraph"
   "ounit" {>="2.0.5"}
-  "parmap" {>="1.0-rc8"}
   "ppx_blob"
   "ppx_compare" {>= "v0.17" & < "v0.18"}
   "ppx_deriving" {>="4.1"}

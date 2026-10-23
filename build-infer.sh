@@ -235,12 +235,9 @@ install_opam_deps () {
     # supports OCaml 5.4.
     opam pin add --no-action ppx_show "$INFER_ROOT"/dependencies/ppx_show
     opam pin add --no-action pyml "$INFER_ROOT"/dependencies/pyml
-    # The latest releases of parmap and ANSITerminal fail to compile under mingw with GCC 14. We
-    # vendor them with fixes that no release contains yet: `long` becomes `intnat` in parmap, a real
-    # memory corruption on 64-bit Windows, and ANSITerminal's Windows-only stubs get three type and
-    # declaration fixes. They are pinned on every platform so that the same code is built
-    # everywhere.
-    opam pin add --no-action parmap "$INFER_ROOT"/dependencies/parmap
+    # The latest release of ANSITerminal fails to compile under mingw with GCC 14. We vendor it with
+    # fixes that no release contains yet: its Windows-only stubs get three type and declaration
+    # fixes. It is pinned on every platform so that the same code is built everywhere.
     opam pin add --no-action ANSITerminal "$INFER_ROOT"/dependencies/ANSITerminal
     # camlzip checks that it is within the required version that the zip/jar file declares as
     # needed to decompress it:
