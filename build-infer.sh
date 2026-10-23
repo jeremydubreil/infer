@@ -248,6 +248,10 @@ install_opam_deps () {
 
 # regardless of the LLVM toolchain used to provide the LLVM libraries, we need our own LLVM OCaml
 # bindings to be installed
+#
+# This repository also overrides base_bigstring.v0.17.0, which opam-repository marks as unavailable
+# on win32 because the Windows C runtimes have no memmem(): ours applies a memmem() fallback to the
+# release tarball. It must be set up before installing the dependencies.
 setup_local_opam_repo () {
     # `opam repo set-url` only refreshes the URL of an existing repo definition; it
     # does NOT select the repo for the current switch. A freshly created switch (e.g.
@@ -268,8 +272,8 @@ fi
 eval $(SHELL=bash opam env)
 echo >&2
 echo "installing infer dependencies; this can take up to 30 minutes... " >&2
-opam_retry install_opam_deps
 setup_local_opam_repo
+opam_retry install_opam_deps
 if [ "$ONLY_SETUP_OPAM" == "yes" ]; then
   exit 0
 fi
