@@ -33,7 +33,7 @@ depends: [
   "ocaml-config" {= "3"}
   "ocaml-option-flambda" {= "1"}
   "ocaml-variants" {= "5.3.0+options"}
-  "ocamlfind" {= "1.9.8"}
+  "ocamlfind" {= "1.9.9~preview"}
   "stdlib-shims" {= "0.3.0"}
 ]
 build: [
