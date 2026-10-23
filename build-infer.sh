@@ -256,9 +256,12 @@ install_opam_deps () {
 # regardless of the LLVM toolchain used to provide the LLVM libraries, we need our own LLVM OCaml
 # bindings to be installed
 #
-# This repository also overrides base_bigstring.v0.17.0, which opam-repository marks as unavailable
-# on win32 because the Windows C runtimes have no memmem(): ours applies a memmem() fallback to the
-# release tarball. It must be set up before installing the dependencies.
+# This repository also overrides packages with patches for Windows that no release contains yet, so
+# it must be set up before installing the dependencies:
+#   - base_bigstring.v0.17.0, which opam-repository marks as unavailable on win32 because the
+#     Windows C runtimes have no memmem(), gets a memmem() fallback;
+#   - parmap.1.2.5 and ANSITerminal.0.8.5, whose C stubs fail to compile with mingw-w64 GCC 14, get
+#     type fixes, some of which fix values truncated to 32 bits on 64-bit Windows.
 setup_local_opam_repo () {
     # `opam repo set-url` only refreshes the URL of an existing repo definition; it
     # does NOT select the repo for the current switch. A freshly created switch (e.g.
