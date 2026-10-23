@@ -60,7 +60,8 @@ int unsetenv(const char* name) {
   return result;
 }
 
-extern int win_CRT_fd_of_filedescr(value handle);
+/* for win_CRT_fd_of_filedescr, which OCaml 5.0 renamed and which this header still provides */
+#include <caml/unixsupport.h>
 
 static FILE* file_of_file_descr(value file_descr, const char* mode) {
   CAMLparam1(file_descr);
