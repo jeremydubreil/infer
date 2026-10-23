@@ -264,6 +264,12 @@ AC_SUBST([HAS_OBJC])
 AC_SUBST([SDKROOT])
 
 
+# On Windows, the OCaml switch and its C libraries (zlib, ...) are built with mingw-w64 gcc, so use
+# that one rather than a clang that may be on the PATH but target MSVC. `./configure CC=...` still
+# takes precedence.
+AS_IF([test x"$WINDOWS_BUILD" = x"yes" && test x"$CC" = x],
+      [AC_CHECK_PROGS([CC], [x86_64-w64-mingw32-gcc gcc])])
+
 # prefer clang over gcc because the plugins makes use of
 # clang-specific #pragma's
 AC_PROG_CC(clang gcc)
@@ -347,6 +353,9 @@ AC_ARG_VAR([OPAMROOT], [Root of the local opam installation.])
 AC_ARG_VAR([OPAMSWITCH], [Opam switch used for building infer.])
 
 AC_CHECK_TOOL([OPAM], [opam], [no])
+# on Windows, run opam through a wrapper that drops the \r opam ends its lines with
+AS_IF([test "$OPAM" != "no" && test x"$WINDOWS_BUILD" = x"yes"],
+      [OPAM="$(cd "$srcdir" && pwd)/scripts/opam_lf"])
 AS_IF([test "$OPAM" != "no"], [
   AC_MSG_CHECKING([opam version])
   opam_version=$("$OPAM" --version)

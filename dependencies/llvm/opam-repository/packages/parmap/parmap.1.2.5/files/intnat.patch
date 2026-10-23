@@ -1,0 +1,12 @@
+--- a/src/bytearray_stubs.c
++++ b/src/bytearray_stubs.c
+@@ -12,7 +12,8 @@
+ CAMLprim value ml_marshal_to_bigarray(value v, value flags)
+ {
+   char *buf;
+-  long len;
++  /* intnat, as the runtime functions below take: long is only 32 bits on 64-bit Windows */
++  intnat len;
+   caml_output_value_to_malloc(v, flags, &buf, &len);
+   return caml_ba_alloc(CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_MANAGED,
+                        1, buf, &len);
