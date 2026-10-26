@@ -63,13 +63,39 @@ jobs:
         os:
           - macOS-latest
           - ubuntu-24.04
+          - windows-2025
         ocaml-compiler:
           - ocaml-variants.5.4.1+options,ocaml-option-flambda
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # The build is bash- and GNU make-driven on every platform. On Windows this resolves to the
+        # MSYS2 bash that the Windows packages step below puts first on the PATH (see devsetup.yml).
+        shell: bash
 
     steps:
+      # The tests rely on symlinks checked into the repository, e.g. infer/tests/.inferconfig, which
+      # Git for Windows checks out as plain text files unless told otherwise.
+      - name: Check out symlinks as symlinks on Windows
+        if: runner.os == 'Windows'
+        run: git config --system core.symlinks true
+
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Install Required Packages for Windows
+        if: runner.os == 'Windows'
+        # MSYS2 is preinstalled on the runner image but kept off PATH; see devsetup.yml for details.
+        shell: C:\msys64\usr\bin\bash.exe --noprofile --norc -eo pipefail {0}
+        run: |
+          export PATH="/mingw64/bin:/usr/bin:$PATH"
+          pacman -S --needed --noconfirm autoconf-wrapper automake-wrapper make
+          github_path="$(cygpath -u "$GITHUB_PATH")"
+          echo 'C:\msys64\mingw64\bin' >> "$github_path"
+          echo 'C:\msys64\usr\bin' >> "$github_path"
+          # the expected test outputs use the Unicode symbols infer prints in a UTF-8 locale, which
+          # the Linux and macOS runners set and the Windows one does not
+          echo 'LANG=C.UTF-8' >> "$(cygpath -u "$GITHUB_ENV")"
 
       - name: Install Required Apt Packages for Ubuntu
         if: runner.os == 'Linux'
@@ -112,13 +138,20 @@ jobs:
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          # ignored on non-Windows runners; see devsetup.yml
+          windows-compiler: mingw
+          windows-environment: msys2
 
+      # Only the Java analyzers are built on Windows for now: the clang ones need infer's own clang,
+      # which facebook-clang-plugins/clang/setup.sh only knows how to build on Linux and macOS.
       - name: Compute hash of clang installation
+        if: runner.os != 'Windows'
         id: clang-hash
         run: |
           echo "value=$(./facebook-clang-plugins/clang/setup.sh --clang-hash)" >> $GITHUB_OUTPUT
 
       - name: Attempt to get clang from the cache
+        if: runner.os != 'Windows'
         id: cache-clang-restore
         uses: actions/cache/restore@v4
         with:
@@ -130,13 +163,13 @@ jobs:
         run: ./facebook-clang-plugins/clang/setup.sh --only-record-install
 
       - name: Build clang on cache misses
-        if: steps.cache-clang-restore.outputs.cache-hit != 'true'
+        if: runner.os != 'Windows' && steps.cache-clang-restore.outputs.cache-hit != 'true'
         run: |
           ./facebook-clang-plugins/clang/src/prepare_clang_src.sh
           CC=clang CXX=clang++ ./facebook-clang-plugins/clang/setup.sh --ninja --sequential-link
 
       - name: Validate rebuilt clang installation
-        if: steps.cache-clang-restore.outputs.cache-hit != 'true'
+        if: runner.os != 'Windows' && steps.cache-clang-restore.outputs.cache-hit != 'true'
         run: |
           ./facebook-clang-plugins/clang/setup.sh --only-check-install
           ./facebook-clang-plugins/clang/install/bin/clang --version
@@ -144,7 +177,7 @@ jobs:
           ./facebook-clang-plugins/clang/install/bin/llvm-config --version
 
       - name: Save rebuilt clang to the cache
-        if: steps.cache-clang-restore.outputs.cache-hit != 'true'
+        if: runner.os != 'Windows' && steps.cache-clang-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: facebook-clang-plugins/clang/install
@@ -156,6 +189,9 @@ jobs:
       - if: runner.os == 'macOS'
         run: ./build-infer.sh --yes --user-opam-switch -- --disable-python-analyzers --disable-swift-analyzers
 
+      - if: runner.os == 'Windows'
+        run: ./build-infer.sh --yes --user-opam-switch java
+
       - name: Install ocamlformat
         run: |
           opam install --deps-only --locked opam/ocamlformat.opam.locked
@@ -163,12 +199,22 @@ jobs:
           opam exec -- ocamlformat --version
 
       - name: Test infer
+        if: runner.os != 'Windows'
         run: make test -k NDKBUILD=no
 
-      - run: |
+      # `make test` requires all the analyzers, and only the Java ones are built on Windows
+      - name: Test infer
+        if: runner.os == 'Windows'
+        run: make config_tests NDKBUILD=no
+
+      - if: runner.os != 'Windows'
+        run: |
           sudo make install BUILD_MODE=opt
           # restore permissions after root build
           sudo chown -R $USER: .
+
+      - if: runner.os == 'Windows'
+        run: make install BUILD_MODE=opt
 
       - name: Build release tarball
         id: build-release
