@@ -54,7 +54,8 @@ opam_switch_create_if_needed () {
     local switch_exists=no
     printf "looking if switch %s exists in this list:\n" "$switch";
     opam switch list --short
-    for installed_switch in $(opam switch list --short); do
+    # opam.exe ends its lines with \r\n on Windows
+    for installed_switch in $(opam switch list --short | tr -d '\r'); do
         if [ "$installed_switch" == "$switch" ]; then
             switch_exists=yes
             break
