@@ -79,6 +79,11 @@ let proc_fun_name (proc : Textual.ProcDesc.t) =
 
 let is_module_body name = String.is_substring name ~substring:"__module_body__"
 
+(* Since Python 3.14 (PEP 649), annotations are evaluated lazily by a compiler-generated
+   [__annotate__] function. Annotations do not affect the function's behaviour, and were built in
+   the (skipped) enclosing module or class body before 3.14, so skip these functions too. *)
+let is_annotate_function name = String.is_suffix name ~suffix:"__annotate__"
+
 (* A procedure a codemod did not touch is trivially equivalent. Comparing the location-free
    pretty-print is a cheap sufficient check (locations don't affect semantics) that lets us skip the
    PEG conversion + bisimulation entirely for unchanged functions — the vast majority in a typical
@@ -100,7 +105,7 @@ let semdiff_b007_textual ~debug (module_old : Textual.Module.t) (module_new : Te
   let all_accepted =
     List.for_all procs_old ~f:(fun proc_old ->
         let name = proc_fun_name proc_old in
-        if is_module_body name || is_class_body proc_old then true
+        if is_module_body name || is_annotate_function name || is_class_body proc_old then true
         else
           match List.find procs_new ~f:(fun p -> String.equal (proc_fun_name p) name) with
           | None ->
@@ -130,7 +135,7 @@ let semdiff_b006_textual ~debug (module_old : Textual.Module.t) (module_new : Te
   let all_accepted =
     List.for_all procs_old ~f:(fun proc_old ->
         let name = proc_fun_name proc_old in
-        if is_module_body name || is_class_body proc_old then true
+        if is_module_body name || is_annotate_function name || is_class_body proc_old then true
         else
           match List.find procs_new ~f:(fun p -> String.equal (proc_fun_name p) name) with
           | None ->

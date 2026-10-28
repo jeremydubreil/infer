@@ -273,6 +273,9 @@ let run_files modules =
             (* I don't think it makes sense to deal with this kind of constant in the interpreter *)
             todo "eval_const"
       in
+      (* since Python 3.12, class bodies store their namespace in a [__classdict__] cell, only read
+         by annotation scopes (PEP 695): this interpreter does not model cells, so ignore it *)
+      let is_classdict_cell name = Int.equal (Ident.compare name (Ident.mk "__classdict__")) 0 in
       let rec eval_exp exp =
         match (exp : Exp.t) with
         | Const const ->
@@ -324,6 +327,8 @@ let run_files modules =
             (* Note: Python dictionnaries may have other type of keys *)
             let index = eval_exp index |> expect_string ~who ~how:"as index" |> Ident.mk in
             get index
+        | LoadClosure {name} when is_classdict_cell name ->
+            None
         | AssertionError
         | BuildSlice _
         | BuildString _
@@ -408,6 +413,10 @@ let run_files modules =
             let {Dict.set} = eval_exp lhs |> expect_dict ~who ~how:"as 1st argument" in
             let key = eval_exp index |> expect_string ~who ~how:"as 2nd argument" |> Ident.mk in
             set key (eval_exp rhs)
+        | MakeCell _ ->
+            ()
+        | StoreDeref {name} when is_classdict_cell name ->
+            ()
         | BuiltinCall _
         | CallEx _
         | Delete _
@@ -418,7 +427,6 @@ let run_files modules =
         | SetupAnnotations
         | ImportStar _
         | GenStart _
-        | MakeCell _
         | CopyFreeVars _
         | Yield _ ->
             todo "exec_stmt"

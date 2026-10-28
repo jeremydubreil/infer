@@ -103,53 +103,25 @@ def foo(n):
         n1     = (@load (@lvar locals))  [let]
         n0     = @None  [let]
         i      = ($builtins.py_make_int 0)  [store_fast: locals]
-        n3     = ($builtins.py_make_int 0)  [load_fast: locals]
+        n3     = @theta:i:0  [load_fast: locals]
         n4     = @param:n  [load_fast: locals]
-        n5     = ($builtins.py_compare_lt ($builtins.py_make_int 0) @param:n)  [let]
-        n6     = @theta:i:0  [load_fast: locals]
-        n7     = ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))  [let]
+        n5     = ($builtins.py_compare_lt @theta:i:0 @param:n)  [let]
+        n7     = @theta:i:0  [load_fast: locals]
+        n8     = ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))  [let]
         i      = ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))  [store_fast: locals]
-        n8     = ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))  [load_fast: locals]
-        n9     = @param:n  [load_fast: locals]
-        n10    = ($builtins.py_compare_lt
-                     ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))
-                     @param:n)  [let]
+        n6     = @theta:i:0  [load_fast: locals]
         θ_state_0 = (@theta_0 @state0 @theta:state:0)  [theta_close]
         θ_i_0 = (@theta_0
                     ($builtins.py_make_int 0)
                     ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1)))  [theta_close]
-        n11    = (@phi
-                     ($builtins.py_bool ($builtins.py_compare_lt ($builtins.py_make_int 0) @param:n))
-                     (@exit_value
-                         @theta:i:0
-                         (@not
-                             ($builtins.py_bool
-                                 ($builtins.py_compare_lt
-                                     ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))
-                                     @param:n))))
-                     ($builtins.py_make_int 0))  [load_fast: locals]
         --- root ---
         (@ret
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_lt ($builtins.py_make_int 0) @param:n))
-                (@exit_value
-                    @theta:state:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_lt
-                                ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))
-                                @param:n))))
-                @state0)
-            (@phi
-                ($builtins.py_bool ($builtins.py_compare_lt ($builtins.py_make_int 0) @param:n))
-                (@exit_value
-                    @theta:i:0
-                    (@not
-                        ($builtins.py_bool
-                            ($builtins.py_compare_lt
-                                ($builtins.py_inplace_add @theta:i:0 ($builtins.py_make_int 1))
-                                @param:n))))
-                ($builtins.py_make_int 0)))
+            (@exit_value
+                @theta:state:0
+                (@not ($builtins.py_bool ($builtins.py_compare_lt @theta:i:0 @param:n))))
+            (@exit_value
+                @theta:i:0
+                (@not ($builtins.py_bool ($builtins.py_compare_lt @theta:i:0 @param:n)))))
         |}]
 
 
@@ -197,6 +169,20 @@ def foo(items):
                             @theta:state:0
                             ($builtins.py_get_iter @state0 @param:items))))  [theta_close]
         --- root ---
-        (@ret @theta:state:0 @theta:s:0)
+        (@ret
+            (@exit_value
+                @theta:state:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:items)))))
+            (@exit_value
+                @theta:s:0
+                (@not
+                    ($builtins.py_bool
+                        ($builtins.py_has_next_iter
+                            @theta:state:0
+                            ($builtins.py_get_iter @state0 @param:items))))))
         |}]
   end )

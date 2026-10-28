@@ -122,6 +122,7 @@ module BuiltinCaller : sig
     | TypevarWithBound
     | TypevarWithConstraints
     | SetFunctionTypeParams
+    | SetTypeparamDefault
 
   type t =
     | BuildClass

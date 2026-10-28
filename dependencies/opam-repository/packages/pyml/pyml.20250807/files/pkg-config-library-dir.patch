@@ -1,6 +1,6 @@
 --- a/py.ml
 +++ b/py.ml
-@@ -369,6 +369,17 @@
+@@ -373,6 +373,24 @@
    | Pyml_arch.Mac -> ".dylib"
    | _ -> ".so"
  
@@ -15,30 +15,37 @@
 +      [Printf.sprintf "libpython%d.%dm.so";
 +        Printf.sprintf "libpython%d.%d.so"]
 +
++let library_filenames_from_paths version_major version_minor paths =
++  let library_filenames =
++    List.map
++      (fun format -> format version_major version_minor)
++      library_patterns in
++  concat_library_filenames paths library_filenames
++
  let libpython_from_pkg_config version_major version_minor =
    let command =
      Printf.sprintf "pkg-config --libs python-%d.%d" version_major
-@@ -400,24 +411,21 @@
+@@ -404,31 +422,20 @@
          else (library_paths, library_filename) in
        let (library_paths, library_filename) =
          List.fold_left parse_word ([], None) word_list in
 -      let library_filename =
-+      let library_filenames =
-         match library_filename with
+-        match library_filename with
 -          None -> unable_to_parse ()
 -        | Some library_filename -> library_filename in
 -      Some (concat_library_filenames library_paths [library_filename])
-+          None ->
-+            (* since Python 3.8, python-X.Y.pc (unlike python-X.Y-embed.pc)
-+               lists the library directory but not -lpythonX.Y, as in the
-+               framework builds of Python on macOS: look for the usual
-+               library names in that directory *)
-+            if library_paths = [] then unable_to_parse ();
-+            List.map
-+              (fun format -> format version_major version_minor)
-+              library_patterns
-+        | Some library_filename -> [library_filename] in
-+      Some (concat_library_filenames library_paths library_filenames)
++      begin match library_filename with
++        None ->
++          (* since Python 3.8, python-X.Y.pc (unlike python-X.Y-embed.pc)
++             lists the library directory but not -lpythonX.Y, as in the
++             framework builds of Python on macOS: look for the usual library
++             names in that directory *)
++          if library_paths = [] then unable_to_parse ();
++          Some (library_filenames_from_paths version_major version_minor
++            library_paths)
++      | Some library_filename ->
++          Some (concat_library_filenames library_paths [library_filename])
++      end
    | _ -> None
  
 -let library_patterns : (int -> int -> string) list =
@@ -51,6 +58,13 @@
 -  | Pyml_arch.Unix ->
 -      [Printf.sprintf "libpython%d.%dm.so";
 -        Printf.sprintf "libpython%d.%d.so"]
+-
+-let library_filenames_from_paths version_major version_minor paths =
+-  let library_filenames =
+-    List.map
+-      (fun format -> format version_major version_minor)
+-      library_patterns in
+-  concat_library_filenames paths library_filenames
 -
  let libpython_from_python_config version_major version_minor =
    let command =

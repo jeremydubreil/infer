@@ -42,6 +42,9 @@ let dict_rules =
      ?S2 (@dict_values ?S3 ?D)))"
   ; (* has_next on items() delegates to keys() (same number of elements) *)
     "($builtins.py_has_next_iter ?S1 ($builtins.py_get_iter ?S2 (@dict_items ?S3 ?D))) ==> \
+     ($builtins.py_has_next_iter ?S1 ($builtins.py_get_iter ?S2 (@dict_keys ?S3 ?D)))"
+  ; (* has_next on values() delegates to keys() (same number of elements) *)
+    "($builtins.py_has_next_iter ?S1 ($builtins.py_get_iter ?S2 (@dict_values ?S3 ?D))) ==> \
      ($builtins.py_has_next_iter ?S1 ($builtins.py_get_iter ?S2 (@dict_keys ?S3 ?D)))" ]
 
 
