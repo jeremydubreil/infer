@@ -648,6 +648,10 @@
     }
   ],
   "pulse-taint-propagators": [
+    { "class_names": ["java.lang.String"],
+      "method_names": ["compareTo", "compareToIgnoreCase", "contains", "contentEquals", "endsWith", "equals", "equalsIgnoreCase", "indexOf", "lastIndexOf", "matches", "regionMatches", "startsWith"],
+      "taint_target": "ReturnValue"
+    },
     { "class_names": ["javax.servlet.http.Cookie", "jakarta.servlet.http.Cookie"],
       "method_names": ["setComment", "setDomain", "setHttpOnly", "setMaxAge", "setPath", "setSecure", "setVersion"],
       "taint_target": "ReturnValue"
