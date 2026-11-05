@@ -240,7 +240,7 @@ def get_option_awaitable(b):
         return None
 
 
-async def FP_3_12_call_get_option_awaitable_eq_test_none_ok(b):
+async def call_get_option_awaitable_eq_test_none_ok(b):
     unawaited = get_option_awaitable(b)
     if unawaited is None:
         return None
@@ -320,7 +320,7 @@ async def my_iter_arg_ok(f):
     return l
 
 
-async def FN_3_10_none_test_bad():
+async def FN_none_test_bad():
     opt = async_fun()
     if opt is None:
         do()
