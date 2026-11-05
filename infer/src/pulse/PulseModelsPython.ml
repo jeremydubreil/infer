@@ -1603,6 +1603,7 @@ let builtins_matcher builtin args =
       let arg1, arg2 = expect_2_args args builtin_s in
       subscript arg1 arg2
   | SetFunctionTypeParams
+  | SetTypeparamDefault
   | TypevarWithBound
   | TypevarWithConstraints
   | UnaryInvert

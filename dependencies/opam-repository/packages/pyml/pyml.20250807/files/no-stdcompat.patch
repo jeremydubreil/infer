@@ -1,88 +1,15 @@
-diff -ruN a/META b/META
---- a/META	2026-10-24 11:51:36.580727000 +0200
-+++ b/META	2026-10-24 11:51:36.758179500 +0200
+--- a/META
++++ b/META
 @@ -1,5 +1,5 @@
  description = "py.ml: OCaml bindings for Python"
 -requires = "unix stdcompat"
 +requires = "unix"
- version = "20200220"
+ version = "20250807"
  archive(byte) = "pyml.cma numpy.cma"
  archive(native) = "pyml.cmxa numpy.cmxa"
-diff -ruN a/Makefile b/Makefile
---- a/Makefile	2026-10-24 11:51:36.573103300 +0200
-+++ b/Makefile	2026-10-24 11:51:36.806098100 +0200
-@@ -35,7 +35,6 @@
- 	OCAMLMKTOP := $(OCAMLFIND) ocamlmktop
- 	OCAMLDEP := $(OCAMLFIND) ocamldep
- 	OCAMLDOC := $(OCAMLFIND) ocamldoc
--	STDCOMPAT := $(shell $(OCAMLFIND) query stdcompat)
- else
- 	OCAMLC := $(shell \
- 		if ocamlc.opt -version >/dev/null 2>&1; then \
-@@ -60,14 +59,13 @@
- 	OCAMLMKTOP := ocamlmktop
- 	OCAMLDEP := ocamldep
- 	OCAMLDOC := ocamldoc
--	STDCOMPAT := .
- endif
- 
- OCAMLVERSION := $(shell $(OCAMLC) -version)
- OCAMLVERSION_LIST := $(subst ., ,$(OCAMLVERSION))
- OCAMLVERSION_MAJOR := $(word 1,$(OCAMLVERSION_LIST))
- 
--LIBRARIES := unix stdcompat
-+LIBRARIES := unix
- 
- ifeq ($(OCAMLVERSION_MAJOR),5)
- 	LIBRARIES_NUMPY = $(LIBRARIES)
-@@ -81,7 +79,6 @@
- comma := ,
- 
- ifneq ($(HAVE_OCAMLFIND),no)
--        OCAMLCFLAGS += -package stdcompat
-         OCAMLLDFLAGS += -linkpkg
- 	PACKAGES := $(subst $(space),$(comma),$(LIBRARIES))
- 	PACKAGES_NUMPY := $(subst $(space),$(comma),$(LIBRARIES_NUMPY))
-@@ -90,18 +87,12 @@
- 	OCAMLNATIVELIBS := -package $(PACKAGES)
- 	OCAMLNATIVELIBSNUMPY := -package $(PACKAGES_NUMPY)
- else
--        OCAMLCFLAGS += -I $(STDCOMPAT)
--        OCAMLLDFLAGS += -I $(STDCOMPAT)
- 	OCAMLBYTECODELIBS := $(LIBRARIES:=.cma)
- 	OCAMLBYTECODELIBSNUMPY := $(LIBRARIES_NUMPY:=.cma)
- 	OCAMLNATIVELIBS := $(LIBRARIES:=.cmxa)
- 	OCAMLNATIVELIBSNUMPY := $(LIBRARIES_NUMPY:=.cmxa)
- endif
- 
--ifeq ($(wildcard $(STDCOMPAT)/stdcompat.cma),)
--$(error stdcompat module not found: please specify the path with STDCOMPAT=...)
--endif
--
- OCAMLVERSION := $(shell $(OCAMLC) -version)
- endif
- 
-@@ -194,7 +185,6 @@
- 	@echo make OCAMLLDFLAGS=... : set flags to OCaml compiler for linking
- 	@echo make OCAMLLIBFLAGS=... :
- 	@echo "  set flags to OCaml compiler for building the library"
--	@echo make STDCOMPAT=... : set path to the stdcompat library
- 
- .PHONY : all.bytecode
- all.bytecode : pyml.cma numpy.cma
-@@ -372,7 +362,7 @@
- #	ocamlmktop raises "Warning 31". See https://github.com/diml/utop/issues/212
- #	$(OCAMLMKTOP) -o $@ -thread -linkpkg -package utop -dontlink compiler-libs $^
- 	ocamlfind ocamlc -thread -linkpkg -linkall -predicates create_toploop \
--		-package compiler-libs.toplevel,utop,stdcompat $^ -o $@
-+		-package compiler-libs.toplevel,utop $^ -o $@
- 
- pyops.ml: pyops.ml.new
- 	cp $< $@
-diff -ruN a/dune b/dune
---- a/dune	2026-10-24 11:51:36.598288200 +0200
-+++ b/dune	2026-10-24 11:51:36.864945800 +0200
-@@ -3,12 +3,11 @@
+--- a/dune
++++ b/dune
+@@ -3,12 +3,12 @@
    (modules numpy py pyops pycaml pyml_arch pytypes pywrappers pyutils)
    (foreign_stubs (language c) (names numpy_stubs pyml_stubs))
    (wrapped false)
@@ -91,13 +18,13 @@ diff -ruN a/dune b/dune
  
  (executables
    (names generate)
--  (modules generate)
+   (modules generate)
 -  (libraries stdcompat))
-+  (modules generate))
++  (libraries))
  
  (rule
    (targets pywrappers.ml pyml.h pyml_dlsyms.inc pyml_wrappers.inc)
-@@ -30,17 +29,17 @@
+@@ -30,17 +30,17 @@
  (library
    (name pyml_tests_common)
    (modules pyml_tests_common)
@@ -118,28 +45,33 @@ diff -ruN a/dune b/dune
  
  (rule
    (enabled_if (>= %{ocaml_version} 4.06))
-diff -ruN a/dune-project b/dune-project
---- a/dune-project	2026-10-24 11:51:36.593245500 +0200
-+++ b/dune-project	2026-10-24 11:51:37.403818900 +0200
-@@ -26,6 +26,5 @@
+--- a/dune-project
++++ b/dune-project
+@@ -19,6 +19,8 @@
+ 
+ (generate_opam_files true)
+ 
++(version "20250807")
++
+ (package
+  (name pyml)
+  (synopsis "OCaml bindings for Python")
+@@ -26,6 +28,5 @@
   (depends
-   (ocaml (>= 3.12.1))
+   (ocaml (>= 4.11.0))
    (ocamlfind :build)
 -  (stdcompat (>= 18))
    (conf-python-3-dev :with-test))
   (depopts utop))
-diff -ruN a/generate.ml b/generate.ml
---- a/generate.ml	2026-10-24 11:51:36.578933200 +0200
-+++ b/generate.ml	2026-10-24 11:51:36.921390900 +0200
-@@ -1,5 +1,3 @@
+--- a/generate.ml
++++ b/generate.ml
+@@ -1,4 +1,3 @@
 -open Stdcompat
--
+ 
  type ty =
      PyObject of bool
-   | PyCompilerFlags | String | WideString | Int | Int64 | Long | Size | IntPtr
-diff -ruN a/numpy_tests.ml b/numpy_tests.ml
---- a/numpy_tests.ml	2026-10-24 11:51:36.544890000 +0200
-+++ b/numpy_tests.ml	2026-10-24 11:51:36.965267900 +0200
+--- a/numpy_tests.ml
++++ b/numpy_tests.ml
 @@ -32,7 +32,7 @@
          Pyml_tests_common.Disabled "numpy is not available"
        else
@@ -176,19 +108,17 @@ diff -ruN a/numpy_tests.ml b/numpy_tests.ml
                    Bigarray.nativeint Bigarray.c_layout array) in
                assert (Bigarray.Genarray.dims bigarray = [| 4 |]);
                let array1 = Bigarray.array1_of_genarray bigarray in
-diff -ruN a/py.ml b/py.ml
---- a/py.ml	2026-10-24 11:51:36.584463400 +0200
-+++ b/py.ml	2026-10-24 11:51:37.027826800 +0200
-@@ -1,8 +1,6 @@
+--- a/py.ml
++++ b/py.ml
+@@ -1,7 +1,6 @@
  module Stdlib_printexc = Printexc
  (* Workaround for opaque Printexc bug in Stdcompat 9 *)
  
 -open Stdcompat
--
+ 
  type pyobject = Pytypes.pyobject
  
- type input = Pytypes.input = Single | File | Eval
-@@ -229,7 +227,7 @@
+@@ -232,7 +231,7 @@
    let lines = ldd python_full_path in
    let is_libpython line =
      let basename = Filename.basename line in
@@ -197,7 +127,7 @@ diff -ruN a/py.ml b/py.ml
    List.find_opt is_libpython lines
  
  let libpython_from_ldconfig major minor =
-@@ -242,7 +240,7 @@
+@@ -245,7 +244,7 @@
          Printf.sprintf "libpython%d.%d" major' minor' in
    let is_libpython line =
      let basename = Filename.basename line in
@@ -206,7 +136,7 @@ diff -ruN a/py.ml b/py.ml
    List.find_opt is_libpython lines
  
  let parse_python_list list =
-@@ -655,7 +653,7 @@
+@@ -690,7 +689,7 @@
  let keep_sigint f =
    let previous_signal_behavior = Sys.signal Sys.sigint Sys.Signal_ignore in
    Sys.set_signal Sys.sigint previous_signal_behavior;
@@ -215,64 +145,7 @@ diff -ruN a/py.ml b/py.ml
      ~finally:(fun () -> Sys.set_signal Sys.sigint previous_signal_behavior)
  
  let initialize ?library_name ?interpreter ?version
-@@ -1145,7 +1143,7 @@
-     option (Pywrappers.pymapping_getitemstring mapping key)
- 
-   let find_string mapping key =
--    Stdcompat.Option.get (get_item_string mapping key)
-+    Option.get (get_item_string mapping key)
- 
-   let find_string_opt = get_item_string
- 
-@@ -1528,25 +1526,25 @@
-     assert_not_null "get_attr_string" obj;
-     option (Pywrappers.pyobject_getattrstring obj attr)
- 
--  let find_attr obj attr = Stdcompat.Option.get (get_attr obj attr)
-+  let find_attr obj attr = Option.get (get_attr obj attr)
- 
-   let find_attr_opt = get_attr
- 
-   let find_attr_string obj attr =
--    Stdcompat.Option.get (get_attr_string obj attr)
-+    Option.get (get_attr_string obj attr)
- 
-   let find_attr_string_opt = get_attr_string
- 
-   let get_item obj key =
-     option (Pywrappers.pyobject_getitem obj key)
- 
--  let find obj attr = Stdcompat.Option.get (get_item obj attr)
-+  let find obj attr = Option.get (get_item obj attr)
- 
-   let find_opt = get_item
- 
-   let get_item_string obj key = get_item obj (String.of_string key)
- 
--  let find_string obj attr = Stdcompat.Option.get (get_item_string obj attr)
-+  let find_string obj attr = Option.get (get_item_string obj attr)
- 
-   let find_string_opt = get_item_string
- 
-@@ -2171,7 +2169,7 @@
-     assert_not_null "get_item(_, !)" key;
-     option (Pywrappers.pydict_getitem dict key)
- 
--  let find dict key = Stdcompat.Option.get (get_item dict key)
-+  let find dict key = Option.get (get_item dict key)
- 
-   let find_opt = get_item
- 
-@@ -2179,7 +2177,7 @@
-     assert_not_null "get_item_string" dict;
-     option (Pywrappers.pydict_getitemstring dict name)
- 
--  let find_string dict key = Stdcompat.Option.get (get_item_string dict key)
-+  let find_string dict key = Option.get (get_item_string dict key)
- 
-   let find_string_opt = get_item_string
- 
-@@ -2967,7 +2965,7 @@
+@@ -3059,7 +3058,7 @@
      | `Eval -> Eval
      | `Single -> Single in
    let optimize =
@@ -281,10 +154,9 @@ diff -ruN a/py.ml b/py.ml
          | `Default -> Default
          | `Debug -> Debug
          | `Normal -> Normal
-diff -ruN a/py.mli b/py.mli
---- a/py.mli	2026-10-24 11:51:36.566535800 +0200
-+++ b/py.mli	2026-10-24 11:51:37.076796100 +0200
-@@ -723,16 +723,16 @@
+--- a/py.mli
++++ b/py.mli
+@@ -739,16 +739,16 @@
    (** [to_bindings_string o] returns all the pairs [(key, value)] in the Python
        dictionary [o]. *)
  
@@ -304,7 +176,7 @@ diff -ruN a/py.mli b/py.mli
    (** [to_bindings_string_seq o] returns the ephemeral sequence of all the pairs
        (key, value) in the Python dictionary [o]. *)
  
-@@ -1084,35 +1084,35 @@
+@@ -1100,35 +1100,35 @@
        tail-recursive and [f] is applied to the elements of [s] in the reverse
        order. *)
  
@@ -346,7 +218,7 @@ diff -ruN a/py.mli b/py.mli
    (** [unsafe_to_seq_map f i] returns the sequence of the results of [f] applied
        to the values from the iteration [i].
        The Python iteration is consumed while the sequence is browsed.
-@@ -1239,13 +1239,13 @@
+@@ -1255,13 +1255,13 @@
    val of_sequence: Object.t -> Object.t
    (** Equivalent to {!Sequence.list}. *)
  
@@ -363,7 +235,7 @@ diff -ruN a/py.mli b/py.mli
    (** Equivalent to {!Sequence.to_seqi}. *)
  
    val singleton: Object.t -> Object.t
-@@ -1746,11 +1746,11 @@
+@@ -1762,11 +1762,11 @@
        tail-recursive and [f] is applied to the elements of [s] in the reverse
        order. *)
  
@@ -377,7 +249,7 @@ diff -ruN a/py.mli b/py.mli
    (** [to_seqi s] returns the OCaml indexed sequence of the values from the
        Python sequence [s]. *)
  
-@@ -1837,7 +1837,7 @@
+@@ -1853,7 +1853,7 @@
    (** [of_string s] returns the Python string with the value [s].
        [s] should be a valid UTF-8 string. *)
  
@@ -386,7 +258,7 @@ diff -ruN a/py.mli b/py.mli
    (** Same as [of_string] but with an argument of type [bytes]. *)
  
    val to_string: Object.t -> string
-@@ -1845,7 +1845,7 @@
+@@ -1861,7 +1861,7 @@
        A failure ([Failure _]) is raised if [o] is neither a
        [String]/[Bytes] value nor a [Unicode] value. *)
  
@@ -395,7 +267,7 @@ diff -ruN a/py.mli b/py.mli
    (** Same as [to_string] but with an a result of type [bytes]. *)
  
    val of_unicode: ?size:int -> int array -> Object.t
-@@ -1864,13 +1864,13 @@
+@@ -1880,13 +1880,13 @@
    (** [of_string s] returns the Python byte sequence with the contents of
        [s]. *)
  
@@ -411,7 +283,7 @@ diff -ruN a/py.mli b/py.mli
    (** Same as [to_string] but with an a result of type [bytes]. *)
  
    val length: Object.t -> int
-@@ -1947,13 +1947,13 @@
+@@ -1963,13 +1963,13 @@
    val to_list_map: (Object.t -> 'a) -> Object.t -> 'a list
    (** Equivalent to {!Sequence.to_list_map}. *)
  
@@ -428,7 +300,7 @@ diff -ruN a/py.mli b/py.mli
    (** Equivalent to {!Sequence.to_seqi}. *)
  
    val fold_left: ('a -> Object.t -> 'a) -> 'a -> Object.t -> 'a
-@@ -2156,7 +2156,7 @@
+@@ -2172,7 +2172,7 @@
    val pyarray_type: unit -> Object.t
    (** Returns the type of Numpy arrays. *)
  
@@ -437,7 +309,7 @@ diff -ruN a/py.mli b/py.mli
    (** [numpy a] returns a Numpy array that shares the same contents than
        the OCaml array [a].
        The array is passed in place (without copy) which relies on the
-@@ -2166,7 +2166,7 @@
+@@ -2182,7 +2182,7 @@
        Note that the {!Numpy} module provides a more general interface
        between Numpy arrays and OCaml bigarrays. *)
  
@@ -446,9 +318,8 @@ diff -ruN a/py.mli b/py.mli
    (** [numpy_get_array a] returns the OCaml array from which the Numpy
        array [a] has been converted from. Note that this function fails
        if [a] has not been obtained by calling the {!numpy} function
-diff -ruN a/pycaml.ml b/pycaml.ml
---- a/pycaml.ml	2026-10-24 11:51:36.568368300 +0200
-+++ b/pycaml.ml	2026-10-24 11:51:37.136930700 +0200
+--- a/pycaml.ml
++++ b/pycaml.ml
 @@ -466,7 +466,7 @@
  
  let py_profiling_active = ref false
@@ -458,20 +329,8 @@ diff -ruN a/pycaml.ml b/pycaml.ml
  
  let py_activate_profiling () =
    let old_value = !py_profiling_active in
-diff -ruN a/pyml_stubs.c b/pyml_stubs.c
---- a/pyml_stubs.c	2026-10-24 11:51:36.543137200 +0200
-+++ b/pyml_stubs.c	2026-10-24 11:51:37.296376400 +0200
-@@ -11,7 +11,6 @@
- #include <stdio.h>
- #include <stdlib.h>
- #include <errno.h>
--#include <stdcompat.h>
- #include <assert.h>
- #include "pyml_stubs.h"
- 
-diff -ruN a/pyml_tests.ml b/pyml_tests.ml
---- a/pyml_tests.ml	2026-10-24 11:51:36.596772900 +0200
-+++ b/pyml_tests.ml	2026-10-24 11:51:37.184476700 +0200
+--- a/pyml_tests.ml
++++ b/pyml_tests.ml
 @@ -536,9 +536,9 @@
          Pyml_tests_common.Disabled "numpy is not available"
        else
@@ -526,16 +385,14 @@ diff -ruN a/pyml_tests.ml b/pyml_tests.ml
            assert (Py.Float.to_float (Py.Sequence.get numpy_array 1) = 42.);
            Pyml_tests_common.Passed
          end)
-diff -ruN a/pyutils.ml b/pyutils.ml
---- a/pyutils.ml	2026-10-24 11:51:36.570185200 +0200
-+++ b/pyutils.ml	2026-10-24 11:51:37.233953600 +0200
-@@ -1,5 +1,3 @@
+--- a/pyutils.ml
++++ b/pyutils.ml
+@@ -1,4 +1,3 @@
 -open Stdcompat
--
+ 
  let option_find f x =
    try Some (f x)
-   with Not_found -> None
-@@ -57,7 +55,7 @@
+@@ -57,7 +56,7 @@
    let (file, channel) = Filename.open_temp_file "pyml_tests" ".py" in
    Fun.protect begin fun () ->
      write_and_close channel (output_string channel) contents;
