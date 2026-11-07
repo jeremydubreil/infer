@@ -568,7 +568,7 @@ def foo():
         n0 = $builtins.py_make_none()
         ret $builtins.py_make_int(42)
 
-        roundtrip: OK
+        roundtrip: OK (after normalising original)
         |}]
 
 
@@ -621,10 +621,10 @@ def foo(c):
       check_roundtrip proc ;
       [%expect
         {|
+        n2 = globals
+        n1 = locals
+        n0 = $builtins.py_make_none()
         block
-          n2 = globals
-          n1 = locals
-          n0 = $builtins.py_make_none()
           n3 = $builtins.py_load_fast("c", n1)
           if $builtins.py_bool(n3) then
             loop
@@ -718,10 +718,10 @@ def foo(a, b):
       check_roundtrip proc ;
       [%expect
         {|
+        n2 = globals
+        n1 = locals
+        n0 = $builtins.py_make_none()
         block
-          n2 = globals
-          n1 = locals
-          n0 = $builtins.py_make_none()
           n3 = $builtins.py_load_fast("a", n1)
           if $builtins.py_bool(n3) then
             _ = $builtins.py_store_fast("x", n1, $builtins.py_make_int(1))
@@ -777,21 +777,18 @@ def foo(items):
           n6 = $builtins.py_has_next_iter(n4)
           if $builtins.py_bool(n6) then
             _ = $builtins.py_store_fast("x", n1, n5)
-            block
-              n8 = $builtins.py_load_fast("x", n1)
-              n9 = $builtins.py_compare_gt(n8, $builtins.py_make_int(0))
-              if $builtins.py_bool(n9) then
-                n10 = $builtins.py_load_fast("s", n1)
-                n11 = $builtins.py_load_fast("x", n1)
-                n12 = $builtins.py_inplace_add(n10, n11)
-                _ = $builtins.py_store_fast("s", n1, n12)
-                branch 1
+            n8 = $builtins.py_load_fast("x", n1)
+            n9 = $builtins.py_compare_gt(n8, $builtins.py_make_int(0))
+            if $builtins.py_bool(n9) then
+              n10 = $builtins.py_load_fast("s", n1)
+              n11 = $builtins.py_load_fast("x", n1)
+              n12 = $builtins.py_inplace_add(n10, n11)
+              _ = $builtins.py_store_fast("s", n1, n12)
+              branch 2
 
-              else
-                branch 1
+            else
+              branch 2
 
-
-            branch 1
 
           else
             n7 = $builtins.py_load_fast("s", n1)
@@ -800,7 +797,63 @@ def foo(items):
 
 
 
-        roundtrip: OK (after normalising original)
+        roundtrip: MISMATCH
+        --- original
+        #b0:
+            n2 = globals
+            n1 = locals
+            n0 = $builtins.py_make_none()
+            _ = $builtins.py_store_fast("s", n1, $builtins.py_make_int(0))
+            n3 = $builtins.py_load_fast("items", n1)
+            n4 = $builtins.py_get_iter(n3)
+            jmp b3
+        #b3:
+            n5 = $builtins.py_next_iter(n4)
+            n6 = $builtins.py_has_next_iter(n4)
+            if $builtins.py_bool(n6) then jmp b4 else jmp b8
+        #b4:
+            _ = $builtins.py_store_fast("x", n1, n5)
+            n8 = $builtins.py_load_fast("x", n1)
+            n9 = $builtins.py_compare_gt(n8, $builtins.py_make_int(0))
+            if $builtins.py_bool(n9) then jmp b7 else jmp b3
+        #b7:
+            n10 = $builtins.py_load_fast("s", n1)
+            n11 = $builtins.py_load_fast("x", n1)
+            n12 = $builtins.py_inplace_add(n10, n11)
+            _ = $builtins.py_store_fast("s", n1, n12)
+            jmp b3
+        #b8:
+            n7 = $builtins.py_load_fast("s", n1)
+            _ = $builtins.py_nullify_locals(n1, "s", "x")
+            ret n7
+        --- roundtrip
+        #b0:
+            n2 = globals
+            n1 = locals
+            n0 = $builtins.py_make_none()
+            _ = $builtins.py_store_fast("s", n1, $builtins.py_make_int(0))
+            n3 = $builtins.py_load_fast("items", n1)
+            n4 = $builtins.py_get_iter(n3)
+            jmp b3
+        #b3:
+            n5 = $builtins.py_next_iter(n4)
+            n6 = $builtins.py_has_next_iter(n4)
+            if $builtins.py_bool(n6) then jmp b4 else jmp b9
+        #b4:
+            _ = $builtins.py_store_fast("x", n1, n5)
+            n8 = $builtins.py_load_fast("x", n1)
+            n9 = $builtins.py_compare_gt(n8, $builtins.py_make_int(0))
+            if $builtins.py_bool(n9) then jmp b7 else jmp b3
+        #b7:
+            n10 = $builtins.py_load_fast("s", n1)
+            n11 = $builtins.py_load_fast("x", n1)
+            n12 = $builtins.py_inplace_add(n10, n11)
+            _ = $builtins.py_store_fast("s", n1, n12)
+            jmp b3
+        #b9:
+            n7 = $builtins.py_load_fast("s", n1)
+            _ = $builtins.py_nullify_locals(n1, "s", "x")
+            ret n7
         |}]
 
 

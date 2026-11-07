@@ -2198,11 +2198,21 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         let st = State.push_symbol st tos in
         Ok (st, None)
     | "SWAP" ->
+        (* swap the top of the stack with its [arg]-th element *)
         only_supported_from_python_3_12 opname version ;
-        let* tos1, st = State.pop st in
-        let* tos2, st = State.pop st in
-        let st = State.push_symbol st tos1 in
-        let st = State.push_symbol st tos2 in
+        let* tos, st = State.pop st in
+        let* elts, st =
+          List.fold_result
+            (List.init (arg - 2) ~f:Fn.id)
+            ~init:([], st)
+            ~f:(fun (elts, st) _ ->
+              let+ elt, st = State.pop st in
+              (elt :: elts, st) )
+        in
+        let* tosn, st = State.pop st in
+        let st = State.push_symbol st tos in
+        let st = List.fold elts ~init:st ~f:State.push_symbol in
+        let st = State.push_symbol st tosn in
         Ok (st, None)
     | "PUSH_NULL" ->
         only_supported_from_python_3_12 opname version ;
@@ -2221,12 +2231,18 @@ let parse_bytecode st ({FFI.Code.co_consts; co_names; co_varnames; version} as c
         pop_jump_if ~next_is:false st arg next_offset_opt
     | "POP_JUMP_IF_FALSE" ->
         pop_jump_if ~next_is:true st arg next_offset_opt
-    | "POP_JUMP_IF_NONE" ->
+    | "POP_JUMP_IF_NONE" | "POP_JUMP_IF_NOT_NONE" ->
+        (* the compiler negates the source test ([if x is None] jumps over the body with
+           [POP_JUMP_IF_NOT_NONE]): translate it back into the source comparison, like the [IS_OP]
+           and [POP_JUMP_IF_FALSE] used by Python 3.10 *)
         only_supported_from_python_3_12 opname version ;
+        let* exp, st = State.pop_and_cast st in
+        let cmp =
+          if String.equal opname "POP_JUMP_IF_NOT_NONE" then CompareOp.Is else CompareOp.IsNot
+        in
+        let* id, st = call_builtin_function st (Compare cmp) [exp; Exp.none] in
+        let st = State.push st (Exp.Temp id) in
         pop_jump_if ~next_is:true st arg next_offset_opt
-    | "POP_JUMP_IF_NOT_NONE" ->
-        only_supported_from_python_3_12 opname version ;
-        pop_jump_if ~next_is:false st arg next_offset_opt
     | "JUMP_FORWARD" ->
         let {State.loc} = st in
         let* next_offset = Offset.get ~loc next_offset_opt in
