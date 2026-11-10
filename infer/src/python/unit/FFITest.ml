@@ -31,16 +31,17 @@ let%test_module "load_code" =
       [%expect
         {|
         { co_name = "<module>"; co_firstlineno = 1; co_filename = "dummy.py";
-          co_flags = 64; co_cellvars = [||]; co_freevars = [||]; co_names = [|"x"|];
+          co_flags = 0; co_cellvars = [||]; co_freevars = [||]; co_names = [|"x"|];
           co_varnames = [||]; co_nlocals = 0; co_argcount = 0;
           co_posonlyargcount = 0; co_stacksize = 1; co_kwonlyargcount = 0;
           co_lnotab = [||]; co_consts = [|42; None|];
           instructions =
-          [   1        0 LOAD_CONST                        0 (42);
-                       2 STORE_NAME                        0 (x);
-                       4 LOAD_CONST                        1 (None);
-                       6 RETURN_VALUE                      0 ];
-          version = python3.10 } |}]
+          [   0        0 RESUME                            0 ;
+              1        2 LOAD_CONST                        0 (42);
+                       4 STORE_NAME                        0 (x);
+                       6 RETURN_CONST                      1 ];
+          version = python3.12 }
+        |}]
 
 
     let%expect_test _ =
@@ -49,19 +50,21 @@ let%test_module "load_code" =
       [%expect
         {|
         { co_name = "<module>"; co_firstlineno = 1; co_filename = "dummy.py";
-          co_flags = 64; co_cellvars = [||]; co_freevars = [||];
+          co_flags = 0; co_cellvars = [||]; co_freevars = [||];
           co_names = [|"print"|]; co_varnames = [||]; co_nlocals = 0;
-          co_argcount = 0; co_posonlyargcount = 0; co_stacksize = 2;
+          co_argcount = 0; co_posonlyargcount = 0; co_stacksize = 3;
           co_kwonlyargcount = 0; co_lnotab = [||];
           co_consts = [|Complex[real:0.000000; imag:5.000000 ]; None|];
           instructions =
-          [   1        0 LOAD_NAME                         0 (print);
-                       2 LOAD_CONST                        0 (5j);
-                       4 CALL_FUNCTION                     1 ;
-                       6 POP_TOP                           0 ;
-                       8 LOAD_CONST                        1 (None);
-                      10 RETURN_VALUE                      0 ];
-          version = python3.10 } |}]
+          [   0        0 RESUME                            0 ;
+              1        2 PUSH_NULL                         0 ;
+                       4 LOAD_NAME                         0 (print);
+                       6 LOAD_CONST                        0 (5j);
+                       8 CALL                              1 ;
+                      16 POP_TOP                           0 ;
+                      18 RETURN_CONST                      1 ];
+          version = python3.12 }
+        |}]
 
 
     let%expect_test _ =
@@ -70,16 +73,17 @@ let%test_module "load_code" =
       [%expect
         {|
         { co_name = "<module>"; co_firstlineno = 1; co_filename = "dummy.py";
-          co_flags = 64; co_cellvars = [||]; co_freevars = [||]; co_names = [|"x"|];
+          co_flags = 0; co_cellvars = [||]; co_freevars = [||]; co_names = [|"x"|];
           co_varnames = [||]; co_nlocals = 0; co_argcount = 0;
           co_posonlyargcount = 0; co_stacksize = 1; co_kwonlyargcount = 0;
           co_lnotab = [||]; co_consts = [|None; None|];
           instructions =
-          [   1        0 LOAD_CONST                        0 (Ellipsis);
-                       2 STORE_NAME                        0 (x);
-                       4 LOAD_CONST                        1 (None);
-                       6 RETURN_VALUE                      0 ];
-          version = python3.10 } |}]
+          [   0        0 RESUME                            0 ;
+              1        2 LOAD_CONST                        0 (Ellipsis);
+                       4 STORE_NAME                        0 (x);
+                       6 RETURN_CONST                      1 ];
+          version = python3.12 }
+        |}]
 
 
     let%expect_test _ =
@@ -88,14 +92,15 @@ let%test_module "load_code" =
       [%expect
         {|
         { co_name = "<module>"; co_firstlineno = 1; co_filename = "dummy.py";
-          co_flags = 64; co_cellvars = [||]; co_freevars = [||]; co_names = [|"x"|];
+          co_flags = 0; co_cellvars = [||]; co_freevars = [||]; co_names = [|"x"|];
           co_varnames = [||]; co_nlocals = 0; co_argcount = 0;
           co_posonlyargcount = 0; co_stacksize = 1; co_kwonlyargcount = 0;
           co_lnotab = [||]; co_consts = [|100000000000000000000; None|];
           instructions =
-          [   1        0 LOAD_CONST                        0 (100000000000000000000);
-                       2 STORE_NAME                        0 (x);
-                       4 LOAD_CONST                        1 (None);
-                       6 RETURN_VALUE                      0 ];
-          version = python3.10 } |}]
+          [   0        0 RESUME                            0 ;
+              1        2 LOAD_CONST                        0 (100000000000000000000);
+                       4 STORE_NAME                        0 (x);
+                       6 RETURN_CONST                      1 ];
+          version = python3.12 }
+        |}]
   end )

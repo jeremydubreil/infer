@@ -27,27 +27,30 @@ builtin_print(print, None, "hello world", True, False)
     module dummy:
 
       function toplevel():
-        b0: @2
-          n0 <- None @2
-          TOPLEVEL[x] <- 42 @2
+        b0: @0
+          n0 <- None @0
           jmp b1
+           @0
+        b1: @2
+          TOPLEVEL[x] <- 42 @2
+          jmp b2
            @2
-        b1: @3
+        b2: @3
           n3 <- TOPLEVEL[print] @3
           n4 <- TOPLEVEL[x] @3
           n5 <- $Call(n3, n4, n0) @3
-          jmp b2
+          jmp b3
            @3
-        b2: @4
+        b3: @4
           n6 <- TOPLEVEL[print] @4
           TOPLEVEL[builtin_print] <- n6 @4
-          jmp b3
-           @4
-        b3: @5
-          TOPLEVEL[print] <- 0 @5
           jmp b4
+           @4
+        b4: @5
+          TOPLEVEL[print] <- 0 @5
+          jmp b5
            @5
-        b4: @6
+        b5: @6
           n7 <- TOPLEVEL[builtin_print] @6
           n8 <- TOPLEVEL[print] @6
           n9 <- $Call(n7, n8, n0, "hello world", true, false, n0) @6
@@ -57,7 +60,8 @@ builtin_print(print, None, "hello world", True, False)
 
     Running interpreter:
     42
-    0 None hello world True False |}]
+    0 None hello world True False
+    |}]
 
 
 let%expect_test _ =
@@ -77,21 +81,24 @@ print("fst(x, y) =", fst(x, y))
     module dummy:
 
       function toplevel():
-        b0: @2
-          n0 <- None @2
+        b0: @0
+          n0 <- None @0
+          jmp b1
+           @0
+        b1: @2
           n3 <- $MakeFunction["dummy.fst", n0, n0, n0, n0] @2
           TOPLEVEL[fst] <- n3 @2
-          jmp b1
-           @2
-        b1: @5
-          TOPLEVEL[x] <- "x" @5
           jmp b2
-           @5
-        b2: @6
-          TOPLEVEL[y] <- "y" @6
+           @2
+        b2: @5
+          TOPLEVEL[x] <- "x" @5
           jmp b3
+           @5
+        b3: @6
+          TOPLEVEL[y] <- "y" @6
+          jmp b4
            @6
-        b3: @7
+        b4: @7
           n4 <- TOPLEVEL[print] @7
           n5 <- TOPLEVEL[fst] @7
           n6 <- TOPLEVEL[x] @7
@@ -102,15 +109,19 @@ print("fst(x, y) =", fst(x, y))
            @7
 
       function dummy.fst(y, x):
-        b0: @3
-          n0 <- None @3
+        b0: @2
+          n0 <- None @2
+          jmp b1
+           @2
+        b1: @3
           n3 <- LOCAL[y] @3
           return n3
            @3
 
 
     Running interpreter:
-    fst(x, y) = x |}]
+    fst(x, y) = x
+    |}]
 
 
 let%expect_test _ =
@@ -138,37 +149,40 @@ print('n =', n)
     module dummy:
 
       function toplevel():
-        b0: @2
-          n0 <- None @2
+        b0: @0
+          n0 <- None @0
+          jmp b1
+           @0
+        b1: @2
           n3 <- $MakeFunction["dummy.incr", n0, n0, n0, n0] @2
           TOPLEVEL[incr] <- n3 @2
-          jmp b1
+          jmp b2
            @2
-        b1: @6
+        b2: @6
           n4 <- $MakeFunction["dummy.no_effect", n0, n0, n0, n0] @6
           TOPLEVEL[no_effect] <- n4 @6
-          jmp b2
-           @6
-        b2: @9
-          GLOBAL[n] <- 0 @9
           jmp b3
+           @6
+        b3: @9
+          GLOBAL[n] <- 0 @9
+          jmp b4
            @9
-        b3: @10
+        b4: @10
           n5 <- TOPLEVEL[incr] @10
           n6 <- $Call(n5, 3, n0) @10
-          jmp b4
+          jmp b5
            @10
-        b4: @11
+        b5: @11
           n7 <- TOPLEVEL[incr] @11
           n8 <- $Call(n7, 2, n0) @11
-          jmp b5
+          jmp b6
            @11
-        b5: @12
+        b6: @12
           n9 <- TOPLEVEL[no_effect] @12
           n10 <- $Call(n9, -1, n0) @12
-          jmp b6
+          jmp b7
            @12
-        b6: @13
+        b7: @13
           n11 <- TOPLEVEL[print] @13
           n12 <- GLOBAL[n] @13
           n13 <- $Call(n11, "n =", n12, n0) @13
@@ -176,8 +190,11 @@ print('n =', n)
            @13
 
       function dummy.incr(k):
-        b0: @4
-          n0 <- None @4
+        b0: @2
+          n0 <- None @2
+          jmp b1
+           @2
+        b1: @4
           n3 <- GLOBAL[n] @4
           n4 <- LOCAL[k] @4
           n5 <- $Inplace.Add(n3, n4, n0) @4
@@ -186,8 +203,11 @@ print('n =', n)
            @4
 
       function dummy.no_effect(k):
-        b0: @7
-          n0 <- None @7
+        b0: @6
+          n0 <- None @6
+          jmp b1
+           @6
+        b1: @7
           n3 <- LOCAL[k] @7
           LOCAL[n] <- n3 @7
           return n0
@@ -195,7 +215,8 @@ print('n =', n)
 
 
     Running interpreter:
-    n = 5 |}]
+    n = 5
+    |}]
 
 
 let%expect_test _ =
@@ -218,13 +239,16 @@ print('fact(5) =', fact(5))
     module dummy:
 
       function toplevel():
-        b0: @2
-          n0 <- None @2
+        b0: @0
+          n0 <- None @0
+          jmp b1
+           @0
+        b1: @2
           n3 <- $MakeFunction["dummy.fact", n0, n0, n0, n0] @2
           TOPLEVEL[fact] <- n3 @2
-          jmp b1
+          jmp b2
            @2
-        b1: @8
+        b2: @8
           n4 <- TOPLEVEL[print] @8
           n5 <- TOPLEVEL[fact] @8
           n6 <- $Call(n5, 5, n0) @8
@@ -233,16 +257,19 @@ print('fact(5) =', fact(5))
            @8
 
       function dummy.fact(n):
-        b0: @3
-          n0 <- None @3
+        b0: @2
+          n0 <- None @2
+          jmp b1
+           @2
+        b1: @3
           n3 <- LOCAL[n] @3
           n4 <- $Compare.le(n3, 0, n0) @3
-          if n4 then jmp b1 else jmp b2
+          if n4 then jmp b2 else jmp b3
            @3
-        b1: @4
+        b2: @4
           return 1
            @4
-        b2: @6
+        b3: @6
           n5 <- LOCAL[n] @6
           n6 <- GLOBAL[fact] @6
           n7 <- LOCAL[n] @6
@@ -254,7 +281,8 @@ print('fact(5) =', fact(5))
 
 
     Running interpreter:
-    fact(5) = 120 |}]
+    fact(5) = 120
+    |}]
 
 
 let%expect_test _ =
@@ -328,48 +356,51 @@ print('saved x is', C.saved_x)
     module dummy:
 
       function toplevel():
-        b0: @2
-          n0 <- None @2
-          TOPLEVEL[x] <- "global" @2
+        b0: @0
+          n0 <- None @0
           jmp b1
+           @0
+        b1: @2
+          TOPLEVEL[x] <- "global" @2
+          jmp b2
            @2
-        b1: @3
+        b2: @3
           n3 <- $MakeFunction["dummy.C", n0, n0, n0, n0] @3
           n4 <- $BuildClass(n3, "C", n0) @3
           TOPLEVEL[C] <- n4 @3
-          jmp b2
+          jmp b3
            @3
-        b2: @10
+        b3: @10
           n5 <- TOPLEVEL[print] @10
           n6 <- TOPLEVEL[C] @10
           n7 <- $CallMethod[get_x](n6, n0) @10
           n8 <- $Call(n5, "x is", n7, n0) @10
-          jmp b3
-           @10
-        b3: @11
-          TOPLEVEL[x] <- "assigned by module body" @11
           jmp b4
+           @10
+        b4: @11
+          TOPLEVEL[x] <- "assigned by module body" @11
+          jmp b5
            @11
-        b4: @12
+        b5: @12
           n9 <- TOPLEVEL[print] @12
           n10 <- TOPLEVEL[C] @12
           n11 <- $CallMethod[get_x](n10, n0) @12
           n12 <- $Call(n9, "x is", n11, n0) @12
-          jmp b5
+          jmp b6
            @12
-        b5: @13
+        b6: @13
           n13 <- TOPLEVEL[C] @13
           n13.x <- "assigned as a class attribute" @13
-          jmp b6
+          jmp b7
            @13
-        b6: @14
+        b7: @14
           n14 <- TOPLEVEL[print] @14
           n15 <- TOPLEVEL[C] @14
           n16 <- $CallMethod[get_C_x](n15, n0) @14
           n17 <- $Call(n14, "x is", n16, n0) @14
-          jmp b7
+          jmp b8
            @14
-        b7: @15
+        b8: @15
           n18 <- TOPLEVEL[print] @15
           n19 <- TOPLEVEL[C] @15
           n20 <- n19.saved_x @15
@@ -406,16 +437,22 @@ print('saved x is', C.saved_x)
            @8
 
       function dummy.C.get_C_x():
-        b0: @9
-          n0 <- None @9
+        b0: @8
+          n0 <- None @8
+          jmp b1
+           @8
+        b1: @9
           n3 <- GLOBAL[C] @9
           n4 <- n3.x @9
           return n4
            @9
 
       function dummy.C.get_x():
-        b0: @7
-          n0 <- None @7
+        b0: @6
+          n0 <- None @6
+          jmp b1
+           @6
+        b1: @7
           n3 <- GLOBAL[x] @7
           return n3
            @7
@@ -425,7 +462,8 @@ print('saved x is', C.saved_x)
     x is global
     x is assigned by module body
     x is assigned as a class attribute
-    saved x is global |}]
+    saved x is global
+    |}]
 
 
 let%expect_test _ =
@@ -455,84 +493,90 @@ print(d)
     module dummy:
 
       function toplevel():
-        b0: @2
-          n0 <- None @2
-          TOPLEVEL[l] <- $BuildTuple(1, "1", $BuildTuple(0, true)) @2
+        b0: @0
+          n0 <- None @0
           jmp b1
-           @2
-        b1: @3
-          n3 <- TOPLEVEL[print] @3
-          n4 <- TOPLEVEL[l] @3
-          n5 <- $Call(n3, n4, n0) @3
+           @0
+        b1: @2
+          TOPLEVEL[l] <- $BuildTuple(1, "1", $BuildTuple(0, true)) @2
           jmp b2
-           @3
-        b10: @13
+           @2
+        b10: @12
+          n19 <- TOPLEVEL[print] @12
+          n20 <- TOPLEVEL[d] @12
+          n21 <- $Call(n19, n20, n0) @12
+          jmp b11
+           @12
+        b11: @13
           n22 <- TOPLEVEL[print] @13
           n23 <- TOPLEVEL[d] @13
           n24 <- n23["x"] @13
           n25 <- $Call(n22, n24, n0) @13
-          jmp b11
+          jmp b12
            @13
-        b11: @14
+        b12: @14
           n26 <- TOPLEVEL[d] @14
           n26["z"] <- true @14
-          jmp b12
+          jmp b13
            @14
-        b12: @15
+        b13: @15
           n27 <- TOPLEVEL[print] @15
           n28 <- TOPLEVEL[d] @15
           n29 <- $Call(n27, n28, n0) @15
           return n0
            @15
-        b2: @4
+        b2: @3
+          n3 <- TOPLEVEL[print] @3
+          n4 <- TOPLEVEL[l] @3
+          n5 <- $Call(n3, n4, n0) @3
+          jmp b3
+           @3
+        b3: @4
           n6 <- $BuildMap() @4
           TOPLEVEL[d] <- n6 @4
-          jmp b3
+          jmp b4
            @4
-        b3: @5
+        b4: @5
           n7 <- TOPLEVEL[print] @5
           n8 <- TOPLEVEL[d] @5
           n9 <- $Call(n7, n8, n0) @5
-          jmp b4
-           @5
-        b4: @6
-          TOPLEVEL[key1] <- "k1" @6
           jmp b5
+           @5
+        b5: @6
+          TOPLEVEL[key1] <- "k1" @6
+          jmp b6
            @6
-        b5: @7
+        b6: @7
           n10 <- $MakeFunction["dummy.key2", n0, n0, n0, n0] @7
           TOPLEVEL[key2] <- n10 @7
-          jmp b6
+          jmp b7
            @7
-        b6: @9
+        b7: @9
           n11 <- TOPLEVEL[key1] @9
           n12 <- TOPLEVEL[key2] @9
           n13 <- $Call(n12, n0) @9
           n14 <- $BuildMap(n11, "val1", n13, "val2") @9
           TOPLEVEL[d] <- n14 @9
-          jmp b7
+          jmp b8
            @9
-        b7: @10
+        b8: @10
           n15 <- TOPLEVEL[print] @10
           n16 <- TOPLEVEL[d] @10
           n17 <- $Call(n15, n16, n0) @10
-          jmp b8
+          jmp b9
            @10
-        b8: @11
+        b9: @11
           n18 <- $BuildMap("x", 0, "y", "something") @11
           TOPLEVEL[d] <- n18 @11
-          jmp b9
-           @11
-        b9: @12
-          n19 <- TOPLEVEL[print] @12
-          n20 <- TOPLEVEL[d] @12
-          n21 <- $Call(n19, n20, n0) @12
           jmp b10
-           @12
+           @11
 
       function dummy.key2():
-        b0: @8
-          n0 <- None @8
+        b0: @7
+          n0 <- None @7
+          jmp b1
+           @7
+        b1: @8
           return "key2"
            @8
 
@@ -543,4 +587,5 @@ print(d)
     {'k1': 'val1', 'key2': 'val2'}
     {'x': 0, 'y': 'something'}
     0
-    {'x': 0, 'y': 'something', 'z': True} |}]
+    {'x': 0, 'y': 'something', 'z': True}
+    |}]
