@@ -31,11 +31,8 @@ async def str_key_access_bad():
     module dummy:
 
       function toplevel():
-        b0: @0
-          n0 <- None @0
-          jmp b1
-           @0
-        b1: @2
+        b0: @2
+          n0 <- None @2
           n3 <- $MakeFunction["dummy.str_key_access_bad", n0, n0, n0, n0] @2
           TOPLEVEL[str_key_access_bad] <- n3 @2
           return n0
@@ -55,14 +52,14 @@ async def str_key_access_bad():
           jmp b2
            @3
         b2: @3
-          jmp b4
-           @3
-        b4: @3
-          n8 <- $BuildMap("ABC", n4, 123, 456, "DEF", n0) @3
-          LOCAL[d] <- n8 @3
           jmp b5
            @3
-        b5: @4
+        b5: @3
+          n8 <- $BuildMap("ABC", n4, 123, 456, "DEF", n0) @3
+          LOCAL[d] <- n8 @3
+          jmp b6
+           @3
+        b6: @4
           n9 <- LOCAL[d] @4
           n10 <- n9["DEF"] @4
           return n10
